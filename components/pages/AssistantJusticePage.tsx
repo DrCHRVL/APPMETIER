@@ -43,10 +43,6 @@ export const AssistantJusticePage = ({ onOpenDossier }: { onOpenDossier?: (numer
         <div>
           <h1 className="text-[22px] font-bold tracking-tight text-gray-900">Assistant de justice</h1>
           <p className="mt-0.5 text-sm text-gray-500 capitalize">{today}</p>
-          <p className="mt-1 text-[12px] text-gray-400">
-            Ce que votre attaché IA a préparé, ce qu&apos;il a fait en votre absence et sa boîte dédiée —
-            documents éditables et exportables ici comme dans le dossier · visible de vous seul.
-          </p>
         </div>
       </div>
 

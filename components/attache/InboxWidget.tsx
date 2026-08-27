@@ -213,10 +213,6 @@ export function InboxWidget() {
               })}
             </div>
           )}
-          <p className="mt-2 text-center text-[10px] text-gray-400">
-            Boîte relevée automatiquement toutes les 5 min · les réponses et livrables s&apos;affichent dans l&apos;application
-            (fil « pendant votre absence », actes rédigés) — plus aucun mail sortant.
-          </p>
         </div>
       )}
     </div>

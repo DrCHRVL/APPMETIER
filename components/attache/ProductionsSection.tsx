@@ -520,7 +520,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
                   ? 'Aucune production de chantier sur ce dossier.'
                   : traites.length
                     ? 'Tous les actes de ce dossier sont traités.'
-                    : 'Aucun acte rédigé. Demandez-en un dans le chat du dossier (« rédige-moi une demande de prolongation JLD »).'}
+                    : 'Aucun acte rédigé.'}
             </p>
           ) : (
             <div className="space-y-2">
