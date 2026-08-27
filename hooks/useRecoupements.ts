@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Enquete } from '@/types/interfaces';
 import type { DossierInstruction } from '@/types/instructionTypes';
 import type { Recoupement, RecoupementAcks } from '@/types/recoupementTypes';
-import { buildCorpus, docTextKey } from '@/utils/recoupements/corpus';
+import { buildCorpus, docTextKey, type CorpusMemo } from '@/utils/recoupements/corpus';
 import { detecterRecoupements } from '@/utils/recoupements/engine';
 import {
   ackPour,
@@ -27,7 +27,7 @@ import {
   trierSelonGestes,
 } from '@/utils/recoupements/gestes';
 import {
-  getCachedDocumentSearchText,
+  getCachedDocumentRawText,
   getDocumentSearchText,
   isExtractableDocument,
 } from '@/utils/documents/documentTextSearch';
@@ -148,12 +148,36 @@ function auRepos(fn: () => void): () => void {
   return () => clearTimeout(id);
 }
 
+/**
+ * Onglet au premier plan ?
+ *
+ * Un onglet passé derrière voit ses minuteries bridées à une seconde, puis
+ * carrément gelées. Or la veille rend la main des MILLIERS de fois par calcul :
+ * en arrière-plan, un calcul de trente secondes devient une affaire d'heures,
+ * qui retient toute sa mémoire — et que le navigateur relâche d'un bloc au
+ * retour, précisément quand le magistrat revient sur l'application. D'où le
+ * gel systématique en repassant d'un autre onglet à SIRAL.
+ *
+ * La veille ne travaille donc que sur l'onglet visible.
+ */
+function useOngletVisible(): boolean {
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    const maj = () => setVisible(!document.hidden);
+    maj();
+    document.addEventListener('visibilitychange', maj);
+    return () => document.removeEventListener('visibilitychange', maj);
+  }, []);
+  return visible;
+}
+
 export function useRecoupements({
   enquetesByContentieux,
   instructions,
   enabled = true,
   contentieuxJA,
 }: UseRecoupementsOptions): RecoupementsApi {
+  const ongletVisible = useOngletVisible();
   const [signauxBruts, setSignauxBruts] = useState<Recoupement[]>(VIDE);
   const [computing, setComputing] = useState(false);
   const [acks, setAcks] = useState<RecoupementAcks>({});
@@ -173,6 +197,9 @@ export function useRecoupements({
    *  d'identité des enquêtes (frappe, ouverture de fiche, sync) qui ne touche
    *  pas au fond documentaire ne relance plus la boucle sur toutes les pièces. */
   const scanEmpreinteRef = useRef('');
+  /** Corpus déjà bâtis, d'un calcul à l'autre : seuls les dossiers dont le
+   *  contenu a bougé sont relus (cf. CorpusMemo). */
+  const corpusMemoRef = useRef<CorpusMemo>(new Map());
 
   // ── Gestes de l'utilisateur (préférences personnelles, synchronisées) ──
   //
@@ -265,7 +292,7 @@ export function useRecoupements({
 
   // ── Lecture des pièces ────────────────────────────────────────────────
   useEffect(() => {
-    if (!enabled || !enquetesByContentieux) return;
+    if (!enabled || !ongletVisible || !enquetesByContentieux) return;
     const scanId = ++scanIdRef.current;
     let annule = false;
 
@@ -295,9 +322,12 @@ export function useRecoupements({
       // Empreinte du fond documentaire (métadonnées seulement) : si rien n'a
       // bougé depuis le dernier passage complet, on ne reparcourt pas les
       // pièces — ouvrir une fiche ou corriger un CR ne relit plus le fonds.
+      // Le budget d'auto-extraction n'entre PAS dans l'empreinte : une pièce
+      // récente lue faisait alors changer l'empreinte, donc repasser sur les
+      // milliers de pièces du fonds — pour n'y rien trouver de plus, celles
+      // qu'on vient de lire étant déjà en mémoire.
       const empreinte = [
         extraire ? 'x' : '-',
-        `b${budgetAutoRef.current}`,
         ...jobs.map(j => `${j.numero}|${j.doc.cheminRelatif}|${j.doc.taille || 0}|${j.doc.dateAjout || ''}`),
       ].join('\n');
       if (!extraire && empreinte === scanEmpreinteRef.current) return;
@@ -321,7 +351,12 @@ export function useRecoupements({
 
         // Pièce récente jamais lue : on l'analyse d'office, dans la limite du
         // budget de la session. Tout le reste attend une demande explicite.
-        const cache = extraire ? undefined : await getCachedDocumentSearchText(job.numero, job.doc);
+        //
+        // Lecture en TEXTE BRUT : la veille n'a que faire de la forme
+        // normalisée que la recherche documentaire construit, et la calculer
+        // sur des milliers de pièces pour la jeter aussitôt tenait à elle
+        // seule une bonne part du temps de ce passage.
+        const cache = extraire ? undefined : await getCachedDocumentRawText(job.numero, job.doc);
         const auto = !extraire
           && cache === undefined
           && estRecente(job.doc.dateAjout)
@@ -330,16 +365,16 @@ export function useRecoupements({
         let texte = cache;
         if (extraire || auto) {
           if (auto) budgetAutoRef.current--;
-          texte = await getDocumentSearchText(job.numero, job.doc);
+          texte = (await getDocumentSearchText(job.numero, job.doc))?.raw ?? null;
         }
         done++;
         if (texte === undefined) { pending++; dossiersEnAttente.add(job.numero); continue; } // jamais analysée
-        if (texte?.raw) {
+        if (texte) {
           // Borne mémoire : on ne retient que ce que le moteur lira, et jamais
           // au-delà du budget global — le reste demeure dans IndexedDB.
-          const retenu = texte.raw.length > DOC_TEXT_MAX_PAR_PIECE
-            ? texte.raw.slice(0, DOC_TEXT_MAX_PAR_PIECE)
-            : texte.raw;
+          const retenu = texte.length > DOC_TEXT_MAX_PAR_PIECE
+            ? texte.slice(0, DOC_TEXT_MAX_PAR_PIECE)
+            : texte;
           if (docTextsCharsRef.current + retenu.length <= DOC_TEXTS_MAX_CHARS) {
             docTexts.current.set(cle, retenu);
             docTextsCharsRef.current += retenu.length;
@@ -375,7 +410,7 @@ export function useRecoupements({
       clearTimeout(timer);
       annulerRepos?.();
     };
-  }, [enabled, enquetesByContentieux, extraire]);
+  }, [enabled, ongletVisible, enquetesByContentieux, extraire]);
 
   const analyserPieces = useCallback(() => setExtraire(true), []);
 
@@ -401,6 +436,13 @@ export function useRecoupements({
       setComputing(false);
       return;
     }
+    // Onglet passé derrière : le calcul en cours a déjà été interrompu par le
+    // nettoyage de cet effet, et aucun autre ne part. Les signaux affichés
+    // restent — c'est le calcul qui s'arrête, pas le résultat.
+    if (!ongletVisible) {
+      setComputing(false);
+      return;
+    }
     let annule = false;
     let cleanupIdle: (() => void) | null = null;
     const timer = setTimeout(() => {
@@ -410,25 +452,43 @@ export function useRecoupements({
         if (empreinte === empreinteRef.current) return; // rien n'a bougé sur le fond
         setComputing(true);
         const moniteur = activiteDebut('Détection des recoupements', 'veille');
-        const corpus = buildCorpus(enquetesByContentieux, instructions || [], {
-          documentTexts: docTexts.current,
-          contentieuxJA,
-        });
-        if (annule) { moniteur.fin('interrompu'); return; }
-        if (corpus.length < 2) {
-          empreinteRef.current = empreinte;
-          setSignauxBruts(VIDE);
-          setComputing(false);
-          moniteur.fin('corpus insuffisant');
-          return;
-        }
-        moniteur.progression(0, corpus.length);
-        detecterRecoupements(corpus, {
-          respirer: () => new Promise<void>(r => { setTimeout(r, 0); }),
-          annule: () => annule,
-        })
-          .then(signaux => {
-            if (annule) { moniteur.fin('interrompu (données modifiées)'); return; }
+
+        // Les deux moitiés du calcul — bâtir le corpus, puis le comparer —
+        // rendent la main au navigateur avec les MÊMES crochets. La
+        // construction du corpus était jusqu'ici un bloc synchrone : sur deux
+        // cents dossiers, elle repassait toutes les expressions régulières de
+        // dé-balisage sur tous les comptes rendus d'un coup, et c'est ce bloc
+        // que l'interface payait en gel de plusieurs secondes.
+        const respirer = () => new Promise<void>(r => { setTimeout(r, 0); });
+        const estAnnule = () => annule || document.hidden;
+        // Le moniteur d'activité doit dire vrai : un calcul lâché parce que
+        // l'onglet est passé derrière n'est pas un calcul périmé par une saisie.
+        const raisonArret = () => (document.hidden
+          ? 'interrompu (onglet en arrière-plan)'
+          : 'interrompu (données modifiées)');
+
+        void (async () => {
+          try {
+            const corpus = await buildCorpus(
+              enquetesByContentieux,
+              instructions || [],
+              { documentTexts: docTexts.current, contentieuxJA },
+              { respirer, annule: estAnnule, memo: corpusMemoRef.current },
+            );
+            if (corpus === null || annule) { moniteur.fin(raisonArret()); return; }
+            if (corpus.length < 2) {
+              empreinteRef.current = empreinte;
+              setSignauxBruts(VIDE);
+              moniteur.fin('corpus insuffisant');
+              return;
+            }
+            moniteur.progression(0, corpus.length);
+            const signaux = await detecterRecoupements(corpus, {
+              respirer,
+              annule: estAnnule,
+              avancement: (lus, total) => moniteur.progression(lus, total),
+            });
+            if (annule) { moniteur.fin(raisonArret()); return; }
             // L'empreinte n'est retenue qu'au terme d'un calcul complet : un
             // run annulé en route sera refait, jamais considéré comme acquis.
             if (signaux) {
@@ -436,15 +496,16 @@ export function useRecoupements({
               setSignauxBruts(signaux);
               moniteur.fin(`${corpus.length} dossiers comparés — ${signaux.length} signal(aux)`);
             } else {
-              moniteur.fin('interrompu (données modifiées)');
+              moniteur.fin(raisonArret());
             }
-          })
-          .catch(err => {
+          } catch (err) {
             console.error('Veille de recoupements', err);
             moniteur.echec(String((err as Error)?.message || err));
             if (!annule) setSignauxBruts(VIDE);
-          })
-          .finally(() => { if (!annule) setComputing(false); });
+          } finally {
+            if (!annule) setComputing(false);
+          }
+        })();
       });
     }, DEBOUNCE_MS);
 
@@ -454,7 +515,7 @@ export function useRecoupements({
       cleanupIdle?.();
     };
     // docVersion : nouvelles pièces lues → corpus à rebâtir.
-  }, [enabled, enquetesByContentieux, instructions, contentieuxJA, docVersion]);
+  }, [enabled, ongletVisible, enquetesByContentieux, instructions, contentieuxJA, docVersion]);
 
   // ── Tri selon les gestes de l'utilisateur ─────────────────────────────
   // Jamais traité, ou un dossier de PLUS depuis le geste : c'est neuf. Un

@@ -361,9 +361,25 @@ export function sameMecPerson(a: string, b: string, opts?: { allowSubset?: boole
   const na = normalizeMecName(a);
   const nb = normalizeMecName(b);
   if (!na || !nb) return false;
-  if (na === nb) return true;
-  const ta = na.split(' ');
-  const tb = nb.split(' ');
+  return sameMecPersonTokens(na.split(' '), nb.split(' '), opts);
+}
+
+/**
+ * Même règle que `sameMecPerson`, pour des noms DÉJÀ normalisés et découpés
+ * (`normalizeMecName(nom).split(' ')`).
+ *
+ * La veille de recoupements compare des dizaines de milliers de paires de
+ * noms : renormaliser les deux côtés à chaque comparaison coûtait plus cher
+ * que la comparaison elle-même, et bloquait le thread principal plusieurs
+ * secondes d'affilée. L'appelant normalise une fois par nom, puis compare.
+ */
+export function sameMecPersonTokens(
+  ta: string[],
+  tb: string[],
+  opts?: { allowSubset?: boolean }
+): boolean {
+  if (ta.length === 0 || tb.length === 0 || !ta[0] || !tb[0]) return false;
+  if (ta.length === tb.length && ta.every((t, i) => t === tb[i])) return true;
   const [shortT, longT] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
   return coverTokens(shortT, longT, !opts?.allowSubset);
 }

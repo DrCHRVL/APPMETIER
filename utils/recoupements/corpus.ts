@@ -218,21 +218,100 @@ export function corpusInstruction(
 }
 
 /**
+ * Mémoire des corpus déjà bâtis, d'un calcul à l'autre : identifiant du
+ * dossier → empreinte de son contenu + corpus obtenu.
+ *
+ * La veille se relance à chaque pièce lue et à chaque synchronisation. Rebâtir
+ * alors les 200 dossiers, c'est repasser toutes les expressions régulières de
+ * `sansHtml` sur tous les comptes rendus, toutes les notes et tous les
+ * événements — plusieurs secondes de thread principal, pour un résultat
+ * identique à la virgule près. Un dossier dont l'empreinte n'a pas bougé rend
+ * donc le corpus de la fois précédente.
+ */
+export type CorpusMemo = Map<string, { sig: string; corpus: DossierCorpus }>;
+
+export interface BuildCorpusHooks {
+  /** Rend la main au navigateur entre deux dossiers (cf. moteur). */
+  respirer?: () => Promise<void>;
+  /** Interrompt la construction : les données ont changé, on recommencera. */
+  annule?: () => boolean;
+  /** Mémoire d'un calcul à l'autre (cf. CorpusMemo). */
+  memo?: CorpusMemo;
+}
+
+/**
+ * Empreinte du contenu d'une enquête, en métadonnées seulement : jamais le
+ * texte, jamais un parcours des comptes rendus. `dateMiseAJour` couvre les
+ * saisies ; la liste des pièces DONT LE TEXTE EST EN MÉMOIRE couvre la lecture
+ * progressive des pièces (une pièce de plus change le corpus du dossier).
+ */
+function signatureEnquete(enquete: Enquete, documentTexts?: Map<string, string>): string {
+  const parts = [enquete.numero || '', enquete.dateMiseAJour || '', enquete.statut || ''];
+  if (documentTexts) {
+    for (const doc of enquete.documents || []) {
+      const texte = documentTexts.get(docTextKey(enquete.numero, doc.cheminRelatif));
+      if (texte !== undefined) parts.push(`${doc.cheminRelatif}:${texte.length}`);
+    }
+  }
+  return parts.join('~');
+}
+
+/** Empreinte d'un dossier d'instruction, préliminaire rattachée comprise. */
+function signatureInstruction(
+  dossier: DossierInstruction,
+  prelim: { enquete: Enquete; contentieuxId: string } | undefined,
+  documentTexts?: Map<string, string>
+): string {
+  const base = `${dossier.numeroInstruction || ''}~${dossier.numeroParquet || ''}~${dossier.dateMiseAJour || ''}`;
+  return prelim ? `${base}~+${signatureEnquete(prelim.enquete, documentTexts)}` : base;
+}
+
+/**
  * Corpus complet : toutes les enquêtes accessibles + tous les dossiers
  * d'instruction. Une enquête préliminaire rattachée à une instruction n'est
  * pas un dossier de plus — ce serait le même vu deux fois, se recoupant avec
  * lui-même : elle est VERSÉE dans son dossier d'instruction, contenu compris.
+ *
+ * Asynchrone par construction : la lecture rend régulièrement la main
+ * (`respirer`) pour ne jamais figer une saisie en cours. Renvoie `null` si la
+ * construction a été interrompue (`annule`).
  */
-export function buildCorpus(
+export async function buildCorpus(
   enquetesByContentieux: Map<string, Enquete[]>,
   instructions: DossierInstruction[],
-  options: CorpusOptions = {}
-): DossierCorpus[] {
+  options: CorpusOptions = {},
+  hooks: BuildCorpusHooks = {}
+): Promise<DossierCorpus[] | null> {
   const corpus: DossierCorpus[] = [];
   /** Clé de l'enquête préliminaire → dossier d'instruction qui la prolonge. */
   const prelimRattachees = new Map<string, number>();
   /** Préliminaire retrouvée, prête à être versée dans son instruction. */
   const prelimParInstruction = new Map<number, { enquete: Enquete; contentieuxId: string }>();
+
+  // Une respiration toutes les 25 ms, comme dans le moteur : en dessous,
+  // l'interface reste fluide.
+  const TRANCHE_MS = 25;
+  let dernierRepos = Date.now();
+  const souffler = async (): Promise<boolean> => {
+    if (hooks.annule?.()) return false;
+    if (!hooks.respirer || Date.now() - dernierRepos < TRANCHE_MS) return true;
+    await hooks.respirer();
+    dernierRepos = Date.now();
+    return !hooks.annule?.();
+  };
+
+  const memo = hooks.memo;
+  const vus = new Set<string>();
+  /** Corpus mémoïsé si l'empreinte est inchangée, rebâti sinon. */
+  const memoiser = (cle: string, sig: string, bâtir: () => DossierCorpus): DossierCorpus => {
+    vus.add(cle);
+    if (!memo) return bâtir();
+    const connu = memo.get(cle);
+    if (connu && connu.sig === sig) return connu.corpus;
+    const frais = bâtir();
+    memo.set(cle, { sig, corpus: frais });
+    return frais;
+  };
 
   for (const dossier of instructions) {
     if (dossier.enquetePreliminaireId != null) {
@@ -241,7 +320,7 @@ export function buildCorpus(
     }
   }
 
-  enquetesByContentieux.forEach((liste, contentieuxId) => {
+  for (const [contentieuxId, liste] of enquetesByContentieux) {
     for (const enquete of liste || []) {
       if (!enquete) continue;
       if (options.includeArchives === false && enquete.statut === 'archive') continue;
@@ -255,13 +334,29 @@ export function buildCorpus(
       // Une enquête partagée entre contentieux est stockée par son contentieux
       // d'origine : on ne la compte qu'une fois.
       if (enquete.contentieuxOrigine && enquete.contentieuxOrigine !== contentieuxId) continue;
-      corpus.push(corpusEnquete(enquete, contentieuxId, options));
+      if (!await souffler()) return null;
+      corpus.push(memoiser(
+        key,
+        signatureEnquete(enquete, options.documentTexts),
+        () => corpusEnquete(enquete, contentieuxId, options),
+      ));
     }
-  });
+  }
 
   for (const dossier of instructions) {
     if (!dossier) continue;
-    corpus.push(corpusInstruction(dossier, prelimParInstruction.get(dossier.id), options));
+    const prelim = prelimParInstruction.get(dossier.id);
+    if (!await souffler()) return null;
+    corpus.push(memoiser(
+      instructionKey(dossier.id),
+      signatureInstruction(dossier, prelim, options.documentTexts),
+      () => corpusInstruction(dossier, prelim, options),
+    ));
+  }
+
+  // Un dossier qui a quitté le périmètre ne doit pas rester en mémoire.
+  if (memo && memo.size > vus.size) {
+    for (const cle of Array.from(memo.keys())) if (!vus.has(cle)) memo.delete(cle);
   }
 
   return corpus;

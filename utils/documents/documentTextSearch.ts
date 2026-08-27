@@ -251,6 +251,35 @@ export async function getCachedDocumentSearchText(
   return value;
 }
 
+/**
+ * Texte BRUT d'un document déjà analysé — sans la forme normalisée.
+ *
+ * La veille de recoupements repasse sur des MILLIERS de pièces à chaque tour,
+ * et ne se sert que du texte brut. Passer par `getCachedDocumentSearchText`
+ * revenait à normaliser chaque pièce — une copie intégrale de la chaîne, aussitôt
+ * jetée — et à chasser du cache de session les pièces réellement consultées par
+ * la recherche. Ce chemin-ci lit, rend, et ne retient rien de neuf.
+ *
+ * `undefined` = jamais analysée ; `null` = analysée, illisible.
+ */
+export async function getCachedDocumentRawText(
+  enqueteNumero: string,
+  doc: Pick<DocumentEnquete, 'cheminRelatif' | 'taille'>
+): Promise<string | null | undefined> {
+  const key = cacheKey(enqueteNumero, doc);
+  const cached = sessionCache.get(key);
+  if (cached !== undefined) { sessionTouch(key, cached); return cached ? cached.raw : null; }
+  if (notCached.has(key)) return undefined;
+  const db = await openDb();
+  if (!db) return undefined;
+  const stored = await idbGet<{ text: string | null }>(db, STORE_TEXTS, key);
+  if (stored === undefined) {
+    notCached.add(key);
+    return undefined;
+  }
+  return stored.text ?? null;
+}
+
 // Deux extractions lourdes à la fois maximum (pdfjs + déchiffrement).
 let running = 0;
 const waiters: Array<() => void> = [];

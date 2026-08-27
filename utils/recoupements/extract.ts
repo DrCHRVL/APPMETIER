@@ -63,6 +63,25 @@ export function motsDe(normalise: string): Set<string> {
   return set;
 }
 
+/**
+ * Mots (≥ 3 caractères) d'un texte normalisé, RESTREINTS à une liste utile.
+ *
+ * Le prétri des fragments ne répond qu'à une seule question : « ce texte
+ * contient-il tel mot d'un nom déclaré ? ». Retenir TOUS les mots de chaque
+ * pièce pour y répondre — dix à vingt mille par PV, sur des centaines de
+ * pièces — c'était des millions de chaînes gardées en mémoire simultanément,
+ * plusieurs centaines de mégaoctets, et l'onglet qui tombe. On ne retient donc
+ * que les mots susceptibles d'être demandés.
+ */
+export function motsRetenus(normalise: string, utiles: Set<string>): Set<string> {
+  const set = new Set<string>();
+  if (utiles.size === 0) return set;
+  for (const mot of normalise.split(/[^a-z0-9]+/)) {
+    if (mot.length >= 3 && utiles.has(mot)) set.add(mot);
+  }
+  return set;
+}
+
 /** Minuscules sans accents, ponctuation réduite à l'espace. */
 export function normalizeLoose(text: string): string {
   return text

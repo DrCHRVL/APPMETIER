@@ -46,6 +46,7 @@ import type { EnqueteWithContext } from '@/utils/mindmapGraph';
 import { sameMecPerson } from '@/utils/mindmapGraph';
 import { normNumero, numerosProches, findEnqueteParNumero } from '@/utils/numeroDossier';
 import { useRecoupements } from '@/hooks/useRecoupements';
+import { useVeillePause } from '@/hooks/useVeillePause';
 import {
   enqueteKey as recoupementEnqueteKey,
   instructionKey as recoupementInstructionKey,
@@ -1036,10 +1037,13 @@ function AppContent() {
   // Repère, sans rien interrompre, les valeurs communes à plusieurs dossiers
   // (même personne, même patronyme, même adresse, même ligne…). Purement
   // informative : elle n'écrit jamais dans un dossier.
+  // Suspendue depuis le moniteur d'activité : la veille ne calcule plus rien
+  // tant que le magistrat ne la relance pas (cf. lib/monitor/veillePause).
+  const veillePause = useVeillePause();
   const recoupements = useRecoupements({
     enquetesByContentieux: enquetesForSearch,
     instructions,
-    enabled: !isJLDUser,
+    enabled: !isJLDUser && !veillePause,
     contentieuxJA,
   });
   const [showRecoupementsModal, setShowRecoupementsModal] = useState(false);

@@ -18,8 +18,8 @@
 // Le moteur ne décide rien : il ne fait que montrer. C'est le magistrat qui
 // juge si la coïncidence en est une.
 
-import { mecSortedKey, normalizeMecName, sameMecPerson } from '@/utils/mindmapGraph';
-import { extractNames, extractValues, extrait, motsDe, normalizeAligned, normalizeLoose } from './extract';
+import { mecSortedKey, normalizeMecName, sameMecPersonTokens } from '@/utils/mindmapGraph';
+import { extractNames, extractValues, extrait, motsRetenus, normalizeAligned, normalizeLoose } from './extract';
 import type {
   DossierCorpus,
   Recoupement,
@@ -51,10 +51,12 @@ export interface RecoupementOptions {
   respirer?: () => Promise<void>;
   /** Interrompt le calcul en cours (les données ont changé, on recommencera). */
   annule?: () => boolean;
+  /** Avancement de la lecture du corpus — le moniteur d'activité l'affiche. */
+  avancement?: (dossiersLus: number, total: number) => void;
 }
 
 /** Réglages effectifs (les crochets `respirer`/`annule` n'en font pas partie). */
-type Reglages = Required<Omit<RecoupementOptions, 'respirer' | 'annule'>>;
+type Reglages = Required<Omit<RecoupementOptions, 'respirer' | 'annule' | 'avancement'>>;
 
 const DEFAUTS: Reglages = {
   maxSignals: 200,
@@ -173,12 +175,35 @@ function chercherNom(norm: string, mots: string[]): number {
 }
 
 /**
+ * Au-delà de ce nombre de porteurs, un mot ne discrimine plus rien (« jean »,
+ * « marie », « saint ») : on ne s'en sert pas pour proposer des rapprochements.
+ */
+const MAX_HOMONYMES_PAR_MOT = 200;
+
+/**
  * Regroupe les mentions en personnes distinctes : d'abord la clé « mots triés »
  * (ordre Nom/Prénom indifférent), puis fusion approximative des groupes
  * partageant un mot (coquille, composé recollé) — mêmes règles que la
  * cartographie, donc mêmes fusions.
+ *
+ * C'EST LE POINT CHAUD DE TOUTE LA VEILLE : sur un fonds analysé, des dizaines
+ * de milliers de clés et des millions de paires candidates. Trois précautions
+ * le tiennent, sans rien changer aux fusions obtenues :
+ *   - chaque nom n'est normalisé et découpé QU'UNE fois — auparavant chaque
+ *     comparaison renormalisait ses deux côtés, soit plus de travail que la
+ *     comparaison elle-même ;
+ *   - les candidats sont dédoublonnés PAR NOM (un petit ensemble d'indices,
+ *     jeté aussitôt) au lieu d'un ensemble global de chaînes « i:j » qui
+ *     grossissait jusqu'à plusieurs millions d'entrées ;
+ *   - la boucle rend la main (`souffler`) : plus de bloc ininterruptible de
+ *     plusieurs secondes en plein milieu d'une saisie.
+ *
+ * Renvoie `null` si le calcul a été interrompu.
  */
-function grouperPersonnes(mentions: Mention[]): GroupePersonne[] {
+async function grouperPersonnes(
+  mentions: Mention[],
+  souffler: () => Promise<boolean>,
+): Promise<GroupePersonne[] | null> {
   const parCle = new Map<string, Mention[]>();
   for (const m of mentions) {
     const cle = mecSortedKey(m.nom);
@@ -199,36 +224,40 @@ function grouperPersonnes(mentions: Mention[]): GroupePersonne[] {
     if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb);
   };
 
-  // Représentant lisible de chaque clé : la variante la plus complète.
-  const repr = cles.map(cle => {
+  // Forme normalisée du représentant de chaque clé (la variante la plus
+  // complète) — calculée UNE fois, relue des milliers de fois.
+  const reprMots: string[][] = [];
+  for (const cle of cles) {
     const noms = (parCle.get(cle) || []).map(m => m.nom);
-    return noms.reduce((a, b) => (b.length > a.length ? b : a), noms[0] || '');
-  });
+    const nom = noms.reduce((a, b) => (b.length > a.length ? b : a), noms[0] || '');
+    reprMots.push(normalizeMecName(nom).split(' ').filter(Boolean));
+  }
 
-  const parToken = new Map<string, number[]>();
-  repr.forEach((nom, i) => {
-    for (const t of tokens(nom)) {
-      const arr = parToken.get(t);
+  const parMot = new Map<string, number[]>();
+  reprMots.forEach((mots, i) => {
+    for (const mot of mots) {
+      if (mot.length < 3) continue;
+      const arr = parMot.get(mot);
       if (arr) arr.push(i);
-      else parToken.set(t, [i]);
+      else parMot.set(mot, [i]);
     }
   });
 
-  const compares = new Set<string>();
-  repr.forEach((nom, i) => {
-    for (const t of tokens(nom)) {
-      const candidats = parToken.get(t) || [];
-      if (candidats.length > 200) continue; // mot trop fréquent : on ne dégénère pas
-      for (const j of candidats) {
-        if (j <= i) continue;
-        const paire = `${i}:${j}`;
-        if (compares.has(paire)) continue;
-        compares.add(paire);
-        if (find(i) === find(j)) continue;
-        if (sameMecPerson(nom, repr[j])) union(i, j);
-      }
+  const candidats = new Set<number>();
+  for (let i = 0; i < reprMots.length; i++) {
+    if (!await souffler()) return null;
+    candidats.clear();
+    for (const mot of reprMots[i]) {
+      if (mot.length < 3) continue;
+      const porteurs = parMot.get(mot);
+      if (!porteurs || porteurs.length > MAX_HOMONYMES_PAR_MOT) continue;
+      for (const j of porteurs) if (j > i) candidats.add(j);
     }
-  });
+    for (const j of candidats) {
+      if (find(i) === find(j)) continue;
+      if (sameMecPersonTokens(reprMots[i], reprMots[j])) union(i, j);
+    }
+  }
 
   const groupes = new Map<number, GroupePersonne>();
   cles.forEach((cle, i) => {
@@ -362,7 +391,19 @@ export async function detecterRecoupements(
     else entree.parDossier.set(dossierKey, [occ]);
   };
 
+  // Mots des noms DÉCLARÉS, tous dossiers confondus : le seul vocabulaire que
+  // le prétri des fragments aura à reconnaître (cf. motsRetenus). Il se calcule
+  // avant la lecture, les personnes déclarées étant connues d'emblée.
+  const motsDeclares = new Set<string>();
   for (const dossier of corpus) {
+    for (const nom of dossier.personnes) {
+      for (const mot of tokens(nom || '')) motsDeclares.add(mot);
+    }
+  }
+
+  let dossiersLus = 0;
+  for (const dossier of corpus) {
+    options.avancement?.(dossiersLus++, corpus.length);
     refs.set(dossier.key, refDe(dossier));
     const cles = new Set<string>();
 
@@ -395,8 +436,14 @@ export async function detecterRecoupements(
         origine: fragment.origine,
         detail: fragment.detail,
         texte,
-        mots: motsDe(normalizeAligned(texte)),
+        mots: motsRetenus(normalizeAligned(texte), motsDeclares),
       });
+
+      // Une pièce fait jusqu'à 300 000 caractères : chacune des trois passes
+      // qui la balaient est un travail à part entière, et l'on rend la main
+      // ENTRE elles. Souffler une fois par fragment laissait passer des blocs
+      // de plusieurs centaines de millisecondes sur les grosses pièces.
+      if (!await souffler()) return null;
 
       for (const v of extractValues(texte)) {
         ajouterValeur(v.kind, v.canon, v.valeur, dossier.key, {
@@ -409,7 +456,17 @@ export async function detecterRecoupements(
         });
       }
 
+      if (!await souffler()) return null;
+
+      // Le même nom répété quarante fois dans un PV ne vaut qu'UNE mention :
+      // l'affichage n'en retient de toute façon qu'une par provenance (cf.
+      // choisirOccurrences). Les trente-neuf autres ne servaient qu'à gonfler
+      // la table des mentions — et donc le regroupement, qui est quadratique.
+      const nomsDuFragment = new Set<string>();
       for (const n of extractNames(texte)) {
+        const cle = normalizeLoose(n.brut);
+        if (!cle || nomsDuFragment.has(cle)) continue;
+        nomsDuFragment.add(cle);
         mentions.push({
           nom: n.brut,
           patronyme: n.patronyme,
@@ -422,6 +479,8 @@ export async function detecterRecoupements(
       }
     }
   }
+
+  options.avancement?.(corpus.length, corpus.length);
 
   // Une personne déclarée quelque part peut être citée EN MINUSCULES ailleurs
   // (tableaux d'annuaire, listes de correspondants) : la détection typographique
@@ -448,6 +507,10 @@ export async function detecterRecoupements(
       if (!rech.mots.every(mot => fragment.mots.has(mot))) continue;
       if (norm === null) norm = normalizeAligned(fragment.texte);
       const pos = chercherNom(norm, rech.mots);
+      // Une recherche plein texte de plus vient d'avoir lieu (jusqu'à quatre
+      // expressions régulières sur toute la pièce) : c'est là qu'il faut
+      // rendre la main, pas à chaque candidat écarté par le prétri.
+      if (!await souffler()) return null;
       if (pos < 0) continue;
       mentions.push({
         nom: rech.nom,
@@ -462,7 +525,8 @@ export async function detecterRecoupements(
   }
 
   // ── Personnes ──────────────────────────────────────────────────────────
-  const groupes = grouperPersonnes(mentions);
+  const groupes = await grouperPersonnes(mentions, souffler);
+  if (groupes === null) return null;
   const signaux: Recoupement[] = [];
   const paireCouverteParPersonne = new Set<string>(); // `${patronyme}|${dossierA}|${dossierB}`
 
@@ -472,6 +536,7 @@ export async function detecterRecoupements(
   // tolérances de la carte : deux graphies d'un même nom comptent pour une.
   const pairesDejaReliees = new Set<string>();
   for (const groupe of groupes) {
+    if (!await souffler()) return null;
     const dossiers = Array.from(new Set(
       groupe.mentions.filter(m => m.declaree).map(m => m.dossierKey)
     ));

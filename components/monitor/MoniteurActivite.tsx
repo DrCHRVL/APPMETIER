@@ -16,7 +16,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, Cpu, Globe, HardDrive, Server } from 'lucide-react';
+import { Activity, Cpu, Globe, HardDrive, Pause, Play, Server } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -29,6 +29,8 @@ import {
   surChangement,
 } from '@/lib/monitor/clientMonitor';
 import { getDocTextCacheStats } from '@/utils/documents/documentTextSearch';
+import { setVeilleSuspendue } from '@/lib/monitor/veillePause';
+import { useVeillePause } from '@/hooks/useVeillePause';
 
 interface ServeurInfo {
   demarreA: string;
@@ -124,6 +126,7 @@ export function MoniteurActivite({ isAdmin = false }: { isAdmin?: boolean }) {
   const [serveur, setServeur] = useState<ServeurInfo | null>(null);
   const [attache, setAttache] = useState<AttacheInfo | null>(null);
   const [serveurErreur, setServeurErreur] = useState(false);
+  const veillePause = useVeillePause();
 
   // Rafraîchissement local : sur changement d'activité + un battement d'une
   // seconde pour les durées « en cours ». Fenêtre ouverte uniquement.
@@ -220,6 +223,27 @@ export function MoniteurActivite({ isAdmin = false }: { isAdmin?: boolean }) {
                   <div className="text-[11px] text-gray-500">Textes de pièces en mémoire</div>
                   <div className="font-medium tabular-nums">{cachePieces.textes} <span className="text-gray-400 font-normal">· {(cachePieces.caracteres / 500_000).toFixed(1)} Mo</span></div>
                 </div>
+              </div>
+              {/* La veille de recoupements est le travail de fond le plus lourd
+                  de l'onglet : c'est elle qu'on suspend quand le poste peine,
+                  et c'est ici qu'on le fait — là où le blocage se constate. */}
+              <div className="flex items-start justify-between gap-3 rounded-lg border border-gray-200 p-2 mb-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-gray-700">Veille de recoupements</div>
+                  <p className="text-[11px] text-gray-500">
+                    {veillePause
+                      ? 'Suspendue sur ce poste : aucun rapprochement n’est plus calculé ni affiché. Vos signaux vus et écartés sont conservés ; la veille les retrouvera à la reprise.'
+                      : 'Compare tous les dossiers entre eux — le calcul le plus lourd de l’onglet. À suspendre si l’interface accroche.'}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 h-7 text-xs gap-1.5"
+                  onClick={() => setVeilleSuspendue(!veillePause)}
+                >
+                  {veillePause ? <><Play className="h-3 w-3" /> Reprendre</> : <><Pause className="h-3 w-3" /> Suspendre</>}
+                </Button>
               </div>
               {enCours.length > 0 ? (
                 <div className="divide-y divide-gray-100">
