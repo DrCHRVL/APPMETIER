@@ -205,6 +205,13 @@ export const parsePersonnesTable = (text: string): ParsedPersonne[] => {
   const out: ParsedPersonne[] = [];
   for (const cells of toRows(text)) {
     if (isHeaderRow(cells) || isNoiseRow(cells)) continue;
+    // Une ligne du tableau ÉVÉNEMENTS commence toujours par une date (1re
+    // colonne) ; jamais une ligne du tableau PERSONNES (Rang ou Identité).
+    // Sans ce garde-fou, un motif d'événement contenant un mot-clé de rôle en
+    // toutes lettres (ex : « examen de victime ») fait détecter un rôle
+    // « Victime » sur la ligne, et l'émetteur de l'événement (le magistrat)
+    // est alors importé comme une personne du dossier.
+    if (DATE_CELL_RE.test(cells[0])) continue;
 
     let { role, label } = detectRole(cells);
     if (role === 'autre') {
@@ -727,14 +734,25 @@ export const suggestCasDPFromSaisine = (
 // RECONSTITUTION PRUDENTE DES PÉRIODES DE DP
 //
 // Depuis les événements Cassiopée : la 1re ordonnance de DP (mandat de dépôt /
-// ORDDP) = placement initial ; les ORDDP suivantes = prolongations. Les durées
-// (initiale, tranche) proviennent du cas légal déduit de la saisine → cohérence
-// avec l'art applicable. Prudence : on ne devine ni les mises en liberté ni les
-// prolongations exceptionnelles CHINS ; le résultat est signalé « à vérifier ».
+// ORDDP) d'un épisode = placement ; les ORDDP suivantes du même épisode =
+// prolongations. Mais une personne peut être libérée puis replacée en DP plus
+// tard (ex : REFPROL — refus de prolongation — qui met fin à la DP en cours,
+// suivi d'un MAMENER — mandat d'amener, nouvelle arrestation — puis d'une
+// nouvelle ORDDP) : cette 2e ORDDP est un nouveau PLACEMENT, pas la
+// prolongation de l'épisode clos par le REFPROL. On détecte donc les
+// événements qui mettent fin à la DP en cours (REFPROL, ORDLIB) pour rouvrir
+// un nouvel épisode « placement » à l'ordonnance suivante.
+//
+// Les durées (initiale, tranche) proviennent du cas légal déduit de la
+// saisine → cohérence avec l'art applicable. Prudence : on ne devine pas les
+// prolongations exceptionnelles CHINS ; le résultat est signalé « à
+// vérifier ».
 // ──────────────────────────────────────────────
 
 /** Codes d'événement Cassiopée marquant une (re)décision de détention. */
 const DP_ORDONNANCE_CODES = new Set(['MD', 'ORDDP']);
+/** Codes d'événement Cassiopée mettant fin à la DP en cours (remise en liberté). */
+const DP_FIN_CODES = new Set(['REFPROL', 'ORDLIB']);
 
 export const deriveDpPeriodesForPersonne = (
   nom: string,
@@ -742,33 +760,54 @@ export const deriveDpPeriodesForPersonne = (
   opts: { regime: RegimeDetentionProvisoire; cas?: CasDP; newId: () => number },
 ): PeriodeDetentionProvisoire[] => {
   const key = normalizeNom(nom);
-  const dpEvents = parsedEvents.filter(
-    ev =>
-      ev.date &&
-      ev.code &&
-      DP_ORDONNANCE_CODES.has(ev.code.toUpperCase()) &&
-      ev.auteurs.some(a => normalizeNom(a) === key),
-  );
-  if (dpEvents.length === 0) return [];
-
-  // Regroupe par date : mandat de dépôt + ORDDP du même jour = une ordonnance.
-  const dates = Array.from(new Set(dpEvents.map(ev => ev.date))).sort();
+  // Ordonnances de DP ET événements de fin de DP, dans l'ordre chronologique :
+  // c'est cet ordre réel (pas seulement les dates d'ordonnances) qui dit si une
+  // ORDDP rouvre un nouvel épisode.
+  const relevant = parsedEvents
+    .filter(
+      ev =>
+        ev.date &&
+        ev.code &&
+        (DP_ORDONNANCE_CODES.has(ev.code.toUpperCase()) || DP_FIN_CODES.has(ev.code.toUpperCase())) &&
+        ev.auteurs.some(a => normalizeNom(a) === key),
+    )
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (relevant.length === 0) return [];
 
   const dureeInit = opts.cas?.dureeInitialeMois || (opts.regime === 'criminel' ? 12 : 4);
   const dureeTranche = opts.cas?.trancheProlongationMois || (opts.regime === 'criminel' ? 6 : 4);
 
-  return dates.map((d, i) => {
-    const type: 'placement' | 'prolongation' = i === 0 ? 'placement' : 'prolongation';
-    const duree = i === 0 ? dureeInit : dureeTranche;
-    return {
+  const periodes: PeriodeDetentionProvisoire[] = [];
+  // Vrai tant qu'aucun épisode n'est en cours (avant la 1re ordonnance, ou
+  // juste après un REFPROL/ORDLIB) : la prochaine ordonnance rencontrée est
+  // alors un PLACEMENT, pas une prolongation de l'épisode précédent.
+  let episodeClos = true;
+  let derniereDate: string | undefined;
+
+  for (const ev of relevant) {
+    const code = ev.code!.toUpperCase();
+    if (DP_FIN_CODES.has(code)) {
+      episodeClos = true;
+      continue;
+    }
+    // Mandat de dépôt + ORDDP du même jour = une seule ordonnance.
+    if (derniereDate === ev.date) continue;
+    derniereDate = ev.date;
+
+    const type: 'placement' | 'prolongation' = episodeClos ? 'placement' : 'prolongation';
+    const duree = type === 'placement' ? dureeInit : dureeTranche;
+    periodes.push({
       id: opts.newId(),
-      dateDebut: d,
+      dateDebut: ev.date,
       dureeMois: duree,
-      dateFin: calculatePeriodeDPEnd(d, duree),
+      dateFin: calculatePeriodeDPEnd(ev.date, duree),
       regime: opts.regime,
       type,
-    };
-  });
+    });
+    episodeClos = false;
+  }
+
+  return periodes;
 };
 
 // ──────────────────────────────────────────────
@@ -952,15 +991,23 @@ export const buildMisEnExamen = (
   let note: string | undefined;
 
   if (p.categoriePenale === 'DP' && opts?.dpPeriodes && opts.dpPeriodes.length > 0) {
+    // La personne peut avoir connu plusieurs épisodes de DP distincts (remise
+    // en liberté puis nouveau placement) : « depuis » doit refléter le début
+    // de l'épisode EN COURS (le dernier placement), pas le tout premier.
+    const placements = opts.dpPeriodes.filter(per => per.type === 'placement');
+    const depuis = placements[placements.length - 1]?.dateDebut ?? opts.dpPeriodes[0].dateDebut;
     mesure = {
       type: 'detenu',
-      depuis: opts.dpPeriodes[0].dateDebut,
+      depuis,
       regime: opts.regime ?? opts.dpPeriodes[0].regime,
       casDPId: opts.casDPId,
       periodes: opts.dpPeriodes,
     };
-    const nbProl = opts.dpPeriodes.length - 1;
-    note = `⚠ DP reconstituée depuis Cassiopée : placement + ${nbProl} prolongation(s), régime/cas déduits de la saisine in rem. À vérifier (mises en liberté et prolongations exceptionnelles non reprises).`;
+    const nbProl = opts.dpPeriodes.length - placements.length;
+    note =
+      placements.length > 1
+        ? `⚠ DP reconstituée depuis Cassiopée : ${placements.length} placements distincts (remise en liberté puis nouveau placement en cours de procédure) + ${nbProl} prolongation(s) au total, régime/cas déduits de la saisine in rem. À vérifier (prolongations exceptionnelles non reprises).`
+        : `⚠ DP reconstituée depuis Cassiopée : placement + ${nbProl} prolongation(s), régime/cas déduits de la saisine in rem. À vérifier (mises en liberté et prolongations exceptionnelles non reprises).`;
   } else {
     const r = mesureFromCategorie(p.categoriePenale);
     mesure = r.mesure;
