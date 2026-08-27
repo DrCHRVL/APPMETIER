@@ -85,10 +85,7 @@ export function RecoupementsModal({
 
         <p className="flex-shrink-0 text-[11.5px] leading-snug text-gray-500">
           Valeurs identiques ou très proches relevées dans plusieurs dossiers — noms,
-          adresses, lignes, véhicules, comptes. Aucun dossier n&apos;est modifié :
-          c&apos;est un signalement, à vérifier avant d&apos;en tirer quoi que ce soit.
-          Les suites — inscrire un mis en cause, tracer un lien de renseignement —
-          ne partent que de vous.
+          adresses, lignes, véhicules, comptes.
         </p>
 
         <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-gray-100 pb-2">
