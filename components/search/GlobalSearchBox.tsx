@@ -21,7 +21,7 @@ import {
 } from 'react';
 import {
   Search, FileText, Scale, Activity, Network, ArrowUpRight, Zap, History,
-  CornerDownLeft, SearchX, FileSearch, Loader2,
+  CornerDownLeft, SearchX, FileSearch, Loader2, MessageSquare,
 } from 'lucide-react';
 import type { GlobalSearchDoc, GlobalHit, GlobalHitGroup } from '@/utils/globalSearch';
 import type { GlobalSearchApi } from '@/hooks/useGlobalSearch';
@@ -54,6 +54,7 @@ function persistRecents(recents: RecentDoc[]) {
 
 const KIND_ICONS: Record<GlobalSearchDoc['kind'], typeof FileText> = {
   enquete: FileText,
+  compte_rendu: MessageSquare,
   instruction: Scale,
   air: Activity,
   personne: Network,
@@ -438,7 +439,7 @@ export const GlobalSearchBox = ({
                         title="Télécharge et lit ces documents dans votre navigateur (une seule fois : le texte est mémorisé pour les prochaines recherches)."
                       >
                         <FileSearch className="h-3.5 w-3.5" />
-                        Chercher aussi dans {docScan.pending} document{docScan.pending > 1 ? 's' : ''} jamais analysé{docScan.pending > 1 ? 's' : ''}…
+                        Chercher aussi dans {docScan.pending} document{docScan.pending > 1 ? 's' : ''} non indexé{docScan.pending > 1 ? 's' : ''}…
                       </button>
                     )}
                   </div>

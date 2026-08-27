@@ -1672,9 +1672,10 @@ function AppContent() {
     // connaît pas la cible — on repasse alors par le chemin normal.
     const focusOnMap = baseView === 'mindmap' && !opts?.skipMindmapFocus;
     switch (doc.kind) {
-      // Un résultat « contenu de document » ouvre l'enquête qui porte le
-      // document — même chemin que les enquêtes.
+      // Un résultat « contenu de document » ou « compte rendu » ouvre
+      // l'enquête qui le porte — même chemin que les enquêtes.
       case 'document':
+      case 'compte_rendu':
       case 'enquete': {
         const ctxId = String(data.ctxId || '') as ContentieuxId;
         const numero = String(data.numero || '');

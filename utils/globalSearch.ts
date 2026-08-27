@@ -122,6 +122,7 @@ function allowedTypos(tokenLength: number): number {
 
 export type GlobalDocKind =
   | 'enquete'
+  | 'compte_rendu'
   | 'instruction'
   | 'air'
   | 'personne'
@@ -440,6 +441,7 @@ export function searchDocs(
 /** Libellés des groupes de résultats, dans leur ordre de préséance à score égal. */
 export const GROUP_LABELS: Array<{ kind: GlobalDocKind; label: string }> = [
   { kind: 'enquete', label: 'Enquêtes' },
+  { kind: 'compte_rendu', label: 'Comptes rendus' },
   { kind: 'instruction', label: 'Instructions' },
   { kind: 'air', label: 'Suivi AIR' },
   { kind: 'personne', label: 'Personnes' },
