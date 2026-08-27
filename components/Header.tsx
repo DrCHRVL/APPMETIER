@@ -51,8 +51,13 @@ interface HeaderProps {
   /** Recherche globale : si fournie, la barre devient une omnibox (résultats
    *  de toute l'application). À défaut, simple filtre de la page courante. */
   globalSearch?: HeaderGlobalSearch;
-  /** Veille de recoupements : bouton discret, présent seulement s'il y a
-   *  quelque chose à montrer. La pastille compte les signaux jamais vus. */
+  /** Veille de recoupements : bouton discret, TOUJOURS présent dès que la
+   *  veille est fournie. Il fut un temps caché quand il n'y avait rien à
+   *  montrer ; c'était une impasse, puisque c'est le seul chemin vers la vue
+   *  d'ensemble — et donc vers la date du dernier chantier, l'onglet
+   *  « Écartés » et la relance manuelle. Sur un fonds neuf, plus rien ne
+   *  permettait de lancer le premier chantier. La pastille compte les signaux
+   *  jamais vus. */
   recoupements?: {
     total: number;
     nouveaux: number;
@@ -318,15 +323,19 @@ export const Header = ({
             </TooltipProvider>
           )}
 
-          {/* Recoupements entre dossiers — signalement discret, jamais bloquant */}
-          {!minimal && recoupements && recoupements.total > 0 && (
+          {/* Recoupements entre dossiers — signalement discret, jamais bloquant.
+              Toujours offert : sans rien à montrer, l'icône pâlit mais reste le
+              chemin vers la vue d'ensemble et la relance du chantier. */}
+          {!minimal && recoupements && (
             <TooltipProvider>
               <TooltipRoot>
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="relative h-8 w-8 p-0 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                    className={`relative h-8 w-8 p-0 rounded-lg hover:bg-gray-100 hover:text-gray-700 ${
+                      recoupements.total > 0 ? 'text-gray-500' : 'text-gray-300'
+                    }`}
                     onClick={recoupements.onShow}
                   >
                     <Link2 className="h-4 w-4" />
@@ -335,8 +344,14 @@ export const Header = ({
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   <p>
-                    {recoupements.total} recoupement{recoupements.total > 1 ? 's' : ''} entre dossiers
-                    {recoupements.nouveaux > 0 ? ` — dont ${recoupements.nouveaux} jamais consulté${recoupements.nouveaux > 1 ? 's' : ''}` : ''}
+                    {recoupements.total > 0 ? (
+                      <>
+                        {recoupements.total} recoupement{recoupements.total > 1 ? 's' : ''} entre dossiers
+                        {recoupements.nouveaux > 0 ? ` — dont ${recoupements.nouveaux} jamais consulté${recoupements.nouveaux > 1 ? 's' : ''}` : ''}
+                      </>
+                    ) : (
+                      'Recoupements entre dossiers — rien de relevé pour l’instant. Ouvrir pour voir la date du dernier chantier, les signaux écartés, et le relancer.'
+                    )}
                   </p>
                 </TooltipContent>
               </TooltipRoot>
