@@ -18,6 +18,12 @@
  *  - ou les fait RECOMMENCER de zéro, soit en relisant le mail d'origine,
  *    soit avec une nouvelle instruction.
  *
+ * Ce que la liste NE mélange PAS : les fiches et synthèses sorties des chantiers
+ * d'analyse profonde. Un chantier en produit des centaines ; noyer les quelques
+ * actes à signer dedans, c'est perdre la corbeille du magistrat. Elles sont
+ * tenues à part, derrière « voir les N productions de chantier » (leur vraie
+ * place restant l'atelier des chantiers, chantier par chantier).
+ *
  * Chiffrement E2E : l'app ne voit jamais le texte — le navigateur déchiffre
  * pour l'afficher et rechiffre lors d'une édition manuelle.
  */
@@ -62,6 +68,15 @@ interface Production {
   acteMeta?: ActeMeta;
 }
 
+/**
+ * Production issue d'un CHANTIER d'analyse profonde (fiches de lot, synthèse).
+ *
+ * Ce n'est pas un acte : personne ne la signe, personne ne la valide. C'est de
+ * la matière première, produite par centaines, dont la place est l'atelier des
+ * chantiers — pas la corbeille d'actes du magistrat, qu'elle noierait.
+ */
+const estDeChantier = (p: { source?: string }) => String(p.source || '').startsWith('chantier:');
+
 const TYPE_LABEL: Record<string, string> = {
   requisition: 'Réquisition',
   reponse_dml: 'Réponse DML',
@@ -96,7 +111,9 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [showTraites, setShowTraites] = useState(false);
+  // Ce qu'on regarde : les actes en attente (défaut), les actes traités, ou
+  // les productions de chantier — trois listes qui ne se mélangent pas.
+  const [vue, setVue] = useState<'actes' | 'chantier' | 'traites'>('actes');
   // Retouche IA en place : consigne libre par acte + acte en cours de retouche.
   const [aiInput, setAiInput] = useState<Record<string, string>>({});
   // Recommencer de zéro : nouvelle instruction libre par acte.
@@ -462,7 +479,12 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
   // les deux quittent la liste courante et se retrouvent dans l'archive.
   const enAttente = items.filter((p) => !p.traite && !p.refuse);
   const traites = items.filter((p) => p.traite || p.refuse);
-  const visibles = showTraites ? traites : enAttente;
+  // Quand la section est DÉJÀ filtrée sur un chantier (atelier des chantiers),
+  // tout ce qu'elle montre EST du chantier : on ne retrie pas une seconde fois.
+  const trier = !filtreSource;
+  const actes = trier ? enAttente.filter((p) => !estDeChantier(p)) : enAttente;
+  const productionsChantier = trier ? enAttente.filter(estDeChantier) : [];
+  const visibles = vue === 'traites' ? traites : vue === 'chantier' ? productionsChantier : actes;
 
   return (
     <div className="rounded-xl border border-[#2B5746]/25 bg-white">
@@ -471,7 +493,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
         <span className="flex-1 text-sm font-semibold text-gray-800">
           {titre || 'Actes rédigés'}
           <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#2B5746]">Attaché</span>
-          {enAttente.length > 0 && <span className="ml-2 text-[11px] font-normal text-gray-400">{enAttente.length}</span>}
+          {actes.length > 0 && <span className="ml-2 text-[11px] font-normal text-gray-400">{actes.length}</span>}
         </span>
         <button onClick={(e) => { e.stopPropagation(); load(); }} className="rounded p-1 text-gray-400 hover:bg-gray-50 hover:text-gray-600" title="Actualiser">
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
@@ -482,13 +504,23 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
       {open && (
         <div className="border-t border-gray-100 px-4 py-3">
           {notice && <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11.5px] text-emerald-800">{notice}</div>}
+          {vue === 'chantier' && (
+            <p className="mb-2 rounded-lg border border-indigo-200 bg-indigo-50/50 px-3 py-1.5 text-[11px] leading-snug text-indigo-900">
+              Fiches et synthèses sorties des chantiers d&apos;analyse profonde. Ce ne sont pas des
+              actes à signer : c&apos;est la matière première sur laquelle l&apos;attaché s&apos;appuie.
+              Leur place est « Analyses profondes », chantier par chantier — elles sont ici pour
+              mémoire, hors de la liste des actes.
+            </p>
+          )}
           {visibles.length === 0 ? (
             <p className="py-3 text-center text-xs text-gray-400">
-              {showTraites
+              {vue === 'traites'
                 ? 'Aucun acte traité pour l\'instant.'
-                : traites.length
-                  ? 'Tous les actes de ce dossier sont traités.'
-                  : 'Aucun acte rédigé. Demandez-en un dans le chat du dossier (« rédige-moi une demande de prolongation JLD »).'}
+                : vue === 'chantier'
+                  ? 'Aucune production de chantier sur ce dossier.'
+                  : traites.length
+                    ? 'Tous les actes de ce dossier sont traités.'
+                    : 'Aucun acte rédigé. Demandez-en un dans le chat du dossier (« rédige-moi une demande de prolongation JLD »).'}
             </p>
           ) : (
             <div className="space-y-2">
@@ -498,6 +530,14 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
                   <div key={p.id} className={`rounded-lg border ${p.refuse ? 'border-amber-200 bg-amber-50/40' : p.traite ? 'border-gray-100 bg-gray-50/60' : 'border-gray-200'}`}>
                     <div className="flex items-center gap-2 px-3 py-2">
                       <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-gray-500">{TYPE_LABEL[p.type] || 'Acte'}</span>
+                      {estDeChantier(p) && (
+                        <span
+                          className="rounded bg-indigo-50 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-indigo-700"
+                          title="Production d'un chantier d'analyse profonde — pas un acte à signer"
+                        >
+                          Chantier
+                        </span>
+                      )}
                       {p.refuse && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-amber-700">Refusé</span>}
                       {p.traite && !p.refuse && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-[#2B5746]">Validé</span>}
                       {/* Indicateur DURABLE « modification en cours » : reste visible même acte replié et après rechargement, jusqu'à ce que le watcher détecte la fin. */}
@@ -510,7 +550,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
                         {p.titre}
                       </button>
                       {/* Indicateur DISCRET de la trame suivie, visible d'un coup d'œil même acte replié (le détail complet reste en bas quand l'acte est déplié). */}
-                      {p.source && (
+                      {p.source && !estDeChantier(p) && (
                         <span
                           className="hidden max-w-[11rem] flex-none truncate text-[10px] text-gray-400 md:inline"
                           title={`Trame utilisée pour rédiger cet acte : ${p.source}`}
@@ -691,7 +731,12 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
                           </div>
                         )}
 
-                        {p.source && <div className="mt-1 text-[10px] text-gray-400">Trame : {p.source} — fichier : {acteFileBase({ ...p, service })}.pdf</div>}
+                        {p.source && (
+                          <div className="mt-1 text-[10px] text-gray-400">
+                            {estDeChantier(p) ? 'Chantier d\'analyse profonde' : `Trame : ${p.source}`}
+                            {' — fichier : '}{acteFileBase({ ...p, service })}.pdf
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -699,13 +744,34 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
               })}
             </div>
           )}
-          {(traites.length > 0 || showTraites) && (
-            <button
-              onClick={() => setShowTraites((v) => !v)}
-              className="mt-2 w-full text-center text-[10.5px] font-medium text-gray-400 hover:text-gray-600"
-            >
-              {showTraites ? '← Revenir aux actes en attente' : `Voir les ${traites.length} acte(s) traité(s)`}
-            </button>
+          {(traites.length > 0 || productionsChantier.length > 0 || vue !== 'actes') && (
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+              {vue !== 'actes' && (
+                <button
+                  onClick={() => setVue('actes')}
+                  className="text-[10.5px] font-medium text-gray-400 hover:text-gray-600"
+                >
+                  ← Revenir aux actes en attente
+                </button>
+              )}
+              {vue !== 'traites' && traites.length > 0 && (
+                <button
+                  onClick={() => setVue('traites')}
+                  className="text-[10.5px] font-medium text-gray-400 hover:text-gray-600"
+                >
+                  Voir les {traites.length} acte(s) traité(s)
+                </button>
+              )}
+              {vue !== 'chantier' && productionsChantier.length > 0 && (
+                <button
+                  onClick={() => setVue('chantier')}
+                  title="Fiches et synthèses des chantiers d'analyse profonde — tenues à part des actes"
+                  className="text-[10.5px] font-medium text-indigo-400 hover:text-indigo-700"
+                >
+                  Voir les {productionsChantier.length} production(s) de chantier
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

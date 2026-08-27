@@ -40,6 +40,32 @@ const ICONE: Record<RecoupementKind, React.ElementType> = {
   imei: Smartphone,
 };
 
+/**
+ * Le nom qu'on inscrirait aux mis en cause de CE dossier-là.
+ *
+ * Pour un signal « même personne », c'est la même personne partout : le nom
+ * déclaré quelque part est le mieux formé. Pour un signal « même patronyme »,
+ * non — COULOMB Cédric et COULOMB David sont deux hommes, et le patronyme seul
+ * (« COULOMB ») n'est pas un mis en cause. On prend alors le nom COMPLET le
+ * plus souvent cité dans ce dossier, et rien du tout s'il n'y en a pas.
+ */
+function nomAInscrire(signal: Recoupement, dossierKey: string, defaut: string): string | undefined {
+  if (signal.kind !== 'patronyme') return defaut;
+  const comptes = new Map<string, { nom: string; n: number }>();
+  for (const occ of signal.occurrences) {
+    if (occ.dossier.key !== dossierKey) continue;
+    const nom = (occ.valeurBrute || '').trim();
+    if (nom.split(/\s+/).length < 2) continue; // « COULOMB » tout seul : on n'inscrit rien
+    const cle = nom.toLowerCase();
+    const vu = comptes.get(cle);
+    if (vu) vu.n += 1;
+    else comptes.set(cle, { nom, n: 1 });
+  }
+  let meilleur: { nom: string; n: number } | undefined;
+  for (const c of comptes.values()) if (!meilleur || c.n > meilleur.n) meilleur = c;
+  return meilleur?.nom;
+}
+
 /** Ce qu'on écrit sur une pastille de provenance : le plus parlant des deux. */
 function libelleProvenance(p: Provenance): string {
   const detail = (p.detail || '').trim();
@@ -225,8 +251,13 @@ function SignalLigne({
               kind={signal.kind}
               onOuvrir={onOuvrirDossier && d.key !== dossierCourant
                 ? () => onOuvrirDossier(signal, d.key) : undefined}
-              onAjouterMec={onAjouterMec && signal.kind === 'personne' && d.citeeSansEtreMiseEnCause
-                ? () => onAjouterMec(signal, d.key, nomPersonne) : undefined}
+              nomAInscrire={nomAInscrire(signal, d.key, nomPersonne)}
+              onAjouterMec={(() => {
+                if (!onAjouterMec || !d.citeeSansEtreMiseEnCause) return undefined;
+                if (signal.kind !== 'personne' && signal.kind !== 'patronyme') return undefined;
+                const nom = nomAInscrire(signal, d.key, nomPersonne);
+                return nom ? () => onAjouterMec(signal, d.key, nom) : undefined;
+              })()}
               proposition={analyse.propositions.find(p => p.dossierKey === d.key)}
               onCreerLien={onCreerLien}
             />
@@ -266,12 +297,14 @@ function SignalLigne({
 }
 
 function DossierBloc({
-  resume, courant, kind, onOuvrir, onAjouterMec, proposition, onCreerLien,
+  resume, courant, kind, onOuvrir, nomAInscrire: nomAjout, onAjouterMec, proposition, onCreerLien,
 }: {
   resume: ReturnType<typeof analyserSignal>['parDossier'][number];
   courant: boolean;
   kind: RecoupementKind;
   onOuvrir?: () => void;
+  /** Nom exact que le bouton inscrirait — affiché quand le signal ne le dit pas (patronyme). */
+  nomAInscrire?: string;
   onAjouterMec?: () => void;
   proposition?: PropositionLien;
   onCreerLien?: (proposition: PropositionLien) => void;
@@ -341,19 +374,26 @@ function DossierBloc({
               Ouvrir {resume.ref.numero}
             </button>
           )}
-          {onAjouterMec && (
-            <button
-              type="button"
-              onClick={onAjouterMec}
-              title={resume.ref.nature === 'instruction'
-                ? `Inscrire cette personne aux suspects de ${resume.ref.numero} (une mise en examen ne se décide pas ici)`
-                : `Inscrire cette personne aux mis en cause de ${resume.ref.numero}`}
-              className="inline-flex items-center gap-1 rounded-md border border-purple-200 bg-purple-50/60 px-1.5 py-0.5 text-[11px] font-medium text-purple-800 hover:border-purple-300 hover:bg-purple-100"
-            >
-              <UserPlus className="h-3 w-3" />
-              {resume.ref.nature === 'instruction' ? 'Ajouter aux suspects' : 'Ajouter aux mis en cause'}
-            </button>
-          )}
+          {onAjouterMec && (() => {
+            const liste = resume.ref.nature === 'instruction' ? 'suspects' : 'mis en cause';
+            const qui = nomAjout ? `« ${nomAjout} »` : 'cette personne';
+            return (
+              <button
+                type="button"
+                onClick={onAjouterMec}
+                title={resume.ref.nature === 'instruction'
+                  ? `Inscrire ${qui} aux suspects de ${resume.ref.numero} (une mise en examen ne se décide pas ici)`
+                  : `Inscrire ${qui} aux mis en cause de ${resume.ref.numero}`}
+                className="inline-flex items-center gap-1 rounded-md border border-purple-200 bg-purple-50/60 px-1.5 py-0.5 text-[11px] font-medium text-purple-800 hover:border-purple-300 hover:bg-purple-100"
+              >
+                <UserPlus className="h-3 w-3" />
+                {/* Sur un patronyme, le signal ne dit pas QUI : le bouton le nomme. */}
+                {kind === 'patronyme' && nomAjout
+                  ? `Ajouter ${nomAjout} aux ${liste}`
+                  : `Ajouter aux ${liste}`}
+              </button>
+            );
+          })()}
           {proposition && onCreerLien && (
             <button
               type="button"

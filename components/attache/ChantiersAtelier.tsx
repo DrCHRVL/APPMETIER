@@ -690,7 +690,8 @@ function DetailChantier({ ch, feu, busy, onAction, now, onCreerManquants }: {
       <p className="pb-2 text-center text-[10px] text-gray-400">
         Le moteur tourne côté serveur : fermez l&apos;atelier, il continue — la nuit par défaut, plusieurs lots de front,
         avec reprise automatique. « Forcer maintenant » lève la nuit et les plafonds pendant 2 h.
-        Les productions sont aussi dans « Actes rédigés » du dossier — l&apos;attaché du dossier s&apos;appuie dessus.
+        Les productions restent consultables depuis « Actes rédigés » du dossier — tenues à part des actes à
+        signer, sous « voir les productions de chantier ».
       </p>
     </div>
   );
