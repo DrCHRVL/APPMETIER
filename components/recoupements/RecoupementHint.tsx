@@ -9,6 +9,13 @@
  *
  * Le déplier vaut « j'ai vu » : la mention « nouveau » s'éteint et ne revient
  * que si un dossier de plus rejoint la coïncidence.
+ *
+ * Les SUITES sont exactement celles de la vue d'ensemble (la loupe de l'en-tête) :
+ * ouvrir le dossier, inscrire la personne aux mis en cause, tracer le lien de
+ * renseignement. Ce qui est permis à un endroit l'est à l'autre — un signal lu
+ * dans le dossier ne doit pas obliger à ressortir pour agir. Les appelants
+ * (fiches enquête et instruction) doivent donc TOUS relayer `liens`,
+ * `onCreerLien` et `onAjouterMec`.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Eye } from 'lucide-react';

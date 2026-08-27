@@ -36,6 +36,7 @@ import { SuiviAlertModal } from './SuiviAlertModal';
 import { ToDoItem } from '@/types/interfaces';
 import { RecoupementHint } from '../recoupements/RecoupementHint';
 import type { Recoupement } from '@/types/recoupementTypes';
+import type { LienExistant, PropositionLien } from '@/utils/recoupements/liens';
 
 interface EnqueteDetailModalProps {
   enquete: Enquete;
@@ -83,6 +84,12 @@ interface EnqueteDetailModalProps {
     estRevenu?: (signal: Recoupement) => boolean;
     onOuvrirDossier?: (signal: Recoupement, dossierKey: string) => void;
     onEcarter: (signal: Recoupement) => void;
+    /** Liens de renseignement déjà tracés — ce qui existe n'est pas reproposé. */
+    liens?: LienExistant[];
+    /** Trace sur la cartographie le lien que le signal met en évidence. */
+    onCreerLien?: (proposition: PropositionLien) => void;
+    /** Inscrit la personne aux mis en cause (ou aux suspects) du dossier qui la cite. */
+    onAjouterMec?: (signal: Recoupement, dossierKey: string, nom: string) => void;
     onVus: (signaux: Recoupement[]) => void;
   };
 }
@@ -460,6 +467,9 @@ const EnqueteDetailModalImpl = ({
                 estRevenu={recoupements.estRevenu}
                 onOuvrirDossier={recoupements.onOuvrirDossier}
                 onEcarter={recoupements.onEcarter}
+                liens={recoupements.liens}
+                onCreerLien={recoupements.onCreerLien}
+                onAjouterMec={recoupements.onAjouterMec}
                 onVus={recoupements.onVus}
               />
             )}
