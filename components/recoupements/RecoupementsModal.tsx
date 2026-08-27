@@ -4,8 +4,10 @@
  * SIRAL — recoupements entre dossiers · vue d'ensemble.
  *
  * Tout ce que le dernier chantier a relevé, tous dossiers confondus, le plus
- * solide d'abord. On y arrive par la loupe de l'en-tête ; rien ne s'ouvre tout
- * seul.
+ * solide d'abord. On y arrive par le chaînon de l'en-tête — toujours offert,
+ * même quand rien n'a encore été relevé, car c'est ici, et nulle part ailleurs,
+ * que l'on voit de quand date le dernier chantier et qu'on le relance. Rien ne
+ * s'ouvre tout seul.
  *
  * Le calcul n'a pas lieu ici : il tourne sur le SERVEUR, une fois par semaine
  * dans la nuit du samedi au dimanche, sur le fonds entier. Cette fenêtre en
@@ -136,7 +138,7 @@ export function RecoupementsModal({
                 {chargement
                   ? 'Lecture du dernier chantier…'
                   : !chantier
-                    ? 'Aucun chantier n’a encore tourné. Le prochain part dans la nuit du samedi au dimanche.'
+                    ? 'Aucun chantier n’a encore tourné. Le prochain part dans la nuit du samedi au dimanche — l’administrateur peut le déclencher tout de suite par « Lancer maintenant ».'
                     : chantier.perimetre.piecesNonLues > 0
                       ? `Rien relevé sur ce qui a été lu. ${chantier.perimetre.piecesNonLues} pièce(s) restent à analyser — le prochain chantier les prendra.`
                       : 'Aucun recoupement relevé.'}

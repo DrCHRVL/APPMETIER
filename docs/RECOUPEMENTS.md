@@ -122,8 +122,15 @@ le compte exact : « 2 700/2 700 pièces lues », ou ce qu'il en reste.
 | Endroit | Ce qu'on voit |
 |---|---|
 | Fiche d'enquête / d'instruction | une ligne repliée sous l'en-tête : « N recoupements avec d'autres dossiers ». La déplier vaut « j'ai vu ». |
-| En-tête de l'application | une icône de chaînon, avec une pastille comptant les signaux jamais consultés. Absente s'il n'y a rien. |
+| En-tête de l'application | une icône de chaînon, avec une pastille comptant les signaux jamais consultés. **Toujours présente** — pâlie quand il n'y a rien à montrer, mais jamais retirée : c'est le seul chemin vers la vue d'ensemble, donc vers la relance du chantier. |
 | Vue d'ensemble (clic sur l'icône) | tous les signaux, le plus solide d'abord, l'onglet « Écartés », la **date du dernier chantier** et ce qu'il a pu lire. L'administrateur y trouve « Lancer maintenant ». |
+
+L'icône a été un temps masquée quand il n'y avait aucun signal. C'était une
+impasse : sur un fonds neuf, aucun chantier n'ayant tourné, il n'y avait rien à
+montrer — donc pas d'icône, donc aucun moyen de lancer le premier chantier
+avant la nuit du samedi au dimanche. Et un utilisateur qui avait écarté ses
+derniers signaux perdait l'accès à l'onglet « Écartés » où il aurait pu les
+réactiver. Elle reste donc en place, discrète.
 
 Chaque signal se déplie sur ses occurrences : le dossier, l'endroit (fiche,
 compte rendu, pièce…) et la citation exacte du passage. Un bouton ouvre l'autre
