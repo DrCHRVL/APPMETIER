@@ -13,6 +13,7 @@ import {
 import type { ContentieuxDefinition } from '@/types/userTypes';
 import type { MecRole } from '@/stores/useCartographieOverlayStore';
 import { MEC_ROLE_POINTS, type DossierNode, type MecNode, type MindmapGraph } from '@/utils/mindmapGraph';
+import { CAMP_COLOR_PRESETS } from './campColors';
 
 interface MindmapSidePanelProps {
   mec: MecNode;
@@ -44,18 +45,6 @@ interface MindmapSidePanelProps {
 
 const BOOST_MIN = -10;
 const BOOST_MAX = 20;
-
-const CAMP_COLOR_PRESETS = [
-  '#dc2626', // rouge
-  '#ea580c', // orange
-  '#ca8a04', // ambre
-  '#16a34a', // vert
-  '#0891b2', // cyan
-  '#2563eb', // bleu
-  '#7c3aed', // violet
-  '#db2777', // rose
-  '#475569', // ardoise
-];
 
 export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
   mec,

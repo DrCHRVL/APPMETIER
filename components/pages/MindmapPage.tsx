@@ -8,7 +8,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, FileDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pin, PinOff, Plus, RefreshCw, Save, Shrink, Sparkles, Trophy, User, X } from 'lucide-react';
+import { Check, ChevronDown, FileDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pencil, Pin, PinOff, Plus, RefreshCw, Save, Shrink, Sparkles, Trophy, User, X } from 'lucide-react';
 import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { Enquete } from '@/types/interfaces';
 import {
@@ -44,6 +44,7 @@ import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { NouveauxDossiersPropositions } from '../attache/NouveauxDossiersPropositions';
 import { useToast } from '@/contexts/ToastContext';
 import type { InfluenceCluster } from '../mindmap/influenceHull';
+import { CAMP_COLOR_PRESETS } from '../mindmap/campColors';
 import { MindmapCanvas } from '../mindmap/MindmapCanvas';
 import { MindmapSidePanel } from '../mindmap/MindmapSidePanel';
 import { AddClusterAnnotationModal, AddDossierModal, AddLienModal, AddMecModal } from '../mindmap/OverlayModals';
@@ -185,6 +186,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const mecCamps = useCartographieOverlayStore(s => s.mecCamps);
   const setMecCamp = useCartographieOverlayStore(s => s.setMecCamp);
   const removeMecCamp = useCartographieOverlayStore(s => s.removeMecCamp);
+  const updateCamp = useCartographieOverlayStore(s => s.updateCamp);
 
   const { showToast } = useToast();
   const { user, isAdmin } = useUser();
@@ -418,6 +420,28 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       setCampHighlight(undefined);
     }
   }, [campHighlight, campsSummary]);
+
+  // Édition d'un camp entier depuis la légende (nom et/ou couleur). Le camp
+  // n'existe que comme libellé partagé : la modification retombe sur TOUS ses
+  // membres. Renommer vers un libellé déjà pris fusionne les deux camps — on
+  // le fait dire explicitement plutôt que de le refuser ou de le subir.
+  const handleUpdateCamp = (label: string, patch: { label?: string; color?: string }) => {
+    const to = patch.label !== undefined ? patch.label.trim() : label;
+    if (!to) {
+      showToast('Un camp doit garder un nom', 'error');
+      return;
+    }
+    if (to !== label && campsSummary.some(c => c.label === to)) {
+      const cible = campsSummary.find(c => c.label === to);
+      if (!window.confirm(
+        `Un camp « ${to} » existe déjà (${cible?.count ?? 0} membre${(cible?.count ?? 0) > 1 ? 's' : ''}). `
+        + 'Fusionner les deux camps ?',
+      )) return;
+    }
+    updateCamp(label, { ...patch, label: to });
+    // La surbrillance suit le renommage, sinon elle sauterait au rendu suivant.
+    setCampHighlight(prev => (prev === label ? to : prev));
+  };
 
   // Notes & surnoms depuis le panneau : la fiche manuelle EST le support de
   // ces champs — on la met à jour si elle existe (même sous un ordre
@@ -734,6 +758,21 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       s => s.enquete.id === node.enqueteId && s.contentieuxId === node.contentieuxId,
     );
     if (src && onOpenEnquete) onOpenEnquete(src.enquete, node.contentieuxId);
+  };
+
+  // Clic dans le vide de la carte : on relâche TOUT ce qu'un clic avait posé
+  // — sélection, panneau latéral, ego-network (le recentrage/estompage visible
+  // à l'écran) et surbrillance de camp. Les menus déroulants de la barre
+  // d'outils se referment aussi : un clic sur la carte est un geste « je passe
+  // à autre chose ».
+  const handlePaneClick = () => {
+    cancelPendingClick();
+    setSelectedId(undefined);
+    setSidePanelMecId(undefined);
+    setEgoNodeId(undefined);
+    setCampHighlight(undefined);
+    setAddMenuOpen(false);
+    setFilterMenuOpen(false);
   };
 
   const centerOnId = (nodeId: string) => {
@@ -1132,6 +1171,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             layout={cartoConfig.layout}
             onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
+            onPaneClick={handlePaneClick}
           />
         )}
 
@@ -1156,46 +1196,18 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         )}
 
         {/* Légende des camps : un clic met le camp en surbrillance (le reste
-            de la carte s'estompe), un second clic annule. Pour l'admin, elle
+            de la carte s'estompe), un second clic annule. Le crayon ouvre
+            l'édition du camp entier (nom, couleur). Pour l'admin, la légende
             porte aussi la détection automatique par l'attaché (gros amas). */}
         {(campsSummary.length > 0 || isAdmin()) && (
-          <div className="absolute bottom-3 left-3 z-20 bg-white/95 border border-slate-200 rounded-lg shadow-md px-3 py-2 max-w-[260px]">
-            <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">Camps</div>
-            <div className="flex flex-col gap-1">
-              {campsSummary.map(c => {
-                const active = campHighlight === c.label;
-                return (
-                  <button
-                    key={c.label}
-                    onClick={() => setCampHighlight(prev => prev === c.label ? undefined : c.label)}
-                    className={`flex items-center gap-2 text-left text-xs rounded px-1.5 py-1 transition-colors ${
-                      active ? 'bg-slate-100 font-semibold text-slate-900' : 'text-slate-700 hover:bg-slate-50'
-                    }`}
-                    title={active ? 'Cliquer pour annuler la surbrillance' : 'Mettre ce camp en surbrillance'}
-                  >
-                    <span className="h-3 w-3 rounded-full flex-shrink-0" style={{ background: c.color }} />
-                    <span className="flex-1 min-w-0 truncate">{c.label}</span>
-                    <span className="text-[10px] text-slate-400">{c.count}</span>
-                  </button>
-                );
-              })}
-              {campsSummary.length === 0 && (
-                <div className="text-[11px] text-slate-400 px-1.5 pb-0.5">
-                  Aucun camp — assigne-les depuis la fiche d&apos;une personne.
-                </div>
-              )}
-              {isAdmin() && (
-                <button
-                  onClick={handleDetectCamps}
-                  title="L'attaché lit les descriptions de dossiers, les CR, les fiches et les liens du plus gros amas, puis propose des camps à valider ✓/✗ — vos assignations et retraits manuels ne sont jamais écrasés"
-                  className="mt-1 inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold px-2 py-1.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
-                >
-                  <Sparkles className="h-3 w-3" />
-                  Détecter les camps (attaché)
-                </button>
-              )}
-            </div>
-          </div>
+          <CampsLegend
+            camps={campsSummary}
+            highlight={campHighlight}
+            onToggleHighlight={(label) =>
+              setCampHighlight(prev => (prev === label ? undefined : label))}
+            onUpdateCamp={handleUpdateCamp}
+            onDetect={isAdmin() ? handleDetectCamps : undefined}
+          />
         )}
 
         {showTop10 && (
@@ -1325,6 +1337,157 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
 // ──────────────────────────────────────────────
 // SOUS-COMPOSANT : Panneau Top 10 flottant
 // ──────────────────────────────────────────────
+
+// ──────────────────────────────────────────────
+// LÉGENDE DES CAMPS
+// ──────────────────────────────────────────────
+
+/**
+ * Légende des camps, en bas à gauche de la carte. Trois usages :
+ *  — lecture : la pastille de couleur fait le lien avec l'aura peinte sous
+ *    les bulles des membres ;
+ *  — surbrillance : un clic isole visuellement le camp, un second annule ;
+ *  — édition : le crayon renomme et/ou recolore le camp ENTIER (le camp n'est
+ *    qu'un libellé partagé entre ses membres, il n'a pas de fiche à lui).
+ */
+const CampsLegend: React.FC<{
+  camps: Array<{ label: string; color: string; count: number }>;
+  highlight?: string;
+  onToggleHighlight: (label: string) => void;
+  onUpdateCamp: (label: string, patch: { label?: string; color?: string }) => void;
+  /** Détection par l'attaché : réservée à l'admin (absent = bouton masqué). */
+  onDetect?: () => void;
+}> = ({ camps, highlight, onToggleHighlight, onUpdateCamp, onDetect }) => {
+  // Libellé du camp en cours d'édition (undefined = aucune édition ouverte).
+  const [editing, setEditing] = useState<string | undefined>();
+  const [labelDraft, setLabelDraft] = useState('');
+  const [colorDraft, setColorDraft] = useState(CAMP_COLOR_PRESETS[0]);
+
+  const openEdit = (camp: { label: string; color: string }) => {
+    setEditing(camp.label);
+    setLabelDraft(camp.label);
+    setColorDraft(camp.color);
+  };
+  const closeEdit = () => setEditing(undefined);
+  const submitEdit = (from: string) => {
+    if (!labelDraft.trim()) return;
+    onUpdateCamp(from, { label: labelDraft, color: colorDraft });
+    closeEdit();
+  };
+
+  // Un camp renommé ailleurs (ou vidé de ses membres) ne doit pas laisser un
+  // formulaire ouvert sur un libellé qui n'existe plus.
+  useEffect(() => {
+    if (editing && !camps.some(c => c.label === editing)) setEditing(undefined);
+  }, [editing, camps]);
+
+  return (
+    <div className="absolute bottom-3 left-3 z-20 bg-white/95 border border-slate-200 rounded-lg shadow-md px-3 py-2 w-[260px]">
+      <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">Camps</div>
+      <div className="flex flex-col gap-1">
+        {camps.map(c => {
+          if (editing === c.label) {
+            return (
+              <div key={c.label} className="border border-slate-200 rounded-md p-2 bg-slate-50/60">
+                <input
+                  type="text"
+                  value={labelDraft}
+                  onChange={e => setLabelDraft(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') submitEdit(c.label);
+                    if (e.key === 'Escape') closeEdit();
+                  }}
+                  placeholder="Nom du camp"
+                  className="w-full h-7 px-2 text-xs border border-slate-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-slate-300"
+                  autoFocus
+                />
+                <div className="flex items-center gap-1 mt-2">
+                  {CAMP_COLOR_PRESETS.map(preset => (
+                    <button
+                      key={preset}
+                      onClick={() => setColorDraft(preset)}
+                      title={`Couleur ${preset}`}
+                      className={`h-4 w-4 rounded-full transition-transform ${
+                        colorDraft === preset ? 'ring-2 ring-offset-1 ring-slate-400 scale-110' : 'hover:scale-110'
+                      }`}
+                      style={{ background: preset }}
+                    />
+                  ))}
+                </div>
+                <div className="flex items-center gap-1.5 mt-2">
+                  <span className="text-[10px] text-slate-400 flex-1">
+                    {c.count} membre{c.count > 1 ? 's' : ''}
+                  </span>
+                  <button
+                    onClick={closeEdit}
+                    className="text-[10px] px-2 py-1 rounded text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={() => submitEdit(c.label)}
+                    disabled={!labelDraft.trim()}
+                    className={`text-[10px] font-semibold px-2 py-1 rounded ${
+                      labelDraft.trim()
+                        ? 'bg-slate-900 text-white hover:bg-slate-800'
+                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    Enregistrer
+                  </button>
+                </div>
+              </div>
+            );
+          }
+          const active = highlight === c.label;
+          return (
+            <div
+              key={c.label}
+              className={`group flex items-center gap-1 rounded transition-colors ${
+                active ? 'bg-slate-100' : 'hover:bg-slate-50'
+              }`}
+            >
+              <button
+                onClick={() => onToggleHighlight(c.label)}
+                className={`flex flex-1 min-w-0 items-center gap-2 text-left text-xs rounded px-1.5 py-1 ${
+                  active ? 'font-semibold text-slate-900' : 'text-slate-700'
+                }`}
+                title={active ? 'Cliquer pour annuler la surbrillance' : 'Mettre ce camp en surbrillance'}
+              >
+                <span className="h-3 w-3 rounded-full flex-shrink-0" style={{ background: c.color }} />
+                <span className="flex-1 min-w-0 truncate">{c.label}</span>
+                <span className="text-[10px] text-slate-400">{c.count}</span>
+              </button>
+              <button
+                onClick={() => openEdit(c)}
+                title="Renommer le camp ou changer sa couleur"
+                aria-label={`Modifier le camp ${c.label}`}
+                className="flex-shrink-0 p-1 mr-0.5 rounded text-slate-300 hover:text-slate-700 hover:bg-slate-200/70 opacity-0 group-hover:opacity-100 focus:opacity-100"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            </div>
+          );
+        })}
+        {camps.length === 0 && (
+          <div className="text-[11px] text-slate-400 px-1.5 pb-0.5">
+            Aucun camp — assigne-les depuis la fiche d&apos;une personne.
+          </div>
+        )}
+        {onDetect && (
+          <button
+            onClick={onDetect}
+            title="L'attaché lit les descriptions de dossiers, les CR, les fiches et les liens du plus gros amas, puis propose des camps à valider ✓/✗ — vos assignations et retraits manuels ne sont jamais écrasés"
+            className="mt-1 inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold px-2 py-1.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
+          >
+            <Sparkles className="h-3 w-3" />
+            Détecter les camps (attaché)
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const Top10Panel: React.FC<{
   top: MecNode[];

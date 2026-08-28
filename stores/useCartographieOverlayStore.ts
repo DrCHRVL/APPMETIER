@@ -250,6 +250,11 @@ interface OverlayState extends PersistedOverlay {
   // Camps (réseau d'appartenance)
   setMecCamp: (mecId: string, label: string, color: string) => void;
   removeMecCamp: (mecId: string) => void;
+  /** Renomme et/ou recolore un camp ENTIER : la modification s'applique à
+   *  tous ses membres d'un coup (le camp n'est qu'un libellé partagé, il n'a
+   *  pas d'existence propre en base). Renommer vers un libellé déjà utilisé
+   *  fusionne les deux camps. */
+  updateCamp: (label: string, patch: { label?: string; color?: string }) => void;
 
   // Assignation tag → zone géographique
   setTagZone: (tag: string, zone: TagZoneAssignment['zone']) => void;
@@ -803,6 +808,36 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
     set({
       mecCamps: list.filter(c => c.mecId !== id),
       deletedMecCampIds: appendTombstone(get().deletedMecCampIds, id),
+    });
+    markDirty();
+  },
+
+  updateCamp: (label, patch) => {
+    const from = (label || '').trim();
+    if (!from) return;
+    const to = patch.label !== undefined ? patch.label.trim() : from;
+    // Un camp sans libellé n'existe pas : on refuse plutôt que de perdre
+    // silencieusement l'appartenance de tous ses membres.
+    if (!to) return;
+    const list = get().mecCamps;
+    const members = list.filter(c => c.label === from);
+    if (members.length === 0) return;
+    // Couleur commune du camp résultant : celle demandée, sinon celle qu'il
+    // porte déjà. Renommer vers un libellé déjà pris FUSIONNE les deux camps :
+    // les membres du camp cible adoptent aussi cette couleur, sans quoi la
+    // carte peindrait un même camp de deux teintes (l'aura suit l'assignation
+    // de chaque membre, pas le libellé).
+    const color = patch.color || members[0].color;
+    const touched = list.filter(c => c.label === from || c.label === to);
+    // Ni renommage, ni recoloration effective : on ne salit pas le store.
+    if (to === from && touched.every(c => c.color === color)) return;
+    // updatedAt bumpé sur chaque membre touché : c'est la clé de résolution du
+    // merge de sync (par mecId), donc l'édition gagne face au serveur.
+    const now = Date.now();
+    set({
+      mecCamps: list.map(c => (c.label === from || c.label === to
+        ? { ...c, label: to, color, updatedAt: now }
+        : c)),
     });
     markDirty();
   },
