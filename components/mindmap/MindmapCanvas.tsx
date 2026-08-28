@@ -8,13 +8,16 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Background,
+  BaseEdge,
   Controls,
+  EdgeLabelRenderer,
   Handle,
   Position,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
   type Edge,
+  type EdgeProps,
   type Node,
   type NodeMouseHandler,
   type NodeProps,
@@ -55,6 +58,9 @@ interface MindmapCanvasProps {
    *  jusqu'à `egoDepth` du nœud. Le reste passe en opacity dimmed. */
   egoNodeId?: string;
   egoDepth?: number;
+  /** Surbrillance externe (ex. camp choisi dans la légende) : seuls ces ids
+   *  restent nets, le reste est estompé. null/undefined = pas de filtre. */
+  highlightSet?: Set<string> | null;
   /** IDs canoniques des MEC marqués manuellement comme "à surveiller" :
    *  rendus avec un anneau rouge vif pour les repérer dans la carte. */
   pinnedIds?: string[];
@@ -130,7 +136,7 @@ const CENTERED_HANDLE_STYLE: React.CSSProperties = {
 };
 
 const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
-  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus, isPinned, isVictime, isSuspect, suspectRole, isCondamne } = data as MecNodeData & { isSuspect?: boolean; suspectRole?: string; isCondamne?: boolean };
+  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus, isPinned, isVictime, isSuspect, suspectRole, isCondamne, campLabel, campColor, role } = data as MecNodeData & { isSuspect?: boolean; suspectRole?: string; isCondamne?: boolean; campLabel?: string; campColor?: string; role?: string };
   const size = radius * 2;
   // MEC "pont" : présent sur ≥ 2 contentieux distincts → halo violet pour
   // matérialiser la transversalité (signal du score, mais visuel).
@@ -151,13 +157,15 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
             : isBridge
               ? 'ring-2 ring-violet-400/70 shadow-md hover:scale-105'
               : 'shadow-md hover:scale-105';
-  const titleExtra = isSuspect
+  const titleExtra = (isSuspect
     ? ` • Suspect${suspectRole ? ` (${suspectRole})` : ''}`
     : isCondamne
       ? ' • Condamné (résultat d\'audience)'
       : isBridge
         ? ` • ${contentieuxIds.length} contentieux`
-        : '';
+        : '')
+    + (campLabel ? ` • camp ${campLabel}` : '')
+    + (role ? ` • ${role === 'chef_reseau' ? 'chef de réseau' : 'lieutenant'}` : '');
   return (
     <div
       title={`${displayName} — ${dossierIds.length} dossier(s)${titleExtra}${isBoosted ? ' • importance manuelle' : ''}${isPinned ? ' • marqué' : ''}`}
@@ -173,13 +181,18 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
       <div
         className="absolute inset-0 rounded-full"
         style={{
-          background: isSuspect
-            ? 'linear-gradient(135deg, #7c2d12 0%, #9a3412 100%)'
-            : isCondamne
-              ? 'linear-gradient(135deg, #064e3b 0%, #047857 100%)'
-              : recent
-                ? 'linear-gradient(135deg, #1f2937 0%, #374151 100%)'
-                : 'linear-gradient(135deg, #475569 0%, #64748b 100%)',
+          // Le camp prime sur tout autre fond : c'est LE discriminant visuel
+          // entre deux groupes rivaux enchevêtrés dans les mêmes dossiers.
+          // Les étiquettes (Suspect/Condamné) restent affichées sous le nom.
+          background: campColor
+            ? `linear-gradient(135deg, ${campColor} 0%, ${campColor}cc 100%)`
+            : isSuspect
+              ? 'linear-gradient(135deg, #7c2d12 0%, #9a3412 100%)'
+              : isCondamne
+                ? 'linear-gradient(135deg, #064e3b 0%, #047857 100%)'
+                : recent
+                  ? 'linear-gradient(135deg, #1f2937 0%, #374151 100%)'
+                  : 'linear-gradient(135deg, #475569 0%, #64748b 100%)',
         }}
       />
       <span
@@ -200,6 +213,11 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
         {isCondamne && (
           <span className="opacity-80 italic" style={{ fontSize: Math.max(8, Math.min(11, radius / 4.5)) }}>
             (Condamné)
+          </span>
+        )}
+        {role && (
+          <span className="opacity-90 font-semibold" style={{ fontSize: Math.max(8, Math.min(11, radius / 4.5)) }}>
+            {role === 'chef_reseau' ? '★ Chef de réseau' : '☆ Lieutenant'}
           </span>
         )}
       </span>
@@ -364,6 +382,115 @@ const NODE_TYPES = {
 } as const;
 
 // ──────────────────────────────────────────────
+// LIENS RENSEIGNEMENT : CONTOURNEMENT D'OBSTACLES
+// ──────────────────────────────────────────────
+//
+// Un lien de renseignement peut relier deux réseaux éloignés ; tracé en
+// bezier « neutre », il traversait de part en part les dossiers posés sur
+// son chemin (illisible : le trait semblait rattacher des affaires qui
+// n'ont rien à voir). On calcule donc, pour chaque lien renseignement, un
+// point de contrôle qui fait bomber la courbe DU CÔTÉ LE MOINS ENCOMBRÉ,
+// assez pour passer à distance des nœuds interposés.
+//
+// Modèle : courbe quadratique B(t) = (1-t)²A + 2t(1-t)C + t²B. L'écart à
+// la corde vaut 2t(1-t)·(C - M) (M = milieu de la corde), maximal en t=0.5
+// où il vaut |C - M| / 2. Pour dégager un obstacle situé au paramètre t₀ à
+// distance signée s de la corde, il faut |C - M| ≥ (s + r + marge) / (2t₀(1-t₀)).
+
+const DETOUR_MARGIN = 30;      // marge visuelle autour des obstacles (px)
+const DETOUR_MAX_BULGE = 900;  // amplitude max du point de contrôle (px)
+
+/**
+ * Point de contrôle de contournement pour le segment A→B, ou null si la
+ * ligne droite ne traverse aucun nœud tiers. `obstacles` = centres +
+ * rayons de collision de tous les nœuds sauf les extrémités.
+ */
+export function computeRensDetour(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  obstacles: Array<{ x: number; y: number; r: number }>,
+): { cx: number; cy: number } | null {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 40) return null;
+  const ux = dx / len, uy = dy / len;
+  const nx = -uy, ny = ux; // normale (côté « + »)
+
+  // Obstacles qui bloquent réellement la corde, avec leur paramètre et
+  // leur distance signée à la ligne.
+  let needPlus = 0;   // amplitude requise pour passer côté +
+  let needMinus = 0;  // amplitude requise pour passer côté −
+  let blocked = false;
+  for (const o of obstacles) {
+    const vx = o.x - a.x, vy = o.y - a.y;
+    const t = (vx * ux + vy * uy) / len;
+    if (t <= 0.03 || t >= 0.97) continue; // collé à une extrémité : ignorer
+    const s = vx * nx + vy * ny;          // distance signée à la corde
+    const clearance = o.r + DETOUR_MARGIN;
+    if (Math.abs(s) >= clearance) continue;
+    blocked = true;
+    // t borné pour ne pas faire exploser l'amplitude près des extrémités.
+    const tc = Math.min(0.85, Math.max(0.15, t));
+    const denom = 2 * tc * (1 - tc);
+    // Passer côté + exige de dépasser s + clearance ; côté − l'inverse.
+    needPlus = Math.max(needPlus, (s + clearance) / denom);
+    needMinus = Math.max(needMinus, (clearance - s) / denom);
+  }
+  if (!blocked) return null;
+
+  const side = needPlus <= needMinus ? 1 : -1;
+  const bulge = Math.min(side === 1 ? needPlus : needMinus, DETOUR_MAX_BULGE);
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  return { cx: mx + nx * side * bulge, cy: my + ny * side * bulge };
+}
+
+type RensDetourEdgeData = {
+  cx: number;
+  cy: number;
+  label?: string;
+  highlighted?: boolean;
+} & Record<string, unknown>;
+
+/** Edge custom : bezier quadratique passant par le point de contrôle de
+ *  contournement, avec le libellé posé au sommet de la courbe (là où le
+ *  trait est le plus loin des réseaux traversés). */
+const RensDetourEdge = ({ sourceX, sourceY, targetX, targetY, data, style, markerEnd }: EdgeProps) => {
+  const d = (data || {}) as RensDetourEdgeData;
+  const cx = d.cx ?? (sourceX + targetX) / 2;
+  const cy = d.cy ?? (sourceY + targetY) / 2;
+  const path = `M ${sourceX},${sourceY} Q ${cx},${cy} ${targetX},${targetY}`;
+  // Sommet de la quadratique (t = 0.5).
+  const lx = 0.25 * sourceX + 0.5 * cx + 0.25 * targetX;
+  const ly = 0.25 * sourceY + 0.5 * cy + 0.25 * targetY;
+  return (
+    <>
+      <BaseEdge path={path} style={style} markerEnd={markerEnd} />
+      {d.label && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)`,
+              pointerEvents: 'none',
+            }}
+            className="rounded px-1 py-0.5 text-[11px] font-semibold"
+          >
+            <span style={{ background: '#eff6ff', color: '#1d4ed8', padding: '2px 4px', borderRadius: 3 }}>
+              {d.label}
+            </span>
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+};
+
+const EDGE_TYPES = {
+  rensDetour: RensDetourEdge,
+} as const;
+
+// ──────────────────────────────────────────────
 // CALCUL DES ROTATIONS DOSSIER
 // ──────────────────────────────────────────────
 //
@@ -441,6 +568,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   onAnnotateCluster,
   egoNodeId,
   egoDepth = 2,
+  highlightSet,
   pinnedIds,
   groupByService = false,
   layout,
@@ -575,9 +703,10 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   }, [egoNodeId, edges, egoDepth]);
 
   const isDimmed = useCallback((id: string) => {
-    if (!egoVisibleSet) return false;
-    return !egoVisibleSet.has(id);
-  }, [egoVisibleSet]);
+    if (egoVisibleSet && !egoVisibleSet.has(id)) return true;
+    if (highlightSet && !highlightSet.has(id)) return true;
+    return false;
+  }, [egoVisibleSet, highlightSet]);
 
   // Composante connexe contenant le nœud focus → on l'illumine plus fort.
   const focusedClusterId = useMemo(() => {
@@ -596,7 +725,8 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       const effectiveColor = annotation?.color || c.color;
       // En mode ego, un cluster est "dimmed" si aucun de ses nœuds n'est
       // dans la zone visible.
-      const clusterDimmed = !!egoVisibleSet && !c.nodeIds.some(id => egoVisibleSet.has(id));
+      const clusterDimmed = (!!egoVisibleSet && !c.nodeIds.some(id => egoVisibleSet.has(id)))
+        || (!!highlightSet && !c.nodeIds.some(id => highlightSet.has(id)));
       const data: HullNodeData = {
         cluster: c,
         containsFocus: c.id === focusedClusterId,
@@ -648,7 +778,8 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     // (zIndex -1, le grand blob est à -2). Pas de label, le dossier au
     // centre fait office de titre visuel.
     for (const sc of subClusters) {
-      const subDimmed = !!egoVisibleSet && !sc.nodeIds.some(id => egoVisibleSet.has(id));
+      const subDimmed = (!!egoVisibleSet && !sc.nodeIds.some(id => egoVisibleSet.has(id)))
+        || (!!highlightSet && !sc.nodeIds.some(id => highlightSet.has(id)));
       const data: HullNodeData = {
         cluster: sc,
         containsFocus: focusedId ? sc.nodeIds.includes(focusedId) : false,
@@ -719,12 +850,39 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       } satisfies Node);
     }
     return out;
-  }, [nodes, positions, focusedId, ctxColorById, dossierRotations, influenceClusters, subClusters, focusedClusterId, clusterAnnotations, egoVisibleSet, isDimmed, clusterColors, pinnedSet]);
+  }, [nodes, positions, focusedId, ctxColorById, dossierRotations, influenceClusters, subClusters, focusedClusterId, clusterAnnotations, egoVisibleSet, highlightSet, isDimmed, clusterColors, pinnedSet]);
+
+  // Obstacles pour le contournement des liens renseignement : tous les
+  // nœuds positionnés avec leur rayon de collision (les extrémités du lien
+  // sont exclues au calcul, par lien).
+  const detourObstacles = useMemo(() => {
+    const out: Array<{ id: string; x: number; y: number; r: number }> = [];
+    for (const n of nodes) {
+      const p = positions.get(n.id);
+      if (!p) continue;
+      out.push({ id: n.id, x: p.x, y: p.y, r: getCollisionRadius(n) });
+    }
+    return out;
+  }, [nodes, positions]);
 
   const rfEdges: Edge[] = useMemo(() => {
     return edges.map(e => {
       const highlighted = focusedId && (e.source === focusedId || e.target === focusedId);
       const isRens = e.kind === 'renseignement';
+      // Lien renseignement qui traverserait des nœuds tiers (typique : un
+      // lien entre deux réseaux crimorg passant au travers d'un dossier
+      // ECOFI posé entre les deux) → courbe de contournement dédiée.
+      let detour: { cx: number; cy: number } | null = null;
+      if (isRens) {
+        const a = positions.get(e.source);
+        const b = positions.get(e.target);
+        if (a && b) {
+          detour = computeRensDetour(
+            a, b,
+            detourObstacles.filter(o => o.id !== e.source && o.id !== e.target),
+          );
+        }
+      }
       const isSuspectEdge = e.kind === 'suspect';
       const isCondamneEdge = e.kind === 'condamne';
       // Bezier doux dès qu'un des deux endpoints est connecté à plus d'un autre
@@ -736,12 +894,15 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
         id: e.id,
         source: e.source,
         target: e.target,
-        type: useCurve ? 'simplebezier' : 'straight',
-        label: isRens ? e.label : undefined,
-        labelStyle: isRens ? { fill: '#1d4ed8', fontSize: 11, fontWeight: 600 } : undefined,
-        labelBgStyle: isRens ? { fill: '#eff6ff' } : undefined,
-        labelBgPadding: isRens ? ([4, 2] as [number, number]) : undefined,
-        labelBgBorderRadius: isRens ? 3 : undefined,
+        type: detour ? 'rensDetour' : (useCurve ? 'simplebezier' : 'straight'),
+        data: detour
+          ? { cx: detour.cx, cy: detour.cy, label: e.label, highlighted: !!highlighted }
+          : undefined,
+        label: isRens && !detour ? e.label : undefined,
+        labelStyle: isRens && !detour ? { fill: '#1d4ed8', fontSize: 11, fontWeight: 600 } : undefined,
+        labelBgStyle: isRens && !detour ? { fill: '#eff6ff' } : undefined,
+        labelBgPadding: isRens && !detour ? ([4, 2] as [number, number]) : undefined,
+        labelBgBorderRadius: isRens && !detour ? 3 : undefined,
         style: isRens
           ? {
               stroke: highlighted ? '#1e40af' : '#3b82f6',
@@ -773,7 +934,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
                 },
       };
     });
-  }, [edges, focusedId, nodeDegree]);
+  }, [edges, focusedId, nodeDegree, positions, detourObstacles]);
 
   const handleClick: NodeMouseHandler = useCallback(
     (_, node) => {
@@ -806,6 +967,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       nodes={rfNodes}
       edges={rfEdges}
       nodeTypes={NODE_TYPES}
+      edgeTypes={EDGE_TYPES}
       fitView
       fitViewOptions={{ padding: 0.2 }}
       // minZoom très bas (0.01) : quand la carte devient « commune à tous »

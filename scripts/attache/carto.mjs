@@ -52,6 +52,40 @@ function saveOverlay(keys, file) {
   return writeVault(attacheTj(), OVERLAY, envelope, author(keys))
 }
 
+/**
+ * FICHES de la carte : personnes ex nihilo (avec leurs notes et surnoms) et
+ * dossiers ex nihilo (avec leur description). Ces notes sont saisies par le
+ * magistrat directement sur la cartographie — souvent riches en
+ * renseignement (rôles supposés, contexte, époque) et INVISIBLES depuis les
+ * dossiers réels. À consulter systématiquement pour tout travail de
+ * recoupement ou d'enrichissement de fiche.
+ */
+export function listerFiches(keys) {
+  const ov = loadOverlay(keys)
+  const nomDeMec = new Map()
+  for (const m of ov?.mecsExNihilo || []) nomDeMec.set(m.id, m.displayName || m.id)
+  const fichesPersonnes = (ov?.mecsExNihilo || []).slice(0, 400).map((m) => ({
+    nom: m.displayName || m.id,
+    alias: (m.alias || []).slice(0, 12),
+    notes: m.notes ? String(m.notes).slice(0, 2000) : undefined,
+  }))
+  const dossiers = (ov?.dossiersExNihilo || []).slice(0, 250).map((d) => ({
+    label: d.label,
+    dateApprox: d.dateApprox,
+    misEnCause: (d.mecIds || []).map((id) => nomDeMec.get(id) || id).slice(0, 30),
+    natinfCodes: d.natinfCodes,
+    notes: d.notes ? String(d.notes).slice(0, 2000) : undefined,
+  }))
+  return {
+    contentieux: attacheTj(),
+    nbFichesPersonnes: fichesPersonnes.length,
+    nbDossiersExNihilo: dossiers.length,
+    note: 'Notes et descriptions saisies PAR LE MAGISTRAT sur la carte : source de renseignement de première main, à recouper avec les pièces. Ne jamais les contredire ni proposer de les réécrire — un enrichissement s\'AJOUTE (proposer_note_mec).',
+    fichesPersonnes,
+    dossiersExNihilo: dossiers,
+  }
+}
+
 /** Liens de renseignement déjà tracés (avec noms lisibles quand connus). */
 export function listerLiens(keys) {
   const ov = loadOverlay(keys)
@@ -309,8 +343,13 @@ export function cartoCorpus(keys, { includeArchived = true } = {}) {
     // CLI, elle serait déversée dans un fichier illisible pour l'agent, donc
     // perdue. Le détail d'un dossier se tire ensuite un par un (lire_dossier).
     dossiers: [...enquetes, ...instruction].map(alleger),
-    mecsExNihiloExistants: (ov?.mecsExNihilo || []).map((m) => m.displayName || m.id).slice(0, 300),
-    dossiersExNihiloExistants: (ov?.dossiersExNihilo || []).map((d) => d.label).slice(0, 200),
+    // Les fiches manuelles portent souvent des NOTES de renseignement riches
+    // (saisies par le magistrat sur la carte) : on signale leur présence ici,
+    // le détail complet se lit avec carto_lire_fiches.
+    mecsExNihiloExistants: (ov?.mecsExNihilo || []).slice(0, 300).map((m) =>
+      (m.displayName || m.id) + (m.notes ? ' [fiche annotée]' : '')),
+    dossiersExNihiloExistants: (ov?.dossiersExNihilo || []).slice(0, 200).map((d) =>
+      d.label + (d.notes ? ' [description]' : '')),
     liensRenseignementTraces: (ov?.liensRenseignement || []).length,
     note: blocConsigne(keys, 'carto_profonde'),
   }
@@ -356,6 +395,53 @@ export async function appendMecExNihilo(keys, { nom, alias, notes }) {
   })
   await saveOverlay(keys, ov)
   return { ok: true, id }
+}
+
+/**
+ * ENRICHISSEMENT de la fiche d'une personne (appliqué à la validation ✓ d'une
+ * proposition `mec_note`). Règle absolue : APPEND-ONLY — le texte existant de
+ * la fiche (écrit par le magistrat) n'est JAMAIS modifié, contredit ni
+ * effacé ; l'ajout arrive À LA SUITE, daté et signé « Attaché ». Les alias
+ * proposés sont fusionnés (jamais retirés). Si la personne n'a pas encore de
+ * fiche (MEC réel sans fiche manuelle, ou inconnue), la fiche est créée — un
+ * MEC réel homonyme la fusionnera dans son nœud côté carte.
+ */
+export async function appendMecNoteEnrichissement(keys, { nom, notes, alias }) {
+  const clean = String(nom || '').trim()
+  if (!clean) throw new Error('Nom de la personne requis')
+  const ajout = String(notes || '').trim()
+  if (!ajout) throw new Error('Notes à ajouter requises')
+  const key = mecCanonId(clean)
+  if (!key) throw new Error('Nom invalide')
+  const ov = loadOverlay(keys) || emptyOverlay()
+  ov.mecsExNihilo = ov.mecsExNihilo || []
+  const now = Date.now()
+  const stamp = new Date(now).toLocaleDateString('fr-FR')
+  const bloc = `— Attaché, le ${stamp} —\n${ajout.slice(0, 2000)}`
+  const aliasPropres = Array.isArray(alias)
+    ? alias.map((a) => String(a).trim()).filter(Boolean).slice(0, 12)
+    : []
+  const existante = ov.mecsExNihilo.find((m) => mecCanonId(m.displayName || m.id) === key)
+  if (existante) {
+    const courantes = String(existante.notes || '').trim()
+    // Plafond global généreux : on tronque l'HISTORIQUE des ajouts attaché le
+    // plus ancien avant de toucher au texte du magistrat (qui est en tête).
+    existante.notes = (courantes ? courantes + '\n\n' : '') + bloc
+    if (existante.notes.length > 8000) existante.notes = existante.notes.slice(0, 8000)
+    existante.alias = [...new Set([...(existante.alias || []), ...aliasPropres])].slice(0, 20)
+    existante.updatedAt = now
+  } else {
+    ov.mecsExNihilo.push({
+      id: normalizeMecName(clean),
+      displayName: clean,
+      alias: aliasPropres,
+      notes: bloc,
+      createdAt: now,
+      updatedAt: now,
+    })
+  }
+  await saveOverlay(keys, ov)
+  return { ok: true, cible: existante ? 'fiche enrichie' : 'fiche créée' }
 }
 
 /** Ajoute un lien de renseignement à la carte (appliqué à la validation ✓). */

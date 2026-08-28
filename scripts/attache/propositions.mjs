@@ -20,14 +20,14 @@ import crypto from 'node:crypto'
 import { attacheDir, ensureDir, atomicWrite, readJson, withFileLock } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { ajouterMec, enregistrerActe, classerNote, getMecNoms, normalizeNom, proximiteNoms, mecParNom, creerDossier, dossierExiste } from './dossier.mjs'
-import { appendLien, appendDossierExNihilo, dossierExNihiloExiste, appendMecExNihilo, mecExNihiloExiste } from './carto.mjs'
+import { appendLien, appendDossierExNihilo, dossierExNihiloExiste, appendMecExNihilo, mecExNihiloExiste, appendMecNoteEnrichissement } from './carto.mjs'
 import { saveTrame, readTrame, safeTrameName, MODELE_PREFIX } from './trames.mjs'
 import { saveSkill, readSkill, safeSkillName, AUTO_SKILL_PREFIX } from './skills.mjs'
 import { audit } from './journal.mjs'
 import { recordLearningSignal } from './apprentissage.mjs'
 
 const FILE = () => attacheDir('propositions.json')
-const TYPES = ['mec', 'acte', 'cr', 'lien', 'dossier', 'dossier_carto', 'mec_carto', 'trame', 'skill']
+const TYPES = ['mec', 'acte', 'cr', 'lien', 'dossier', 'dossier_carto', 'mec_carto', 'mec_note', 'trame', 'skill']
 // Types rattachés à un dossier EXISTANT (numéro requis). « dossier » porte le
 // numéro du dossier à créer ; « dossier_carto », « mec_carto » et « lien »
 // sont globaux (carte — numéro facultatif pour un lien : simple contexte
@@ -100,6 +100,19 @@ export async function addProposition(keys, { numero, type, payload, source, titr
     const pendante = propositions.find((p) => p.statut === 'en_attente' && p.type === 'dossier_carto'
       && String(p.payload?.label || '').trim().toLowerCase() === lbl.toLowerCase())
     if (pendante) return { doublon: true, message: 'Une création de ce dossier ex nihilo est déjà en attente' }
+    numero = ''
+  }
+
+  // ENRICHISSEMENT de la fiche d'une personne de la carte : global. Append-only
+  // à la validation — jamais de réécriture des notes du magistrat.
+  if (type === 'mec_note') {
+    const nom = String(payload.nom || '').trim()
+    if (!nom) throw new Error('Nom de la personne requis')
+    if (!String(payload.notes || '').trim()) throw new Error('Notes à ajouter requises')
+    const norm = normalizeNom(nom)
+    const pendante = propositions.find((p) => p.statut === 'en_attente' && p.type === 'mec_note'
+      && normalizeNom(p.payload?.nom || '') === norm)
+    if (pendante) return { doublon: true, message: 'Un enrichissement de cette fiche est déjà en attente — le magistrat n\'a pas encore tranché' }
     numero = ''
   }
 
@@ -220,6 +233,7 @@ function defaultTitre(type, payload) {
     return `Dossier ex nihilo (carte) : ${payload.label || '?'}${n ? ` — ${n} personne(s)` : ''}`
   }
   if (type === 'mec_carto') return `Personne ex nihilo (carte) : ${payload.nom || '?'}${Array.isArray(payload.alias) && payload.alias.length ? ` (alias ${payload.alias.slice(0, 3).join(', ')})` : ''}`
+  if (type === 'mec_note') return `Enrichissement de fiche : ${payload.nom || '?'}`
   if (type === 'trame') return payload.existante ? `Trame « ${payload.nom} » — amélioration proposée` : `Nouvelle trame proposée : ${payload.nom}`
   if (type === 'skill') return payload.existante ? `Skill « ${payload.nom} » — amélioration proposée` : `Nouvelle skill proposée : ${payload.nom}`
   if (type === 'lien') return `Lien de renseignement : ${payload.sourceNom} ↔ ${payload.targetNom}${payload.label ? ` (${payload.label})` : ''}`
@@ -271,6 +285,8 @@ export async function decideProposition(keys, { id, action, par, motif }) {
       applique = await appendDossierExNihilo(keys, prop.payload)
     } else if (prop.type === 'mec_carto') {
       applique = await appendMecExNihilo(keys, prop.payload)
+    } else if (prop.type === 'mec_note') {
+      applique = await appendMecNoteEnrichissement(keys, prop.payload)
     } else if (prop.type === 'trame') {
       // écriture versionnée : l'ancienne version reste récupérable ; la
       // description existante est conservée si la proposition n'en porte pas

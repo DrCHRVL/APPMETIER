@@ -52,7 +52,7 @@ import { clearLayoutCache } from '../mindmap/useForceLayout';
 
 // Types de propositions carto revus depuis la carte (constante stable :
 // évite qu'un tableau inline ne relance le chargement à chaque rendu).
-const CARTO_REVIEW_KINDS = ['dossier_carto', 'mec_carto', 'lien'] as const;
+const CARTO_REVIEW_KINDS = ['dossier_carto', 'mec_carto', 'mec_note', 'lien'] as const;
 
 // ──────────────────────────────────────────────
 // PROPS
@@ -181,6 +181,10 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const removeClusterAnnotation = useCartographieOverlayStore(s => s.removeClusterAnnotation);
   const mecScoreBoosts = useCartographieOverlayStore(s => s.mecScoreBoosts);
   const setMecScoreBoost = useCartographieOverlayStore(s => s.setMecScoreBoost);
+  const setMecRole = useCartographieOverlayStore(s => s.setMecRole);
+  const mecCamps = useCartographieOverlayStore(s => s.mecCamps);
+  const setMecCamp = useCartographieOverlayStore(s => s.setMecCamp);
+  const removeMecCamp = useCartographieOverlayStore(s => s.removeMecCamp);
 
   const { showToast } = useToast();
   const { user, isAdmin } = useUser();
@@ -250,7 +254,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     dossiersExNihilo,
     liensRenseignement,
     mecScoreBoosts,
-  }), [mecsExNihilo, dossiersExNihilo, liensRenseignement, mecScoreBoosts]);
+    mecCamps,
+  }), [mecsExNihilo, dossiersExNihilo, liensRenseignement, mecScoreBoosts, mecCamps]);
 
   // Configuration de scoring (pondérations éditables NATINF/catégories, plus
   // le poids des anciens tags d'infraction — HÉRITAGE : ne sert qu'aux
@@ -375,6 +380,78 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   // encore relues. Cf. le rendu plus bas.
   const mapPending = cartoConfigLoading || !overlayLoaded;
   const top10 = useMemo(() => getTopMec(graph, 10), [graph]);
+
+  // Camps existants : regroupés par libellé (couleur de l'assignation la plus
+  // récente), avec le nombre de membres visibles sur le graphe courant.
+  const campsSummary = useMemo(() => {
+    const byLabel = new Map<string, { label: string; color: string; updatedAt: number; count: number }>();
+    for (const c of mecCamps) {
+      const cur = byLabel.get(c.label);
+      if (!cur) byLabel.set(c.label, { label: c.label, color: c.color, updatedAt: c.updatedAt || 0, count: 0 });
+      else if ((c.updatedAt || 0) > cur.updatedAt) { cur.color = c.color; cur.updatedAt = c.updatedAt || 0; }
+    }
+    for (const mec of graph.mecById.values()) {
+      if (!mec.campLabel) continue;
+      const cur = byLabel.get(mec.campLabel);
+      if (cur) cur.count += 1;
+      else byLabel.set(mec.campLabel, { label: mec.campLabel, color: mec.campColor || '#475569', updatedAt: 0, count: 1 });
+    }
+    return [...byLabel.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'fr'));
+  }, [mecCamps, graph]);
+
+  // Surbrillance d'un camp : clic sur la légende → seuls ses membres (et
+  // leurs dossiers) restent nets, le reste est estompé. Second clic = annule.
+  const [campHighlight, setCampHighlight] = useState<string | undefined>();
+  const campHighlightSet = useMemo(() => {
+    if (!campHighlight) return null;
+    const set = new Set<string>();
+    for (const mec of graph.mecById.values()) {
+      if (mec.campLabel !== campHighlight) continue;
+      set.add(mec.id);
+      for (const did of mec.dossierIds) set.add(did);
+    }
+    return set.size > 0 ? set : null;
+  }, [campHighlight, graph]);
+  // Le camp surligné peut disparaître (retrait du dernier membre) : on annule.
+  useEffect(() => {
+    if (campHighlight && !campsSummary.some(c => c.label === campHighlight)) {
+      setCampHighlight(undefined);
+    }
+  }, [campHighlight, campsSummary]);
+
+  // Notes & surnoms depuis le panneau : la fiche manuelle EST le support de
+  // ces champs — on la met à jour si elle existe (même sous un ordre
+  // nom/prénom différent), sinon on la crée. Une fiche pour un MEC réel se
+  // fond dans son nœud (mêmes règles que l'ajout ex nihilo).
+  const handleSaveMecFiche = React.useCallback(
+    (mec: MecNode, data: { notes?: string; alias: string[] }) => {
+      const key = mecSortedKey(mec.displayName) || mec.id.split(' ').sort().join(' ');
+      const fiche = mecsExNihilo.find(m =>
+        m.id === mec.id || mecSortedKey(m.displayName || m.id) === key);
+      if (fiche) {
+        updateMec(fiche.id, { notes: data.notes, alias: data.alias });
+      } else {
+        addMec({ displayName: mec.displayName, alias: data.alias, notes: data.notes });
+      }
+    },
+    [mecsExNihilo, updateMec, addMec],
+  );
+
+  // Enrichissement d'une fiche par l'attaché : PRÉ-REMPLIT le chat carto
+  // (admin) avec la consigne de recherche — rien d'automatique, l'attaché
+  // dépose ensuite une PROPOSITION ✓/✗ qui n'écrase jamais les notes.
+  const [enrichPrefill, setEnrichPrefill] = useState<{ text: string; seq: number } | undefined>();
+  const handleEnrichMec = React.useCallback((mec: MecNode) => {
+    const alias = [...(mec.manualAlias || []), ...mec.variants].slice(0, 4);
+    const text = `Recherche tout ce que nos dossiers (enquêtes, instruction, pièces, CR) disent de ${mec.displayName}`
+      + (alias.length ? ` (alias/orthographes : ${alias.join(', ')})` : '')
+      + `. Rôle supposé, entourage, dossiers où il apparaît, adresses/téléphones/véhicules, éléments de contexte — cite tes sources (pièce et dossier). `
+      + `Consulte AUSSI les fiches de la carte (carto_lire_fiches) : les notes des personnes et les descriptions des dossiers ex nihilo `
+      + `que j'ai créés sont riches en renseignement. `
+      + `Quand tu as fini, dépose UNE proposition d'enrichissement de sa fiche avec proposer_note_mec `
+      + `(l'ajout sera fait à la suite de mes notes, sans jamais les modifier ni les contredire). N'écris rien d'office.`;
+    setEnrichPrefill(prev => ({ text, seq: (prev?.seq ?? 0) + 1 }));
+  }, []);
 
   // ────────────────────────────────────────────
   // ACTIONS
@@ -960,6 +1037,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             clusterAnnotations={clusterAnnotations}
             onAnnotateCluster={handleAnnotateCluster}
             egoNodeId={egoNodeId}
+            highlightSet={campHighlightSet}
             pinnedIds={pinnedMecIds}
             groupByService={cartoConfig.groupByService}
             layout={cartoConfig.layout}
@@ -973,11 +1051,46 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             mec={sidePanelMec}
             graph={graph}
             contentieuxDefs={effectiveContentieuxDefs}
+            existingCamps={campsSummary}
             onClose={() => setSidePanelMecId(undefined)}
             onDossierClick={handleDossierFromPanel}
             onDossierOpen={handleDossierOpenFromPanel}
+            onPersonClick={(m) => focusOnNode(m)}
             onSetScoreBoost={setMecScoreBoost}
+            onSetRole={setMecRole}
+            onSetCamp={setMecCamp}
+            onRemoveCamp={removeMecCamp}
+            onSaveFiche={handleSaveMecFiche}
+            onEnrichRequest={isAdmin() ? handleEnrichMec : undefined}
+            onDeleteLien={removeLien}
           />
+        )}
+
+        {/* Légende des camps : un clic met le camp en surbrillance (le reste
+            de la carte s'estompe), un second clic annule. */}
+        {campsSummary.length > 0 && (
+          <div className="absolute bottom-3 left-3 z-20 bg-white/95 border border-slate-200 rounded-lg shadow-md px-3 py-2 max-w-[260px]">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">Camps</div>
+            <div className="flex flex-col gap-1">
+              {campsSummary.map(c => {
+                const active = campHighlight === c.label;
+                return (
+                  <button
+                    key={c.label}
+                    onClick={() => setCampHighlight(prev => prev === c.label ? undefined : c.label)}
+                    className={`flex items-center gap-2 text-left text-xs rounded px-1.5 py-1 transition-colors ${
+                      active ? 'bg-slate-100 font-semibold text-slate-900' : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                    title={active ? 'Cliquer pour annuler la surbrillance' : 'Mettre ce camp en surbrillance'}
+                  >
+                    <span className="h-3 w-3 rounded-full flex-shrink-0" style={{ background: c.color }} />
+                    <span className="flex-1 min-w-0 truncate">{c.label}</span>
+                    <span className="text-[10px] text-slate-400">{c.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         )}
 
         {showTop10 && (
@@ -1086,7 +1199,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
 
       {/* Chat carto de l'attaché — admin only : analyse du réseau, propose
           les liens de renseignement manquants (auto-masqué si inactif). */}
-      {isAdmin() && <FloatingDossierChat numero="carto" carto label="Cartographie" />}
+      {isAdmin() && <FloatingDossierChat numero="carto" carto label="Cartographie" prefill={enrichPrefill} />}
 
       {/* Revue des propositions de renseignement de l'attaché : liens
           personne↔personne, personnes ex nihilo (surnoms/2nd plan) et

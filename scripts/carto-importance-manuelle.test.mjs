@@ -226,5 +226,58 @@ verifie('le résultat ne dépend pas de l\'ordre de la liste',
   g2.mecById.get('debus clement')?.manualBonus === 4,
   String(g2.mecById.get('debus clement')?.manualBonus))
 
+// ──────────────────────────────────────────────
+console.log('\n6) Rôle hiérarchique (lieutenant / chef de réseau)')
+// ──────────────────────────────────────────────
+// Le rôle vit dans la même entrée que le bonus : chacun des deux réglages
+// doit préserver l'autre, et le score du graphe ajoute les points fixes.
+useCartographieOverlayStore.getState().setMecRole('debus clement', 'chef_reseau')
+verifie('cocher un rôle préserve bonus et justification',
+  boostOf('debus clement') === 4 && boosts()[0]?.role === 'chef_reseau', dump())
+enregistrer('debus clement', 7, 'nouvelle raison')
+verifie('modifier le bonus préserve le rôle', boosts()[0]?.role === 'chef_reseau', dump())
+await sleep(2500)
+verifie('le rôle est poussé au serveur commun', VAULT.mecScoreBoosts[0]?.role === 'chef_reseau')
+
+const gRole = buildMindmapGraph([], {
+  ...overlay,
+  mecScoreBoosts: [{ mecId: 'debus clement', bonus: 4, role: 'chef_reseau', updatedAt: 3000 }],
+}, config)
+verifie('le graphe expose le rôle', gRole.mecById.get('debus clement')?.role === 'chef_reseau')
+const gSans = buildMindmapGraph([], {
+  ...overlay,
+  mecScoreBoosts: [{ mecId: 'debus clement', bonus: 4, updatedAt: 3000 }],
+}, config)
+verifie('chef de réseau vaut +30 points sur le score brut',
+  proche30(gRole.mecById.get('debus clement')?.rawScore, gSans.mecById.get('debus clement')?.rawScore),
+  `${gRole.mecById.get('debus clement')?.rawScore} vs ${gSans.mecById.get('debus clement')?.rawScore}`)
+useCartographieOverlayStore.getState().setMecRole('debus clement', undefined)
+verifie('décocher le rôle garde l\'entrée tant qu\'un bonus subsiste',
+  boostOf('debus clement') === 7 && boosts()[0]?.role === undefined, dump())
+
+function proche30(a, b) { return Math.abs((a ?? 0) - (b ?? 0) - 30) < 1e-9 }
+
+// ──────────────────────────────────────────────
+console.log('\n7) Camps (réseau d\'appartenance)')
+// ──────────────────────────────────────────────
+const camps = () => useCartographieOverlayStore.getState().mecCamps
+useCartographieOverlayStore.getState().setMecCamp('debus clement', 'Réseau Ben Cherki', '#dc2626')
+verifie('l\'assignation est posée', camps().length === 1 && camps()[0].label === 'Réseau Ben Cherki')
+await sleep(2500)
+verifie('le camp est poussé au serveur commun', (VAULT.mecCamps || [])[0]?.label === 'Réseau Ben Cherki')
+const gCamp = buildMindmapGraph([], {
+  ...overlay,
+  mecCamps: [{ mecId: 'clement debus', label: 'Réseau Ben Cherki', color: '#dc2626', updatedAt: 1000 }],
+}, config)
+verifie('le camp s\'applique au nœud malgré l\'ordre nom/prénom',
+  gCamp.mecById.get('debus clement')?.campLabel === 'Réseau Ben Cherki'
+  && gCamp.mecById.get('debus clement')?.campColor === '#dc2626')
+useCartographieOverlayStore.getState().removeMecCamp('debus clement')
+verifie('le retrait supprime l\'assignation (avec tombstone)',
+  camps().length === 0
+  && (useCartographieOverlayStore.getState().deletedMecCampIds || []).some(t => t.id === 'debus clement'))
+await sleep(2500)
+verifie('le retrait n\'est pas ressuscité par le serveur', camps().length === 0)
+
 console.log(echecs === 0 ? '\nTous les tests passent.\n' : `\n${echecs} test(s) en échec.\n`)
 process.exit(echecs === 0 ? 0 : 1)

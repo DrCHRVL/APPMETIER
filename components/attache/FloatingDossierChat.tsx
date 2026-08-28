@@ -32,12 +32,20 @@ export function FloatingDossierChat({
   label,
   carto = false,
   inDialog = false,
+  prefill,
 }: {
   numero: string;
   cadre?: 'preliminaire' | 'instruction';
   label?: string;
   /** Mode cartographie : chat rattaché au réseau, pas à un dossier. */
   carto?: boolean;
+  /**
+   * Demande externe : ouvre la fenêtre et ENVOIE ce message (ex. bouton
+   * « Enrichir (attaché) » du panneau MEC). `seq` re-déclenche une même
+   * demande ; ignorée tant que le service est indisponible ou qu'un tour
+   * est déjà en cours.
+   */
+  prefill?: { text: string; seq: number };
   /**
    * À poser quand la bulle vit DANS le contenu d'une Dialog Radix modale
    * (ex. détail d'enquête) : Radix rend tout l'extérieur inerte
@@ -233,6 +241,23 @@ export function FloatingDossierChat({
       if (touchedData) { useEnquetesStore.getState().syncAndRefresh().catch(() => {}); }
     }
   }, [busy, convId, numero, cadre, carto, cfg, convKey, scrollDown]);
+
+  // Demande externe (prefill) : ouvre la bulle et envoie le message. On ne
+  // rejoue jamais deux fois le même seq ; si un tour est déjà en cours, la
+  // demande est abandonnée (l'utilisateur voit la fenêtre ouverte et peut
+  // renvoyer lui-même).
+  const prefillHandledRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!prefill || !available) return;
+    if (prefillHandledRef.current === prefill.seq) return;
+    prefillHandledRef.current = prefill.seq;
+    setOpen(true);
+    setAskResume(false);
+    if (!busy) void ask(prefill.text);
+    // `ask` et `busy` volontairement hors deps : l'effet ne doit tirer qu'une
+    // fois par seq, pas à chaque re-render du composant.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill?.seq, available]);
 
   const openMemory = useCallback(async () => {
     try {

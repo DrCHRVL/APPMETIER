@@ -95,10 +95,15 @@ const SERVICE_GRAVITY_STRENGTH = 0.12;
 // v9 : masque géométrique des dossiers voisins dans l'orbital pass + buffer
 //      MEC ↔ dossier non-parent dans node-SAT → planètes plus aérées et
 //      visiblement rattachées à leur étoile.
-const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v9';
+// v10 : halo de masse renforcé (un gros amas repousse les petits dossiers
+//       indépendants hors de sa zone d'orbite, hull-SAT au plein halo du
+//       plus gros des deux) — recalcul propre pour que l'espacement
+//       s'applique sans recompactage manuel.
+const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v10';
 // Cache séparé pour les centres de galaxies (clé = anchorId). v4 = attraction
 // renseignement + hull-SAT élargi → les centres bougent, on invalide.
-const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v4';
+// v5 = halo de masse renforcé (cf. positions v10).
+const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v5';
 // Cache des angles orbitaux par MEC (clé = id MEC). v4 : rayons d'anneau
 // recalculés en fonction de la taille de l'étoile (dossier large) → les
 // anciens angles cachés étaient valides mais on relance proprement.
@@ -578,6 +583,36 @@ export function useForceLayout(
         renseignementTargetsByMecId.get(tn.id)!.push(e.source);
       }
     }
+    // GRAVITÉ DE CAMP — cibles par MEC : les autres membres de son camp
+    // (hors co-membres du même dossier, dont le barycentre coïnciderait avec
+    // l'étoile et n'orienterait rien). La planète est tournée vers le
+    // barycentre du camp au moment du placement orbital : les membres d'un
+    // même camp se regroupent du même côté de chaque dossier, SANS déplacer
+    // dossiers ni galaxies. Priorité moindre qu'un lien renseignement.
+    const campTargetsByMecId = new Map<string, string[]>();
+    {
+      const membersByCamp = new Map<string, Array<{ id: string; soloDossier?: string }>>();
+      for (const n of nodes) {
+        if (n.type !== 'mec' || !n.campLabel) continue;
+        let list = membersByCamp.get(n.campLabel);
+        if (!list) {
+          list = [];
+          membersByCamp.set(n.campLabel, list);
+        }
+        list.push({ id: n.id, soloDossier: n.dossierIds.length === 1 ? n.dossierIds[0] : undefined });
+      }
+      for (const members of membersByCamp.values()) {
+        if (members.length < 2) continue;
+        for (const m of members) {
+          if (!m.soloDossier) continue; // seules les planètes sont orientables
+          const targets = members
+            .filter(o => o.id !== m.id && o.soloDossier !== m.soloDossier)
+            .slice(0, 40)
+            .map(o => o.id);
+          if (targets.length > 0) campTargetsByMecId.set(m.id, targets);
+        }
+      }
+    }
     const newAngles = applyOrbitalLayout(
       orbitalGalaxies,
       nodes,
@@ -586,6 +621,7 @@ export function useForceLayout(
       {
         collisionRadiusOf: getCollisionRadius,
         renseignementTargetsByMecId,
+        campTargetsByMecId,
       },
     );
     for (const [mecId, ang] of newAngles) orbitalAngleCache.set(mecId, ang);
