@@ -1371,6 +1371,25 @@ const TOOLS = [
     write: true,
   },
   {
+    name: 'proposer_camp_carto',
+    description: 'Propose un CAMP (clan) détecté au sein d\'un GROS amas de la carte — n\'écrit PAS directement : ✓/✗. Réservé aux amas denses où plusieurs groupes rivaux s\'enchevêtrent (jamais pour un petit réseau isolé, inutile). Déduis les camps des descriptions et CR des dossiers, des fiches et dossiers ex nihilo (carto_lire_fiches), des liens (carto_lister_liens) et des co-occurrences (carto_analyser). N\'inclus que les membres SÛRS : dans le doute, laisse la personne hors du camp. Au ✓, chaque membre reçoit le camp SANS écraser une assignation existante ni ressusciter un retrait fait à la main — les choix du magistrat priment toujours, et il peut retirer n\'importe qui de son camp ensuite. Une proposition PAR camp, avec un motif sourcé.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        label: { type: 'string', description: 'Nom parlant du camp (ex: « Réseau Ben Cherki », « Groupe le Corner »)' },
+        membres: { type: 'array', items: { type: 'string' }, description: 'Noms des personnes du camp (membres sûrs uniquement)' },
+        couleur: { type: 'string', description: 'Couleur hex optionnelle (ex: #dc2626) — sinon attribuée automatiquement' },
+        source: { type: 'string', description: 'Sur quoi repose la détection (dossiers, CR, liens, fiches — cite précisément)' },
+      },
+      required: ['label', 'membres', 'source'],
+    },
+    handler: async (a) => addProposition(keys, {
+      type: 'camp_carto', source: a.source,
+      payload: { label: a.label, membres: a.membres, color: a.couleur },
+    }),
+    write: true,
+  },
+  {
     name: 'carto_analyser',
     description: 'Analyse le réseau (cartographie) : figures centrales, « ponts » (personnes présentes dans plusieurs dossiers, qui relient des affaires), co-occurrences, nombre de liens de renseignement déjà tracés. Pour aider à voir les connexions et améliorer la visibilité. Interpréter : centralité, cloisonnements, liens manquants à tracer.',
     inputSchema: { type: 'object', properties: { archives: { type: 'boolean', description: 'Inclure les dossiers archivés' } } },

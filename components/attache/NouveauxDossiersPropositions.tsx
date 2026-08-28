@@ -17,10 +17,10 @@
  * `kinds` restreint aux types pertinents selon l'endroit d'affichage.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Check, X, FolderPlus, Network, UserPlus, GitBranch, Loader2, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import { Check, X, FolderPlus, Network, UserPlus, GitBranch, Loader2, ChevronDown, ChevronUp, Sparkles, Flag } from 'lucide-react';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
 
-type Kind = 'dossier' | 'dossier_carto' | 'mec_carto' | 'mec_note' | 'lien';
+type Kind = 'dossier' | 'dossier_carto' | 'mec_carto' | 'mec_note' | 'camp_carto' | 'lien';
 
 interface Mec { nom?: string; role?: string; statut?: string }
 
@@ -45,6 +45,8 @@ interface Proposition {
     // lien
     sourceNom?: string;
     targetNom?: string;
+    // camp_carto
+    membres?: string[];
   };
   source?: string;
   creeLe: string;
@@ -55,10 +57,11 @@ const TYPE_META: Record<Kind, { icon: typeof FolderPlus; label: string; tint: st
   dossier_carto: { icon: Network,    label: 'Dossier ex nihilo',    tint: 'text-violet-700 bg-violet-50' },
   mec_carto:     { icon: UserPlus,   label: 'Personne ex nihilo',   tint: 'text-sky-700 bg-sky-50' },
   mec_note:      { icon: Sparkles,   label: 'Enrichissement fiche', tint: 'text-emerald-700 bg-emerald-50' },
+  camp_carto:    { icon: Flag,       label: 'Camp détecté',         tint: 'text-rose-700 bg-rose-50' },
   lien:          { icon: GitBranch,  label: 'Lien de renseignement', tint: 'text-teal-700 bg-teal-50' },
 };
 
-const CARTO_KINDS: Kind[] = ['dossier_carto', 'mec_carto', 'mec_note', 'lien'];
+const CARTO_KINDS: Kind[] = ['dossier_carto', 'mec_carto', 'mec_note', 'camp_carto', 'lien'];
 
 function mecName(m: Mec | string): string {
   return typeof m === 'string' ? m : (m?.nom || '');
@@ -212,6 +215,17 @@ export function NouveauxDossiersPropositions({
                       <Field label="Personne" value={p.payload.nom} />
                       <Field label="Alias / surnoms" value={(p.payload.alias || []).join(', ')} />
                       <Field label="Notes" value={p.payload.notes} />
+                    </>
+                  )}
+                  {p.type === 'camp_carto' && (
+                    <>
+                      <Field label="Camp" value={p.payload.label} />
+                      <Field label="Membres" value={(p.payload.membres || []).join(', ')} />
+                      <div className="text-[10px] text-gray-400">
+                        ✓ assigne ce camp aux membres listés — sans toucher aux personnes déjà rangées
+                        dans un camp ni à celles que vous en avez retirées. Retrait individuel possible
+                        ensuite depuis la fiche de chaque personne.
+                      </div>
                     </>
                   )}
                   {p.type === 'mec_note' && (

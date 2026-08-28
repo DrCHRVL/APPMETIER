@@ -76,13 +76,80 @@ export function listerFiches(keys) {
     natinfCodes: d.natinfCodes,
     notes: d.notes ? String(d.notes).slice(0, 2000) : undefined,
   }))
+  // Camps déjà assignés (à la main ou via une proposition validée) : à ne
+  // JAMAIS contredire — une personne déjà rangée dans un camp l'est.
+  const camps = (ov?.mecCamps || []).slice(0, 600).map((c) => ({
+    personne: c.mecId,
+    camp: c.label,
+  }))
   return {
     contentieux: attacheTj(),
     nbFichesPersonnes: fichesPersonnes.length,
     nbDossiersExNihilo: dossiers.length,
-    note: 'Notes et descriptions saisies PAR LE MAGISTRAT sur la carte : source de renseignement de première main, à recouper avec les pièces. Ne jamais les contredire ni proposer de les réécrire — un enrichissement s\'AJOUTE (proposer_note_mec).',
+    note: 'Notes et descriptions saisies PAR LE MAGISTRAT sur la carte : source de renseignement de première main, à recouper avec les pièces. Ne jamais les contredire ni proposer de les réécrire — un enrichissement s\'AJOUTE (proposer_note_mec). Les camps listés sont des décisions du magistrat : ne pas re-proposer ces personnes dans un autre camp.',
     fichesPersonnes,
     dossiersExNihilo: dossiers,
+    camps,
+  }
+}
+
+// ── Camps (clans) proposés par l'attaché ─────────────────────────────────
+// Un camp = un libellé + une couleur partagés par un groupe de personnes
+// rivales d'un autre groupe au sein d'un même gros amas. L'attaché les
+// DÉDUIT (descriptions de dossiers, CR, liens, fiches) et les PROPOSE ;
+// l'écriture n'arrive qu'au ✓ du magistrat, et respecte strictement ses
+// choix : jamais d'écrasement d'une assignation existante, jamais de
+// résurrection d'un retrait manuel (tombstones).
+
+const CAMP_COLOR_PRESETS = [
+  '#dc2626', '#2563eb', '#16a34a', '#ea580c', '#7c3aed', '#0891b2', '#db2777', '#ca8a04', '#475569',
+]
+
+/** Assigne un camp à une liste de personnes (appliqué à la validation ✓). */
+export async function appendCampAssignments(keys, { label, color, membres }) {
+  const lbl = String(label || '').trim().slice(0, 60)
+  if (!lbl) throw new Error('Libellé du camp requis')
+  const noms = (Array.isArray(membres) ? membres : []).map((m) => String(m || '').trim()).filter(Boolean)
+  if (noms.length === 0) throw new Error('Au moins un membre requis')
+  const ov = loadOverlay(keys) || emptyOverlay()
+  ov.mecCamps = ov.mecCamps || []
+  const dejaAssigne = new Set(ov.mecCamps.map((c) => c.mecId))
+  // Retraits manuels : un id présent dans les tombstones a été retiré d'un
+  // camp par le magistrat — on ne le ré-assigne pas.
+  const retires = new Set((ov.deletedMecCampIds || []).map((t) => t.id))
+
+  // Couleur : celle fournie si valide ; sinon celle du camp homonyme déjà
+  // présent ; sinon le prochain preset non utilisé.
+  let couleur = /^#[0-9a-fA-F]{6}$/.test(String(color || '')) ? String(color) : undefined
+  if (!couleur) {
+    const homonyme = ov.mecCamps.find((c) => c.label === lbl)
+    couleur = homonyme?.color
+  }
+  if (!couleur) {
+    const usees = new Set(ov.mecCamps.map((c) => c.color))
+    couleur = CAMP_COLOR_PRESETS.find((c) => !usees.has(c)) || CAMP_COLOR_PRESETS[ov.mecCamps.length % CAMP_COLOR_PRESETS.length]
+  }
+
+  const now = Date.now()
+  const assignes = []
+  const ignores = []
+  for (const nom of noms.slice(0, 120)) {
+    const id = normalizeMecName(nom)
+    if (!id) continue
+    if (dejaAssigne.has(id) || retires.has(id)) { ignores.push(nom); continue }
+    ov.mecCamps.push({ mecId: id, label: lbl, color: couleur, updatedAt: now })
+    dejaAssigne.add(id)
+    assignes.push(nom)
+  }
+  if (assignes.length > 0) await saveOverlay(keys, ov)
+  return {
+    ok: true,
+    camp: lbl,
+    assignes,
+    ignores,
+    note: ignores.length > 0
+      ? 'Les personnes ignorées ont déjà un camp (ou en ont été retirées à la main) : le choix du magistrat prime.'
+      : undefined,
   }
 }
 
