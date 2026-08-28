@@ -506,6 +506,21 @@ function DetailChantier({ ch, feu, busy, onAction, now, onCreerManquants }: {
               libelle={ch.nuitSeulement ? 'nuits de travail' : 'nuits (jour autorisé)'}
             />
           </div>
+          {/* Devis complet en 2 étapes : les dossiers sans fiches déclenchent
+              des chantiers « dossier » liés (étape 1), lancés en cascade avec
+              celui-ci ; l'analyse (étape 2) intègre leurs fiches dès qu'elles
+              sont produites. */}
+          {ch.estimation.chaine && (
+            <p className="mt-2 rounded-lg border border-sky-200 bg-sky-50/70 px-2.5 py-2 text-[10.5px] leading-relaxed text-sky-800">
+              <span className="font-bold">Devis complet en 2 étapes.</span>{' '}
+              Étape 1 — dépouillement de {ch.estimation.chaine.etape1.dossiers} dossier(s) sans fiches
+              ({ch.estimation.chaine.etape1.pieces} pièces, {ch.estimation.chaine.etape1.lots} lots,
+              ~{fmtJetons(ch.estimation.chaine.etape1.jetonsMin)}–{fmtJetons(ch.estimation.chaine.etape1.jetonsMax)} jetons) :
+              chantiers « dossier » liés, chacun visible dans la liste, lancés automatiquement en validant celui-ci.
+              Étape 2 — cette analyse, dont ~{ch.estimation.chaine.etape2Attendue.lots} lot(s) sur les
+              ~{ch.estimation.chaine.etape2Attendue.fiches} fiches attendues (intégrées dès l&apos;étape 1 terminée).
+            </p>
+          )}
           {/* Le devis dit TOUT ce qu'il a écarté : copies exactes, pièces déjà
               couvertes par les fiches d'un chantier précédent. */}
           {(ch.estimation.doublonsExclus || ch.estimation.dejaCouvertes) ? (
@@ -844,7 +859,8 @@ function FormulaireChantier(props: {
       {multi && (
         <p className="text-[10.5px] text-amber-700/90">
           Ces chantiers lisent les FICHES produites par un chantier « dossier en détail » — jamais les pièces.
-          Dépouillez d&apos;abord chaque dossier concerné.
+          Un dossier pas encore dépouillé n&apos;est plus écarté : le devis devient un
+          <span className="font-semibold"> devis complet en 2 étapes</span> (dépouillement d&apos;abord, analyse ensuite, enchaînés automatiquement).
         </p>
       )}
 
