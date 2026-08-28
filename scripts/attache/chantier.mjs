@@ -45,6 +45,7 @@ import { appendDossierMemory } from './dossierMemory.mjs'
 import { saveProduction, readProduction, listProductions } from './productions.mjs'
 import { runAgent, agentConfig } from './agent.mjs'
 import { prompt as promptConsigne } from './consignes.mjs'
+import { cartoHistoire } from './carto.mjs'
 
 const LOT_PIECES = 12          // pièces par run — tient largement dans un contexte
 const LOT_FICHES = 8           // fiches par run (chantiers « liens » et « carto »)
@@ -285,12 +286,31 @@ function retirerPas(keys, ch, pas) {
  */
 export async function createChantier(keys, {
   type = 'dossier', numero, numeros, consigne, nuitSeulement = true, origine = 'magistrat',
-  relire = false, modeleFiches = 'sous-agent', budgetJetons = 0,
+  relire = false, modeleFiches = 'sous-agent', budgetJetons = 0, sujet,
 }) {
-  if (!['dossier', 'liens', 'carto'].includes(type)) throw new Error(`Type de chantier inconnu : ${type}`)
+  if (!['dossier', 'liens', 'carto', 'histoire'].includes(type)) throw new Error(`Type de chantier inconnu : ${type}`)
   const options = {
     modeleFiches: modeleFiches === 'principal' ? 'principal' : 'sous-agent',
     budgetJetons: Number(budgetJetons) > 0 ? Math.floor(Number(budgetJetons)) : 0,
+  }
+  if (type === 'histoire') {
+    // Le SUJET (un camp de la carte ou une personne) définit le chantier ; les
+    // dossiers, s'ils ne sont pas fournis, sont DÉDUITS de la carte (dossiers
+    // réels où figure au moins un membre du sujet).
+    const sujetClean = String(sujet || '').trim()
+    if (!sujetClean) throw new Error('Sujet requis (libellé d\'un camp de la carte, ou nom d\'une personne)')
+    let liste = (Array.isArray(numeros) && numeros.length ? numeros : [numero]).filter(Boolean)
+    if (!liste.length) {
+      let h
+      try { h = cartoHistoire(keys, { sujet: sujetClean }) } catch (e) {
+        throw new Error(`Sujet « ${sujetClean} » : ${String(e?.message || e)}`)
+      }
+      liste = (h.dossiersReels || []).map((d) => String(d.numero)).filter(Boolean)
+      if (!liste.length) {
+        throw new Error(`Aucun dossier réel ne mentionne « ${sujetClean} » — précisez les dossiers à lire, ou vérifiez l'orthographe du camp/de la personne`)
+      }
+    }
+    return createChantierFiches(keys, { type, numeros: liste, sujet: sujetClean, consigne, nuitSeulement, origine, ...options })
   }
   if (type !== 'dossier') {
     const liste = (Array.isArray(numeros) && numeros.length ? numeros : [numero]).filter(Boolean)
@@ -419,7 +439,7 @@ function chunk(arr, size) {
  * identifiants de production). Les dossiers SANS fiches sont écartés du plan
  * et nommés dans le devis : il faut d'abord les dépouiller.
  */
-async function createChantierFiches(keys, { type, numeros, consigne, nuitSeulement, origine = 'magistrat', modeleFiches = 'sous-agent', budgetJetons = 0 }) {
+async function createChantierFiches(keys, { type, numeros, consigne, nuitSeulement, origine = 'magistrat', modeleFiches = 'sous-agent', budgetJetons = 0, sujet }) {
   const min = type === 'liens' ? 2 : 1
   const canons = []
   for (const n of numeros) {
@@ -464,6 +484,7 @@ async function createChantierFiches(keys, { type, numeros, consigne, nuitSeuleme
     numero: plan[0].nom,
     numeros: plan.map((p) => p.nom),
     sansFiches,
+    ...(type === 'histoire' ? { sujet: String(sujet || '').slice(0, 120) } : {}),
     consigne: String(consigne || '').slice(0, 2000),
     nuitSeulement: Boolean(nuitSeulement),
     origine: origine === 'attache' ? 'attache' : 'magistrat',
@@ -486,7 +507,7 @@ async function createChantierFiches(keys, { type, numeros, consigne, nuitSeuleme
     },
     journal: [],
   }
-  journal(ch, `Chantier « ${type === 'liens' ? 'liens entre dossiers' : 'cartographie'} » ${ch.origine === 'attache' ? 'proposé par l\'attaché (conversation)' : 'créé'} — ${plan.length} dossier(s), ${totalFiches} fiches, ${nbLots} lots. En attente de validation du devis.`)
+  journal(ch, `Chantier « ${type === 'liens' ? 'liens entre dossiers' : type === 'histoire' ? `histoire — ${ch.sujet}` : 'cartographie'} » ${ch.origine === 'attache' ? 'proposé par l\'attaché (conversation)' : 'créé'} — ${plan.length} dossier(s), ${totalFiches} fiches, ${nbLots} lots. En attente de validation du devis.`)
   if (sansFiches.length) {
     journal(ch, `Écartés faute de fiches : ${sansFiches.join(' · ')} — dépouillez-les (chantier « dossier en détail ») puis recréez ce chantier pour les inclure.`)
   }
@@ -853,6 +874,60 @@ function promptSyntheseCarto(keys, ch, corpus) {
   })
 }
 
+// Lot « histoire » : depuis les fiches d'UN dossier, la chronique factuelle
+// datée du sujet — la matière première du récit final. Aucun outil.
+function promptLotHistoire(keys, ch, dossier, lot, corpus) {
+  return promptConsigne(keys, 'chantier_histoire_lot', {
+    entete: [
+      `CHANTIER « HISTOIRE » — sujet : « ${ch.sujet} ». Dossiers couverts : ${ch.numeros.join(' · ')}.`,
+      `Ce run traite le lot ${lot.n} du dossier « ${dossier} » : ses fiches d'analyse sont jointes ci-dessous.`,
+      ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT : ${ch.consigne}` : '',
+    ].filter(Boolean),
+    vars: { dossier, lot: lot.n, sujet: ch.sujet },
+    donnees: [
+      '',
+      `TITRE EXACT DE TA CHRONIQUE (première ligne de ta réponse) : « ## Histoire — ${dossier} — lot ${lot.n} ».`,
+      '',
+      '───── FICHES DU LOT ─────',
+      corpus,
+    ],
+  })
+}
+
+// Récit final « histoire » : les chroniques des lots + le CONTEXTE DE LA
+// CARTE (fiches et notes du magistrat, rôles, camps, liens, dossiers ex
+// nihilo et leurs documents) — le run peut lire les documents versés
+// (carto_lire_document) et déposer des propositions.
+function promptSyntheseHistoire(keys, ch, corpus) {
+  let contexte = ''
+  try {
+    const h = cartoHistoire(keys, { sujet: ch.sujet })
+    contexte = JSON.stringify({
+      membres: h.membres,
+      fiches: h.fiches,
+      roles: h.roles,
+      camps: h.campsDesMembres,
+      liens: h.liens,
+      dossiersExNihilo: h.dossiersExNihilo,
+    }, null, 1).slice(0, 60_000)
+  } catch { contexte = '(contexte de la carte indisponible)' }
+  return promptConsigne(keys, 'chantier_histoire_recit', {
+    entete: [
+      `RÉCIT — « ${ch.sujet} ». Les chroniques dressées lot par lot depuis les fiches des dossiers ${ch.numeros.join(' · ')} sont jointes, avec le contexte de la carte (fiches et notes du magistrat, rôles, camps, liens, dossiers ex nihilo et leurs documents).`,
+      ch.consigne ? `ANGLE DEMANDÉ PAR LE MAGISTRAT : ${ch.consigne}` : '',
+    ].filter(Boolean),
+    vars: { sujet: ch.sujet },
+    donnees: [
+      '',
+      '───── CONTEXTE DE LA CARTE ─────',
+      contexte,
+      '',
+      '───── CHRONIQUES DES LOTS ─────',
+      corpus,
+    ],
+  })
+}
+
 // ── Exécution ──
 let running = false
 
@@ -1081,7 +1156,7 @@ function modeleLot(ch, cfg) {
 }
 
 async function runLot(keys, ch, { pochette, lot }) {
-  if (ch.type === 'liens' || ch.type === 'carto') return runLotFiches(keys, ch, { pochette, lot })
+  if (ch.type === 'liens' || ch.type === 'carto' || ch.type === 'histoire') return runLotFiches(keys, ch, { pochette, lot })
   const cfg = agentConfig()
   const titre = `Fiche — ${pochette.nom} — lot ${lot.n} (${lot.pieces.length} pièces)`
   const t0 = Date.now()
@@ -1157,16 +1232,20 @@ async function runLotFiches(keys, ch, { pochette, lot }) {
 
   const titre = ch.type === 'liens'
     ? `Signalements — ${dossier} — lot ${lot.n}`
-    : `Carto — ${dossier} — lot ${lot.n}`
+    : ch.type === 'histoire'
+      ? `Histoire — ${dossier} — lot ${lot.n}`
+      : `Carto — ${dossier} — lot ${lot.n}`
   const t0 = Date.now()
   const res = await runAgent({
     keys,
-    prompt: ch.type === 'liens' ? promptLotLiens(keys, ch, dossier, lot, corpus) : promptLotCarto(keys, ch, dossier, lot, corpus),
+    prompt: ch.type === 'liens' ? promptLotLiens(keys, ch, dossier, lot, corpus)
+      : ch.type === 'histoire' ? promptLotHistoire(keys, ch, dossier, lot, corpus)
+        : promptLotCarto(keys, ch, dossier, lot, corpus),
     runLabel: 'chantier',
     title: `Chantier ${ch.type} · ${titre}`,
     model: modeleLot(ch, cfg),
     effort: 'high',
-    // liens : zéro outil ; carto : quelques recoupements + dépôts de propositions
+    // liens/histoire : zéro outil ; carto : recoupements + dépôts de propositions
     maxTurns: ch.type === 'carto' ? 40 : 6,
     timeoutMs: LOT_TIMEOUT_MS,
     mcpToolTimeoutMs: LOT_TIMEOUT_MS - 120_000,
@@ -1270,7 +1349,7 @@ async function syntheseHierarchique(keys, ch, parPochette) {
 }
 
 async function runSynthese(keys, ch) {
-  if (ch.type === 'liens' || ch.type === 'carto') return runSyntheseFiches(keys, ch)
+  if (ch.type === 'liens' || ch.type === 'carto' || ch.type === 'histoire') return runSyntheseFiches(keys, ch)
   // les fiches, entières, groupées par pochette
   const parPochette = new Map()
   for (const f of ch.fiches) {
@@ -1357,11 +1436,14 @@ async function runSyntheseFiches(keys, ch) {
 
   const res = await runAgent({
     keys,
-    prompt: ch.type === 'liens' ? promptSyntheseLiens(keys, ch, corpus) : promptSyntheseCarto(keys, ch, corpus),
+    prompt: ch.type === 'liens' ? promptSyntheseLiens(keys, ch, corpus)
+      : ch.type === 'histoire' ? promptSyntheseHistoire(keys, ch, corpus)
+        : promptSyntheseCarto(keys, ch, corpus),
     runLabel: 'chantier',
-    title: `Chantier ${ch.type} · ${ch.type === 'liens' ? 'rapport de recoupements' : 'bilan carto'}`,
+    title: `Chantier ${ch.type} · ${ch.type === 'liens' ? 'rapport de recoupements' : ch.type === 'histoire' ? 'récit' : 'bilan carto'}`,
     effort: 'high', // modèle principal : c'est ici que la qualité paie
-    maxTurns: 8,
+    // histoire : le récit lit des documents versés et dépose des propositions
+    maxTurns: ch.type === 'histoire' ? 40 : 8,
     timeoutMs: LOT_TIMEOUT_MS,
     mcpToolTimeoutMs: LOT_TIMEOUT_MS - 120_000,
   }).catch((e) => ({ ok: false, error: String(e?.message || e), text: '' }))
@@ -1370,10 +1452,10 @@ async function runSyntheseFiches(keys, ch) {
   const note = String(res?.text || '').trim()
   if (!res?.ok || note.length < 300) {
     ch.syntheseEchecs = (ch.syntheseEchecs || 0) + 1
-    journal(ch, `${ch.type === 'liens' ? 'Rapport' : 'Bilan'} : tentative ${ch.syntheseEchecs} échouée (${res?.error || 'rendu trop court'}).`)
+    journal(ch, `${ch.type === 'liens' ? 'Rapport' : ch.type === 'histoire' ? 'Récit' : 'Bilan'} : tentative ${ch.syntheseEchecs} échouée (${res?.error || 'rendu trop court'}).`)
     if (ch.syntheseEchecs >= MAX_LOT_ECHECS) {
       ch.etat = 'termine'
-      journal(ch, `${ch.type === 'liens' ? 'Rapport' : 'Bilan'} abandonné après 3 échecs — les productions des lots restent exploitables dans « Actes rédigés ».`)
+      journal(ch, `${ch.type === 'liens' ? 'Rapport' : ch.type === 'histoire' ? 'Récit' : 'Bilan'} abandonné après 3 échecs — les productions des lots restent exploitables dans « Actes rédigés ».`)
     }
     writeChantier(keys, ch)
     return
@@ -1381,21 +1463,23 @@ async function runSyntheseFiches(keys, ch) {
 
   const titre = ch.type === 'liens'
     ? `Rapport de recoupements — ${ch.numeros.join(' × ')}`
-    : `Bilan cartographie — ${ch.numeros.join(' × ')}`
+    : ch.type === 'histoire'
+      ? `Histoire — ${ch.sujet}`
+      : `Bilan cartographie — ${ch.numeros.join(' × ')}`
   const prod = await saveProduction(keys, {
     numero: ch.numero, type: 'note', titre,
     contenu: note, source: `chantier:${ch.id}`,
   })
   ch.syntheseProdId = prod.id
   ch.etat = 'termine'
-  journal(ch, `${ch.type === 'liens' ? 'Rapport de recoupements produit' : 'Bilan de cartographie produit'} — chantier terminé.`)
+  journal(ch, `${ch.type === 'liens' ? 'Rapport de recoupements produit' : ch.type === 'histoire' ? 'Récit produit' : 'Bilan de cartographie produit'} — chantier terminé.`)
   writeChantier(keys, ch)
 
   const nbEchecs = (ch.plan || []).reduce((n, p) => n + p.lots.filter((l) => l.etat === 'echec').length, 0)
   await publishFeed(keys, {
     type: 'note',
-    titre: `Chantier terminé — ${ch.type === 'liens' ? 'recoupements' : 'cartographie'}`,
-    resume: `${ch.numeros.join(' × ')} : ${ch.fiches.length} lot(s) traités, ${ch.type === 'liens' ? 'rapport de recoupements' : 'bilan'} déposé dans « Actes rédigés » de ${ch.numero}${ch.type === 'carto' ? ' — propositions à valider (Proposition à valider / Cartographie)' : ''}${nbEchecs ? ` · ${nbEchecs} lot(s) en échec (voir journal du chantier)` : ''}.`,
+    titre: `Chantier terminé — ${ch.type === 'liens' ? 'recoupements' : ch.type === 'histoire' ? `histoire de ${ch.sujet}` : 'cartographie'}`,
+    resume: `${ch.numeros.join(' × ')} : ${ch.fiches.length} lot(s) traités, ${ch.type === 'liens' ? 'rapport de recoupements' : ch.type === 'histoire' ? 'récit' : 'bilan'} déposé dans « Actes rédigés » de ${ch.numero}${ch.type === 'carto' || ch.type === 'histoire' ? ' — propositions à valider (Proposition à valider / Cartographie)' : ''}${nbEchecs ? ` · ${nbEchecs} lot(s) en échec (voir journal du chantier)` : ''}.`,
   }).catch(() => {})
   for (const n of ch.numeros) {
     await appendDossierMemory(keys, n, `[chantier] Chantier « ${ch.type} » terminé (${ch.numeros.join(' · ')}) — « ${titre} » dans les Actes rédigés de ${ch.numero}.`).catch(() => {})

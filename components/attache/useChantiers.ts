@@ -92,7 +92,7 @@ export async function chargerDetailChantier(id: string): Promise<ChantierDetail 
   }
 }
 
-export type TypeChantier = 'dossier' | 'liens' | 'carto';
+export type TypeChantier = 'dossier' | 'liens' | 'carto' | 'histoire';
 export type ActionChantier = 'lancer' | 'pause' | 'supprimer' | 'forcer' | 'relancer_echecs' | 'relancer_synthese';
 
 /** L'état du feu, servi par le service : ce qui bloque, et quand ça repart. */
@@ -124,7 +124,7 @@ export function etatBadge(ch: Chantier): { label: string; cls: string; icone?: '
   return { label: 'En cours', cls: 'bg-blue-50 text-blue-700 border-blue-200' };
 }
 
-export const TYPE_LABEL: Record<string, string> = { dossier: 'Dossier en détail', liens: 'Liens entre dossiers', carto: 'Cartographie' };
+export const TYPE_LABEL: Record<string, string> = { dossier: 'Dossier en détail', liens: 'Liens entre dossiers', carto: 'Cartographie', histoire: 'Histoire d\'un clan' };
 
 /** L'unité de compte : le chantier « dossier » avance en pièces, les autres en fiches. */
 export const uniteChantier = (ch: Chantier) => (ch.type === 'dossier' ? 'pièces' : 'fiches');
@@ -153,7 +153,7 @@ export function libelleEnCours(ch: Chantier, pas?: PasEnCours): string | null {
   const p = pas || ch.enCours;
   if (!p) return null;
   if (p.etape === 'synthese') {
-    const quoi = ch.type === 'liens' ? 'Rapport de recoupements' : ch.type === 'carto' ? 'Note de bilan' : 'Note de synthèse';
+    const quoi = ch.type === 'liens' ? 'Rapport de recoupements' : ch.type === 'carto' ? 'Note de bilan' : ch.type === 'histoire' ? 'Récit' : 'Note de synthèse';
     return `${quoi} en cours de rédaction${p.fiches ? ` — ${p.fiches} ${ch.type === 'dossier' ? 'fiches' : 'lots'} en main` : ''}`;
   }
   const conteneur = ch.type === 'dossier' ? 'pochette' : 'dossier';
@@ -216,6 +216,8 @@ export function useChantiers() {
   const creer = useCallback(async (params: {
     type: TypeChantier; numero: string; numeros: string[]; consigne: string; nuitSeulement: boolean;
     cibleArchives?: boolean; relire?: boolean; modelePrincipal?: boolean; budgetJetons?: number;
+    /** Type « histoire » : le sujet du récit (camp de la carte ou personne). */
+    sujet?: string;
   }): Promise<string | null> => {
     const options = {
       ...(params.relire ? { relire: true } : {}),
@@ -259,13 +261,18 @@ export function useChantiers() {
     if (!multi && !tape) { showToast('Indiquez le dossier à dépouiller', 'warning'); return null; }
     if (params.type === 'liens' && liste.length < 2) { showToast('Un chantier « liens » croise au moins deux dossiers', 'warning'); return null; }
     if (params.type === 'carto' && liste.length < 1) { showToast('Indiquez au moins un dossier', 'warning'); return null; }
+    if (params.type === 'histoire' && !(params.sujet || '').trim()) { showToast('Indiquez le sujet du récit (camp de la carte, ou personne)', 'warning'); return null; }
     setCreating(true);
     try {
       const res = await fetch('/api/attache/chantiers', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(multi
-          ? { type: params.type, numeros: liste, consigne: params.consigne.trim(), nuitSeulement: params.nuitSeulement, ...options }
+          ? {
+              type: params.type, numeros: liste, consigne: params.consigne.trim(), nuitSeulement: params.nuitSeulement,
+              ...(params.type === 'histoire' ? { sujet: (params.sujet || '').trim() } : {}),
+              ...options,
+            }
           : { numero: tape, consigne: params.consigne.trim(), nuitSeulement: params.nuitSeulement, ...options }),
       });
       const data = await res.json().catch(() => ({} as { error?: string; id?: string }));

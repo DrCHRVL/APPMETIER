@@ -1692,9 +1692,10 @@ const server = http.createServer(async (req, res) => {
           return json(res, 200, out)
         }
         const ch = await createChantier(keys, {
-          type: ['dossier', 'liens', 'carto'].includes(body.type) ? body.type : 'dossier',
+          type: ['dossier', 'liens', 'carto', 'histoire'].includes(body.type) ? body.type : 'dossier',
           numero: String(body.numero || ''),
           numeros: Array.isArray(body.numeros) ? body.numeros.map((n) => String(n)).filter(Boolean).slice(0, 12) : undefined,
+          sujet: String(body.sujet || ''),
           consigne: String(body.consigne || ''),
           nuitSeulement: body.nuitSeulement !== false,
           relire: body.relire === true,

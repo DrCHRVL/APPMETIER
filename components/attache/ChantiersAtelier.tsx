@@ -89,6 +89,7 @@ export function ChantiersAtelier({
   const [numero, setNumero] = useState('');
   const [numeros, setNumeros] = useState<string[]>([]);
   const [cibleArchives, setCibleArchives] = useState(false);
+  const [sujet, setSujet] = useState('');
   const [consigne, setConsigne] = useState('');
   const [nuitSeulement, setNuitSeulement] = useState(true);
   const [relire, setRelire] = useState(false);
@@ -131,14 +132,14 @@ export function ChantiersAtelier({
     // l'eau) ; null = rien créé (le formulaire reste ouvert pour corriger).
     const id = await creer({
       type: typeChantier, numero, numeros, consigne, nuitSeulement, cibleArchives,
-      relire, modelePrincipal, budgetJetons: parseJetons(plafond),
+      relire, modelePrincipal, budgetJetons: parseJetons(plafond), sujet,
     });
     if (id !== null) {
-      setShowForm(false); setNumero(''); setNumeros([]); setConsigne(''); setCibleArchives(false);
+      setShowForm(false); setNumero(''); setNumeros([]); setSujet(''); setConsigne(''); setCibleArchives(false);
       setRelire(false); setModelePrincipal(false); setPlafond('');
       if (id) onSelection(id);
     }
-  }, [creer, typeChantier, numero, numeros, consigne, nuitSeulement, cibleArchives, relire, modelePrincipal, plafond, onSelection]);
+  }, [creer, typeChantier, numero, numeros, sujet, consigne, nuitSeulement, cibleArchives, relire, modelePrincipal, plafond, onSelection]);
 
   const compte = (f: Filtre) => chantiers.filter((FILTRES.find((x) => x.id === f) || FILTRES[0]).test).length;
 
@@ -218,7 +219,7 @@ export function ChantiersAtelier({
                     </span>
                     {ch.type !== 'dossier' && (
                       <span className="flex-shrink-0 rounded bg-indigo-50 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-indigo-600">
-                        {ch.type === 'liens' ? 'Liens' : 'Carto'}
+                        {ch.type === 'liens' ? 'Liens' : ch.type === 'histoire' ? 'Histoire' : 'Carto'}
                       </span>
                     )}
                   </div>
@@ -290,6 +291,7 @@ export function ChantiersAtelier({
               numero={numero} setNumero={setNumero}
               numeros={numeros} setNumeros={setNumeros} ajouterNumero={ajouterNumero}
               cibleArchives={cibleArchives} setCibleArchives={setCibleArchives}
+              sujet={sujet} setSujet={setSujet}
               consigne={consigne} setConsigne={setConsigne}
               nuitSeulement={nuitSeulement} setNuitSeulement={setNuitSeulement}
               relire={relire} setRelire={setRelire}
@@ -671,12 +673,12 @@ function DetailChantier({ ch, feu, busy, onAction, now, onCreerManquants }: {
         <div>
           <p className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-gray-700">
             <FileText className="h-3.5 w-3.5" />
-            {ch.type === 'dossier' ? 'Fiches et synthèse' : ch.type === 'liens' ? 'Tables de signalements et rapport' : 'Comptes rendus et bilan'}
+            {ch.type === 'dossier' ? 'Fiches et synthèse' : ch.type === 'liens' ? 'Tables de signalements et rapport' : ch.type === 'histoire' ? 'Chroniques et récit' : 'Comptes rendus et bilan'}
             <span className="font-normal text-gray-400">({ch.fiches.length}{ch.syntheseProdId ? ' + 1' : ''})</span>
           </p>
           <ProductionsSection
             numero={ch.numero}
-            titre={ch.type === 'dossier' ? 'Fiches et synthèse du chantier' : ch.type === 'liens' ? 'Tables et rapport du chantier' : 'Comptes rendus et bilan du chantier'}
+            titre={ch.type === 'dossier' ? 'Fiches et synthèse du chantier' : ch.type === 'liens' ? 'Tables et rapport du chantier' : ch.type === 'histoire' ? 'Chroniques et récit du chantier' : 'Comptes rendus et bilan du chantier'}
             filtreSource={`chantier:${ch.id}`}
           />
         </div>
@@ -704,6 +706,7 @@ function FormulaireChantier(props: {
   numero: string; setNumero: (v: string) => void;
   numeros: string[]; setNumeros: (f: (prev: string[]) => string[]) => void; ajouterNumero: () => void;
   cibleArchives: boolean; setCibleArchives: (v: boolean) => void;
+  sujet: string; setSujet: (v: string) => void;
   consigne: string; setConsigne: (v: string) => void;
   nuitSeulement: boolean; setNuitSeulement: (v: boolean) => void;
   relire: boolean; setRelire: (v: boolean) => void;
@@ -715,6 +718,7 @@ function FormulaireChantier(props: {
   const {
     typeChantier, setTypeChantier, numero, setNumero, numeros, setNumeros, ajouterNumero,
     cibleArchives, setCibleArchives,
+    sujet, setSujet,
     consigne, setConsigne, nuitSeulement, setNuitSeulement,
     relire, setRelire, modelePrincipal, setModelePrincipal, plafond, setPlafond,
     creating, onCreer, onFermer, enquetes,
@@ -742,11 +746,12 @@ function FormulaireChantier(props: {
       <div className="space-y-2.5 p-4">
       {/* Les trois consommateurs du même capital : dépouiller (produit les
           fiches), croiser (rapport de recoupements), cartographier (propositions). */}
-      <div className="grid gap-1.5 sm:grid-cols-3">
+      <div className="grid gap-1.5 sm:grid-cols-2">
         {([
           { t: 'dossier', label: 'Dossier en détail', desc: 'Dépouille les pièces en fiches factuelles, puis synthèse' },
           { t: 'liens', label: 'Liens entre dossiers', desc: 'Croise les fiches de plusieurs dossiers — rapport de recoupements coté des deux côtés' },
           { t: 'carto', label: 'Cartographie', desc: 'Depuis les fiches : propositions de personnes et de liens, à valider une à une' },
+          { t: 'histoire', label: 'Histoire d\'un clan', desc: 'Donné un camp ou une personne : chronique datée depuis les fiches, puis récit sourcé (origines, successions, conflits)' },
         ] as const).map(({ t, label, desc }) => (
           <button
             key={t}
@@ -805,6 +810,14 @@ function FormulaireChantier(props: {
         </div>
       )}
 
+      {typeChantier === 'histoire' && (
+        <input
+          value={sujet}
+          onChange={(e) => setSujet(e.target.value)}
+          placeholder="Sujet du récit — libellé d'un camp de la carte (ex. « Réseau Ben Cherki ») ou nom d'une personne"
+          className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:border-[#2B5746] focus:outline-none"
+        />
+      )}
       {!masse && (
         <div className="flex gap-1.5">
           <input
@@ -812,7 +825,9 @@ function FormulaireChantier(props: {
             value={numero}
             onChange={(e) => setNumero(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && multi) { e.preventDefault(); ajouterNumero(); } }}
-            placeholder={multi ? 'Numéro de dossier — Entrée ou « Ajouter » pour chacun' : 'Numéro du dossier (ex. 00387/00068/2026 - PRISON BREAK 2)'}
+            placeholder={typeChantier === 'histoire'
+              ? 'Dossiers (facultatif — sinon déduits du sujet depuis la carte)'
+              : multi ? 'Numéro de dossier — Entrée ou « Ajouter » pour chacun' : 'Numéro du dossier (ex. 00387/00068/2026 - PRISON BREAK 2)'}
             className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:border-[#2B5746] focus:outline-none"
           />
           {multi && (

@@ -69,7 +69,7 @@ export const SOCLES = {
     'S\'il te colle un PV / un résumé / une synthèse pour en cartographier l\'affaire : RECOUPE d\'abord les noms (recouper_personnes), puis dépose une proposition de dossier EX NIHILO (proposer_dossier_carto — label, misEnCause, source). Les personnes connues seront rattachées, les inconnues créées en « MEC lié ex nihilo ». Le dossier n\'est créé qu\'à la validation ✓.',
     'Sinon, commence par carto_analyser (figures centrales, ponts entre affaires, co-occurrences, liens de renseignement tracés). Objectif : l\'aider à VOIR LES CONNEXIONS et améliorer la visibilité.',
     'S\'il te demande une ANALYSE TRANSVERSALE (« analyse TOUS les dossiers », « trouve les liens cachés », « quelle architecture derrière ces affaires ») : suis la MÉTHODE DE RECHERCHE PROFONDE — carto_corpus (enquêtes archivées + instruction, avec pièces), registre_recouper pour les entités déjà partagées (zéro jeton), puis sous_agents qui LISENT les pièces pour remonter surnoms, personnes au 2nd plan, adresses, plaques, téléphones, puis proposer_lien / proposer_mec_carto / proposer_dossier_carto. Les signaux faibles sont dans les PV, pas dans les listes de mis en cause. Si l\'exhaustivité sur tout le corpus est en jeu, ce n\'est plus un travail de conversation : dépose un CHANTIER (chantier_proposer) et annonce son devis.',
-    'S\'il te demande L\'HISTOIRE d\'un clan, le CONFLIT entre deux clans, ou QUI EST une personne (« raconte-moi le clan X », « le conflit X/Y », « que sait-on de X ? ») : pars de carto_histoire (dossier de renseignement en un appel : membres, fiches, rôles, liens, dossiers réels/instruction/ex nihilo et documents versés), puis SUIS SA MÉTHODE — lecture des CR et descriptions (lire_dossier), des documents versés (carto_lire_document), du module instruction ; récit CHRONOLOGIQUE et SOURCÉ ; attention aux SUCCESSIONS et SCISSIONS (un réseau démantelé dont un lieutenant remonte sa structure). Au fil de la lecture, PROPOSE ce que tu découvres : proposer_lien (motivé et sourcé, personne↔personne ou personne↔dossier ex nihilo), proposer_note_mec, proposer_camp_carto. Si la matière déborde, sous_agents ou chantier_proposer avec devis.',
+    'S\'il te demande L\'HISTOIRE d\'un clan, le CONFLIT entre deux clans, ou QUI EST une personne (« raconte-moi le clan X », « le conflit X/Y », « que sait-on de X ? ») : pars de carto_histoire (dossier de renseignement en un appel : membres, fiches, rôles, liens, dossiers réels/instruction/ex nihilo et documents versés), puis SUIS SA MÉTHODE — lecture des CR et descriptions (lire_dossier), des documents versés (carto_lire_document), du module instruction ; récit CHRONOLOGIQUE et SOURCÉ ; attention aux SUCCESSIONS et SCISSIONS (un réseau démantelé dont un lieutenant remonte sa structure). Au fil de la lecture, PROPOSE ce que tu découvres : proposer_lien (motivé et sourcé, personne↔personne ou personne↔dossier ex nihilo), proposer_note_mec, proposer_camp_carto. Si la matière déborde, sous_agents — ou mieux : un CHANTIER type « histoire » (chantier_proposer, sujet = le camp ou la personne), qui fait la chronique par lots la nuit puis le récit final. Annonce son devis.',
     'Tu peux aussi : identifier les figures pivots et les ponts entre affaires, repérer les cloisonnements, et SUGGÉRER les liens de renseignement manquants — que tu déposes en propositions (proposer_lien, avec la pièce source), jamais tracés d\'office. Réponses concises et structurées.',
   ].join('\n'),
 
@@ -167,6 +167,28 @@ export const SOCLES = {
     '4. Rappel : les propositions se valident page Assistant de justice (« Proposition à valider ») et au bas de la Cartographie.',
     'LECTURE SEULE ABSOLUE : aucun outil. TA RÉPONSE FINALE EST LA NOTE, RIEN D\'AUTRE.',
   ].join('\n'),
+
+  chantier_histoire_lot: [
+    'TRAVAIL : depuis les fiches jointes, extrais TOUT ce qui concerne le SUJET (le clan / la personne et ses membres, nommés dans l\'entête) — une CHRONIQUE FACTUELLE datée, une ligne par fait, format exact :',
+    '- <date ou période> | <fait en une phrase — qui fait quoi, avec qui> | <rôle des membres impliqués> | <cote(s)>',
+    'Relève en particulier : prises et pertes de pouvoir, interpellations, incarcérations, condamnations, sorties, violences subies ou commises, alliances et trahisons, territoires, flux (stups, argent, armes), et toute mention d\'un basculement (un lieutenant qui prend son autonomie, un groupe qui se scinde).',
+    'Après la chronique, deux courtes sections : « PERSONNES GRAVITANT » (secondes mains, proches, non-membres récurrents — avec cotes) et « SIGNAUX DE SUCCESSION/SCISSION » (indices qu\'un réseau mute, même ténus — dits comme indices).',
+    'Rien sans sa cote. Ignore ce qui ne touche ni le sujet ni son entourage direct.',
+    'LECTURE SEULE ABSOLUE : aucun outil — les fiches jointes suffisent.',
+  ].join('\n'),
+
+  chantier_histoire_recit: [
+    'TRAVAIL : rends L\'HISTOIRE DU SUJET — un RÉCIT DE RENSEIGNEMENT chronologique et SOURCÉ, en prose dense de magistrat :',
+    '1. ORIGINES : d\'où vient le groupe/la personne, premier dossier connu, territoire et activité de départ.',
+    '2. CHRONOLOGIE : les épisodes datés qui structurent l\'histoire (affaires, interpellations, condamnations, violences, alliances) — chaque fait avec son dossier et sa cote.',
+    '3. ORGANIGRAMME DANS LE TEMPS : chef(s), lieutenants, rôles — et leurs évolutions.',
+    '4. SUCCESSIONS ET SCISSIONS : un démantèlement dont un lieutenant remonte sa propre structure avec les mêmes hommes, un groupe qui mute ou change de nom — dates, déclencheurs, qui a suivi qui. Croise avec les camps et fiches de la carte joints au contexte.',
+    '5. CONFLITS : les groupes rivaux, les épisodes d\'affrontement, l\'état actuel du rapport de forces.',
+    '6. AUJOURD\'HUI : ce qui reste actif, les incertitudes, ce qu\'il faudrait vérifier.',
+    'Les NOTES DU MAGISTRAT jointes au contexte sont des décisions : ne les contredis jamais — un élément qui s\'en écarte se présente comme élément nouveau, sourcé.',
+    'OUTILS PERMIS, avec parcimonie : carto_lire_document (documents versés sur les dossiers ex nihilo — souvent la mémoire des réseaux anciens), puis les PROPOSITIONS tirées de ta lecture : proposer_lien (motivé + source), proposer_note_mec, proposer_camp_carto (camp successeur nommé explicitement, ex. « Réseau Zouaoui (ex-Krasniqi) »). Aucune lecture de pièce brute.',
+    'TA RÉPONSE FINALE EST LE RÉCIT, suivi d\'une courte liste des propositions déposées.',
+  ].join('\n'),
 }
 
 // ── Le catalogue servi au panneau d'administration ───────────────────────
@@ -241,6 +263,18 @@ export const CATALOGUE = [
     resume: 'Le prompt du bilan final : ce qui a été proposé, ce qui ne l\'a pas été et pourquoi.',
     quand: 'Une fois tous les lots d\'un chantier « cartographie » traités.',
     variables: [],
+  },
+  {
+    id: 'chantier_histoire_lot', groupe: 'Analyse profonde', label: 'Histoire — chronique d\'un lot',
+    resume: 'Le prompt qui extrait des fiches la chronique datée du sujet (clan ou personne), cotée ligne à ligne.',
+    quand: 'À chaque lot d\'un chantier « histoire ».',
+    variables: ['{{dossier}}', '{{lot}}', '{{sujet}}'],
+  },
+  {
+    id: 'chantier_histoire_recit', groupe: 'Analyse profonde', label: 'Histoire — le récit',
+    resume: 'Le prompt du récit final : origines, chronologie, organigramme, successions/scissions, conflits, état actuel.',
+    quand: 'Une fois tous les lots d\'un chantier « histoire » traités.',
+    variables: ['{{sujet}}'],
   },
 ]
 
