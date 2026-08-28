@@ -52,6 +52,40 @@ function saveOverlay(keys, file) {
   return writeVault(attacheTj(), OVERLAY, envelope, author(keys))
 }
 
+/**
+ * FICHES de la carte : personnes ex nihilo (avec leurs notes et surnoms) et
+ * dossiers ex nihilo (avec leur description). Ces notes sont saisies par le
+ * magistrat directement sur la cartographie — souvent riches en
+ * renseignement (rôles supposés, contexte, époque) et INVISIBLES depuis les
+ * dossiers réels. À consulter systématiquement pour tout travail de
+ * recoupement ou d'enrichissement de fiche.
+ */
+export function listerFiches(keys) {
+  const ov = loadOverlay(keys)
+  const nomDeMec = new Map()
+  for (const m of ov?.mecsExNihilo || []) nomDeMec.set(m.id, m.displayName || m.id)
+  const fichesPersonnes = (ov?.mecsExNihilo || []).slice(0, 400).map((m) => ({
+    nom: m.displayName || m.id,
+    alias: (m.alias || []).slice(0, 12),
+    notes: m.notes ? String(m.notes).slice(0, 2000) : undefined,
+  }))
+  const dossiers = (ov?.dossiersExNihilo || []).slice(0, 250).map((d) => ({
+    label: d.label,
+    dateApprox: d.dateApprox,
+    misEnCause: (d.mecIds || []).map((id) => nomDeMec.get(id) || id).slice(0, 30),
+    natinfCodes: d.natinfCodes,
+    notes: d.notes ? String(d.notes).slice(0, 2000) : undefined,
+  }))
+  return {
+    contentieux: attacheTj(),
+    nbFichesPersonnes: fichesPersonnes.length,
+    nbDossiersExNihilo: dossiers.length,
+    note: 'Notes et descriptions saisies PAR LE MAGISTRAT sur la carte : source de renseignement de première main, à recouper avec les pièces. Ne jamais les contredire ni proposer de les réécrire — un enrichissement s\'AJOUTE (proposer_note_mec).',
+    fichesPersonnes,
+    dossiersExNihilo: dossiers,
+  }
+}
+
 /** Liens de renseignement déjà tracés (avec noms lisibles quand connus). */
 export function listerLiens(keys) {
   const ov = loadOverlay(keys)
@@ -309,8 +343,13 @@ export function cartoCorpus(keys, { includeArchived = true } = {}) {
     // CLI, elle serait déversée dans un fichier illisible pour l'agent, donc
     // perdue. Le détail d'un dossier se tire ensuite un par un (lire_dossier).
     dossiers: [...enquetes, ...instruction].map(alleger),
-    mecsExNihiloExistants: (ov?.mecsExNihilo || []).map((m) => m.displayName || m.id).slice(0, 300),
-    dossiersExNihiloExistants: (ov?.dossiersExNihilo || []).map((d) => d.label).slice(0, 200),
+    // Les fiches manuelles portent souvent des NOTES de renseignement riches
+    // (saisies par le magistrat sur la carte) : on signale leur présence ici,
+    // le détail complet se lit avec carto_lire_fiches.
+    mecsExNihiloExistants: (ov?.mecsExNihilo || []).slice(0, 300).map((m) =>
+      (m.displayName || m.id) + (m.notes ? ' [fiche annotée]' : '')),
+    dossiersExNihiloExistants: (ov?.dossiersExNihilo || []).slice(0, 200).map((d) =>
+      d.label + (d.notes ? ' [description]' : '')),
     liensRenseignementTraces: (ov?.liensRenseignement || []).length,
     note: blocConsigne(keys, 'carto_profonde'),
   }

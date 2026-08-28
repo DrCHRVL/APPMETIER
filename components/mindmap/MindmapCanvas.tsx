@@ -8,13 +8,16 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Background,
+  BaseEdge,
   Controls,
+  EdgeLabelRenderer,
   Handle,
   Position,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
   type Edge,
+  type EdgeProps,
   type Node,
   type NodeMouseHandler,
   type NodeProps,
@@ -379,6 +382,115 @@ const NODE_TYPES = {
 } as const;
 
 // ──────────────────────────────────────────────
+// LIENS RENSEIGNEMENT : CONTOURNEMENT D'OBSTACLES
+// ──────────────────────────────────────────────
+//
+// Un lien de renseignement peut relier deux réseaux éloignés ; tracé en
+// bezier « neutre », il traversait de part en part les dossiers posés sur
+// son chemin (illisible : le trait semblait rattacher des affaires qui
+// n'ont rien à voir). On calcule donc, pour chaque lien renseignement, un
+// point de contrôle qui fait bomber la courbe DU CÔTÉ LE MOINS ENCOMBRÉ,
+// assez pour passer à distance des nœuds interposés.
+//
+// Modèle : courbe quadratique B(t) = (1-t)²A + 2t(1-t)C + t²B. L'écart à
+// la corde vaut 2t(1-t)·(C - M) (M = milieu de la corde), maximal en t=0.5
+// où il vaut |C - M| / 2. Pour dégager un obstacle situé au paramètre t₀ à
+// distance signée s de la corde, il faut |C - M| ≥ (s + r + marge) / (2t₀(1-t₀)).
+
+const DETOUR_MARGIN = 30;      // marge visuelle autour des obstacles (px)
+const DETOUR_MAX_BULGE = 900;  // amplitude max du point de contrôle (px)
+
+/**
+ * Point de contrôle de contournement pour le segment A→B, ou null si la
+ * ligne droite ne traverse aucun nœud tiers. `obstacles` = centres +
+ * rayons de collision de tous les nœuds sauf les extrémités.
+ */
+export function computeRensDetour(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  obstacles: Array<{ x: number; y: number; r: number }>,
+): { cx: number; cy: number } | null {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 40) return null;
+  const ux = dx / len, uy = dy / len;
+  const nx = -uy, ny = ux; // normale (côté « + »)
+
+  // Obstacles qui bloquent réellement la corde, avec leur paramètre et
+  // leur distance signée à la ligne.
+  let needPlus = 0;   // amplitude requise pour passer côté +
+  let needMinus = 0;  // amplitude requise pour passer côté −
+  let blocked = false;
+  for (const o of obstacles) {
+    const vx = o.x - a.x, vy = o.y - a.y;
+    const t = (vx * ux + vy * uy) / len;
+    if (t <= 0.03 || t >= 0.97) continue; // collé à une extrémité : ignorer
+    const s = vx * nx + vy * ny;          // distance signée à la corde
+    const clearance = o.r + DETOUR_MARGIN;
+    if (Math.abs(s) >= clearance) continue;
+    blocked = true;
+    // t borné pour ne pas faire exploser l'amplitude près des extrémités.
+    const tc = Math.min(0.85, Math.max(0.15, t));
+    const denom = 2 * tc * (1 - tc);
+    // Passer côté + exige de dépasser s + clearance ; côté − l'inverse.
+    needPlus = Math.max(needPlus, (s + clearance) / denom);
+    needMinus = Math.max(needMinus, (clearance - s) / denom);
+  }
+  if (!blocked) return null;
+
+  const side = needPlus <= needMinus ? 1 : -1;
+  const bulge = Math.min(side === 1 ? needPlus : needMinus, DETOUR_MAX_BULGE);
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  return { cx: mx + nx * side * bulge, cy: my + ny * side * bulge };
+}
+
+type RensDetourEdgeData = {
+  cx: number;
+  cy: number;
+  label?: string;
+  highlighted?: boolean;
+} & Record<string, unknown>;
+
+/** Edge custom : bezier quadratique passant par le point de contrôle de
+ *  contournement, avec le libellé posé au sommet de la courbe (là où le
+ *  trait est le plus loin des réseaux traversés). */
+const RensDetourEdge = ({ sourceX, sourceY, targetX, targetY, data, style, markerEnd }: EdgeProps) => {
+  const d = (data || {}) as RensDetourEdgeData;
+  const cx = d.cx ?? (sourceX + targetX) / 2;
+  const cy = d.cy ?? (sourceY + targetY) / 2;
+  const path = `M ${sourceX},${sourceY} Q ${cx},${cy} ${targetX},${targetY}`;
+  // Sommet de la quadratique (t = 0.5).
+  const lx = 0.25 * sourceX + 0.5 * cx + 0.25 * targetX;
+  const ly = 0.25 * sourceY + 0.5 * cy + 0.25 * targetY;
+  return (
+    <>
+      <BaseEdge path={path} style={style} markerEnd={markerEnd} />
+      {d.label && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)`,
+              pointerEvents: 'none',
+            }}
+            className="rounded px-1 py-0.5 text-[11px] font-semibold"
+          >
+            <span style={{ background: '#eff6ff', color: '#1d4ed8', padding: '2px 4px', borderRadius: 3 }}>
+              {d.label}
+            </span>
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+};
+
+const EDGE_TYPES = {
+  rensDetour: RensDetourEdge,
+} as const;
+
+// ──────────────────────────────────────────────
 // CALCUL DES ROTATIONS DOSSIER
 // ──────────────────────────────────────────────
 //
@@ -740,10 +852,37 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     return out;
   }, [nodes, positions, focusedId, ctxColorById, dossierRotations, influenceClusters, subClusters, focusedClusterId, clusterAnnotations, egoVisibleSet, highlightSet, isDimmed, clusterColors, pinnedSet]);
 
+  // Obstacles pour le contournement des liens renseignement : tous les
+  // nœuds positionnés avec leur rayon de collision (les extrémités du lien
+  // sont exclues au calcul, par lien).
+  const detourObstacles = useMemo(() => {
+    const out: Array<{ id: string; x: number; y: number; r: number }> = [];
+    for (const n of nodes) {
+      const p = positions.get(n.id);
+      if (!p) continue;
+      out.push({ id: n.id, x: p.x, y: p.y, r: getCollisionRadius(n) });
+    }
+    return out;
+  }, [nodes, positions]);
+
   const rfEdges: Edge[] = useMemo(() => {
     return edges.map(e => {
       const highlighted = focusedId && (e.source === focusedId || e.target === focusedId);
       const isRens = e.kind === 'renseignement';
+      // Lien renseignement qui traverserait des nœuds tiers (typique : un
+      // lien entre deux réseaux crimorg passant au travers d'un dossier
+      // ECOFI posé entre les deux) → courbe de contournement dédiée.
+      let detour: { cx: number; cy: number } | null = null;
+      if (isRens) {
+        const a = positions.get(e.source);
+        const b = positions.get(e.target);
+        if (a && b) {
+          detour = computeRensDetour(
+            a, b,
+            detourObstacles.filter(o => o.id !== e.source && o.id !== e.target),
+          );
+        }
+      }
       const isSuspectEdge = e.kind === 'suspect';
       const isCondamneEdge = e.kind === 'condamne';
       // Bezier doux dès qu'un des deux endpoints est connecté à plus d'un autre
@@ -755,12 +894,15 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
         id: e.id,
         source: e.source,
         target: e.target,
-        type: useCurve ? 'simplebezier' : 'straight',
-        label: isRens ? e.label : undefined,
-        labelStyle: isRens ? { fill: '#1d4ed8', fontSize: 11, fontWeight: 600 } : undefined,
-        labelBgStyle: isRens ? { fill: '#eff6ff' } : undefined,
-        labelBgPadding: isRens ? ([4, 2] as [number, number]) : undefined,
-        labelBgBorderRadius: isRens ? 3 : undefined,
+        type: detour ? 'rensDetour' : (useCurve ? 'simplebezier' : 'straight'),
+        data: detour
+          ? { cx: detour.cx, cy: detour.cy, label: e.label, highlighted: !!highlighted }
+          : undefined,
+        label: isRens && !detour ? e.label : undefined,
+        labelStyle: isRens && !detour ? { fill: '#1d4ed8', fontSize: 11, fontWeight: 600 } : undefined,
+        labelBgStyle: isRens && !detour ? { fill: '#eff6ff' } : undefined,
+        labelBgPadding: isRens && !detour ? ([4, 2] as [number, number]) : undefined,
+        labelBgBorderRadius: isRens && !detour ? 3 : undefined,
         style: isRens
           ? {
               stroke: highlighted ? '#1e40af' : '#3b82f6',
@@ -792,7 +934,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
                 },
       };
     });
-  }, [edges, focusedId, nodeDegree]);
+  }, [edges, focusedId, nodeDegree, positions, detourObstacles]);
 
   const handleClick: NodeMouseHandler = useCallback(
     (_, node) => {
@@ -825,6 +967,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       nodes={rfNodes}
       edges={rfEdges}
       nodeTypes={NODE_TYPES}
+      edgeTypes={EDGE_TYPES}
       fitView
       fitViewOptions={{ padding: 0.2 }}
       // minZoom très bas (0.01) : quand la carte devient « commune à tous »

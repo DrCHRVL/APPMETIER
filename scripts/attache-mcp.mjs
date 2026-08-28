@@ -41,7 +41,7 @@ import { listDepot, readDepotText, readMailPieceText, rangerDocument, rangerPiec
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { lireRegistre, recouperRegistres } from './attache/registre.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
-import { analyserReseau, listerLiens, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
+import { analyserReseau, listerLiens, listerFiches, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
 import { saveProduction, listProductions, readProduction, deleteProduction, diffProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
 import { appendMemory, rewriteMemory, memoryStats, MEMORY_BUDGET } from './attache/memory.mjs'
 import { recordLearningSignal, pendingSignals, learningState, learningMetrics, metricsSummary } from './attache/apprentissage.mjs'
@@ -1387,6 +1387,12 @@ const TOOLS = [
     description: 'Point de départ de l\'ANALYSE TRANSVERSALE DE RENSEIGNEMENT : le corpus COMPLET — toutes les enquêtes (archivées comprises) ET tous les dossiers d\'instruction, avec leurs mis en cause déclarés et le nombre de pièces, plus les personnes/dossiers ex nihilo et liens déjà sur la carte. Les signaux faibles (surnoms, personnes au 2nd plan jamais mises en cause, adresses, plaques, téléphones, comptes reliant deux affaires) sont dans les PIÈCES : pour chaque dossier, dossier_arborescence puis lire_document (PV surtout), en DÉLÉGUANT à des sous_agents (un par dossier). Puis recouper_personnes et PROPOSE (jamais tracé d\'office) : proposer_lien, proposer_mec_carto, proposer_dossier_carto. Idéal en routine (« chaque semaine, cherche les liens cachés entre tous les dossiers »).',
     inputSchema: { type: 'object', properties: { archives: { type: 'boolean', description: 'Inclure les enquêtes archivées (défaut : oui)' } } },
     handler: async (a) => cartoCorpus(keys, { includeArchived: a?.archives !== false }),
+  },
+  {
+    name: 'carto_lire_fiches',
+    description: 'Lit les FICHES de la carte : personnes ex nihilo (notes + surnoms) et dossiers ex nihilo (description, date, personnes liées). Ces notes sont saisies par le magistrat directement sur la cartographie — renseignement de première main, souvent riche (rôles supposés, contexte, époque), INVISIBLE depuis les dossiers réels. À consulter pour toute recherche sur une personne, tout recoupement transversal, et avant tout proposer_note_mec. Ne jamais contredire ni proposer de réécrire ces notes : un enrichissement s\'AJOUTE.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => listerFiches(keys),
   },
   {
     name: 'carto_lister_liens',

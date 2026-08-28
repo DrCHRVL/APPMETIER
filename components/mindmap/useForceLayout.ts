@@ -578,6 +578,36 @@ export function useForceLayout(
         renseignementTargetsByMecId.get(tn.id)!.push(e.source);
       }
     }
+    // GRAVITÉ DE CAMP — cibles par MEC : les autres membres de son camp
+    // (hors co-membres du même dossier, dont le barycentre coïnciderait avec
+    // l'étoile et n'orienterait rien). La planète est tournée vers le
+    // barycentre du camp au moment du placement orbital : les membres d'un
+    // même camp se regroupent du même côté de chaque dossier, SANS déplacer
+    // dossiers ni galaxies. Priorité moindre qu'un lien renseignement.
+    const campTargetsByMecId = new Map<string, string[]>();
+    {
+      const membersByCamp = new Map<string, Array<{ id: string; soloDossier?: string }>>();
+      for (const n of nodes) {
+        if (n.type !== 'mec' || !n.campLabel) continue;
+        let list = membersByCamp.get(n.campLabel);
+        if (!list) {
+          list = [];
+          membersByCamp.set(n.campLabel, list);
+        }
+        list.push({ id: n.id, soloDossier: n.dossierIds.length === 1 ? n.dossierIds[0] : undefined });
+      }
+      for (const members of membersByCamp.values()) {
+        if (members.length < 2) continue;
+        for (const m of members) {
+          if (!m.soloDossier) continue; // seules les planètes sont orientables
+          const targets = members
+            .filter(o => o.id !== m.id && o.soloDossier !== m.soloDossier)
+            .slice(0, 40)
+            .map(o => o.id);
+          if (targets.length > 0) campTargetsByMecId.set(m.id, targets);
+        }
+      }
+    }
     const newAngles = applyOrbitalLayout(
       orbitalGalaxies,
       nodes,
@@ -586,6 +616,7 @@ export function useForceLayout(
       {
         collisionRadiusOf: getCollisionRadius,
         renseignementTargetsByMecId,
+        campTargetsByMecId,
       },
     );
     for (const [mecId, ang] of newAngles) orbitalAngleCache.set(mecId, ang);

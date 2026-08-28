@@ -446,6 +446,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     const text = `Recherche tout ce que nos dossiers (enquêtes, instruction, pièces, CR) disent de ${mec.displayName}`
       + (alias.length ? ` (alias/orthographes : ${alias.join(', ')})` : '')
       + `. Rôle supposé, entourage, dossiers où il apparaît, adresses/téléphones/véhicules, éléments de contexte — cite tes sources (pièce et dossier). `
+      + `Consulte AUSSI les fiches de la carte (carto_lire_fiches) : les notes des personnes et les descriptions des dossiers ex nihilo `
+      + `que j'ai créés sont riches en renseignement. `
       + `Quand tu as fini, dépose UNE proposition d'enrichissement de sa fiche avec proposer_note_mec `
       + `(l'ajout sera fait à la suite de mes notes, sans jamais les modifier ni les contredire). N'écris rien d'office.`;
     setEnrichPrefill(prev => ({ text, seq: (prev?.seq ?? 0) + 1 }));
@@ -1060,6 +1062,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             onRemoveCamp={removeMecCamp}
             onSaveFiche={handleSaveMecFiche}
             onEnrichRequest={isAdmin() ? handleEnrichMec : undefined}
+            onDeleteLien={removeLien}
           />
         )}
 

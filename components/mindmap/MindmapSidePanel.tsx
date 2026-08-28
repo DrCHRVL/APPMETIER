@@ -38,6 +38,8 @@ interface MindmapSidePanelProps {
   onSaveFiche?: (mec: MecNode, data: { notes?: string; alias: string[] }) => void;
   /** Demande à l'attaché IA d'enrichir la fiche (action explicite, admin). */
   onEnrichRequest?: (mec: MecNode) => void;
+  /** Supprime un lien de renseignement (croix rouge, avec confirmation). */
+  onDeleteLien?: (lienId: string) => void;
 }
 
 const BOOST_MIN = -10;
@@ -70,6 +72,7 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
   onRemoveCamp,
   onSaveFiche,
   onEnrichRequest,
+  onDeleteLien,
 }) => {
   const ctxColorById = new Map<string, { color: string; label: string }>(
     contentieuxDefs.map(d => [d.id, { color: d.color, label: d.label }]),
@@ -155,13 +158,13 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
   //    validés depuis les propositions de l'attaché), avec leur libellé.
   // 2. Co-mis en cause : personnes qui partagent au moins un dossier.
   const { liensPersonnes, coMisEnCause } = useMemo(() => {
-    const liens: Array<{ other: MecNode; label?: string; notes?: string }> = [];
+    const liens: Array<{ lienId: string; other: MecNode; label?: string; notes?: string }> = [];
     for (const e of graph.edges) {
       if (e.kind !== 'renseignement') continue;
       const otherId = e.source === mec.id ? e.target : e.target === mec.id ? e.source : undefined;
       if (!otherId) continue;
       const other = graph.mecById.get(otherId);
-      if (other) liens.push({ other, label: e.label, notes: e.notes });
+      if (other) liens.push({ lienId: e.id, other, label: e.label, notes: e.notes });
     }
     const dossierSet = new Set(mec.dossierIds);
     const shared = new Map<string, number>();
@@ -648,11 +651,11 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
             </div>
             {liensPersonnes.length > 0 && (
               <ul className="px-2">
-                {liensPersonnes.map(({ other, label, notes }, i) => (
-                  <li key={`lien_${other.id}_${i}`}>
+                {liensPersonnes.map(({ lienId, other, label, notes }, i) => (
+                  <li key={`lien_${other.id}_${i}`} className="flex items-center group/row">
                     <button
                       onClick={() => onPersonClick?.(other)}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-slate-50 group text-left"
+                      className="flex-1 min-w-0 flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-slate-50 group text-left"
                       title={notes || undefined}
                     >
                       <LinkIcon className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
@@ -671,6 +674,20 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
                       )}
                       <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-slate-500 flex-shrink-0" />
                     </button>
+                    {onDeleteLien && (
+                      <button
+                        onClick={() => {
+                          if (window.confirm(
+                            `Supprimer le lien de renseignement entre ${mec.displayName} et ${other.displayName}`
+                            + `${label ? ` (« ${label} »)` : ''} ?`,
+                          )) onDeleteLien(lienId);
+                        }}
+                        title="Supprimer ce lien de renseignement"
+                        className="mr-2 p-1 rounded text-red-300 hover:text-red-600 hover:bg-red-50 flex-shrink-0 opacity-0 group-hover/row:opacity-100 transition-opacity"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>

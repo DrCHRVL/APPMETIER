@@ -830,6 +830,14 @@ export interface OrbitalLayoutOptions {
    *  privilégie un angle orbital tourné VERS le partenaire pour que le
    *  trait soit court et ne traverse pas le reste du système. */
   renseignementTargetsByMecId?: Map<string, string[]>;
+  /** GRAVITÉ DE CAMP — pour chaque MEC assigné à un camp, ids des autres
+   *  membres du camp (hors co-membres du même dossier). Même mécanique que
+   *  les cibles renseignement, en PRIORITÉ MOINDRE : la planète est tournée
+   *  vers le barycentre de son camp, donc les membres d'un même camp se
+   *  regroupent du même côté de chaque dossier. Les dossiers et les
+   *  galaxies ne bougent pas — seule l'orientation des personnes autour de
+   *  LEUR dossier change, au prochain recompactage. */
+  campTargetsByMecId?: Map<string, string[]>;
 }
 
 export function applyOrbitalLayout(
@@ -893,26 +901,40 @@ export function applyOrbitalLayout(
       // le plus proche, le cas échéant). On l'utilisera comme biais lors
       // du choix d'angle.
       const preferredAngleByPlanet = new Map<string, number>();
+      // Barycentre des positions des cibles → un seul angle préféré (si
+      // plusieurs cibles, c'est le compromis qui minimise les traits longs).
+      const angleTowards = (targets: string[]): number | undefined => {
+        let sx = 0, sy = 0, count = 0;
+        for (const tid of targets) {
+          const tp = positions.get(tid);
+          if (!tp) continue;
+          sx += tp.x; sy += tp.y; count++;
+        }
+        if (count === 0) return undefined;
+        const dx = sx / count - starPos.x;
+        const dy = sy / count - starPos.y;
+        if (dx === 0 && dy === 0) return undefined;
+        return normalizeAngle(Math.atan2(dy, dx));
+      };
       const rensTargets = options.renseignementTargetsByMecId;
       if (rensTargets) {
         for (const pid of planets) {
           const targets = rensTargets.get(pid);
           if (!targets || targets.length === 0) continue;
-          // Barycentre des positions des partenaires connus → un seul
-          // angle préféré (et si plusieurs partenaires, c'est le compromis
-          // qui minimise les liens longs).
-          let sx = 0, sy = 0, count = 0;
-          for (const tid of targets) {
-            const tp = positions.get(tid);
-            if (!tp) continue;
-            sx += tp.x; sy += tp.y; count++;
-          }
-          if (count === 0) continue;
-          const cx = sx / count, cy = sy / count;
-          const dx = cx - starPos.x;
-          const dy = cy - starPos.y;
-          if (dx === 0 && dy === 0) continue;
-          preferredAngleByPlanet.set(pid, normalizeAngle(Math.atan2(dy, dx)));
+          const ang = angleTowards(targets);
+          if (ang !== undefined) preferredAngleByPlanet.set(pid, ang);
+        }
+      }
+      // Gravité de camp : priorité moindre que le lien renseignement (un
+      // trait tracé à la main prime sur l'appartenance).
+      const campTargets = options.campTargetsByMecId;
+      if (campTargets) {
+        for (const pid of planets) {
+          if (preferredAngleByPlanet.has(pid)) continue;
+          const targets = campTargets.get(pid);
+          if (!targets || targets.length === 0) continue;
+          const ang = angleTowards(targets);
+          if (ang !== undefined) preferredAngleByPlanet.set(pid, ang);
         }
       }
 
