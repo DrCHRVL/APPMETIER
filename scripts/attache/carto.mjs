@@ -75,6 +75,12 @@ export function listerFiches(keys) {
     misEnCause: (d.mecIds || []).map((id) => nomDeMec.get(id) || id).slice(0, 30),
     natinfCodes: d.natinfCodes,
     notes: d.notes ? String(d.notes).slice(0, 2000) : undefined,
+    // Documents versés par le magistrat (synthèse ou dossier complet,
+    // convertis en texte) : lecture intégrale via carto_lire_document.
+    documents: (d.documents || []).map((doc) => ({
+      nom: doc.nom,
+      taille: (doc.texte || '').length,
+    })),
   }))
   // Camps déjà assignés (à la main ou via une proposition validée) : à ne
   // JAMAIS contredire — une personne déjà rangée dans un camp l'est.
@@ -90,6 +96,46 @@ export function listerFiches(keys) {
     fichesPersonnes,
     dossiersExNihilo: dossiers,
     camps,
+  }
+}
+
+/**
+ * Lit un DOCUMENT versé sur un dossier ex nihilo (synthèse ou dossier
+ * complet, converti en texte au téléversement). Paginé : `offset` en
+ * caractères, tranche de 40 000 — le retour indique s'il reste à lire.
+ */
+export function lireDocumentExNihilo(keys, { dossier, document, offset = 0 }) {
+  const lbl = String(dossier || '').trim().toLowerCase()
+  if (!lbl) throw new Error('Libellé du dossier ex nihilo requis')
+  const ov = loadOverlay(keys)
+  const d = (ov?.dossiersExNihilo || []).find((x) => String(x.label || '').trim().toLowerCase() === lbl)
+  if (!d) throw new Error(`Dossier ex nihilo « ${dossier} » introuvable`)
+  const docs = d.documents || []
+  if (docs.length === 0) return { dossier: d.label, documents: [], note: 'Aucun document versé sur ce dossier.' }
+  const wanted = String(document || '').trim().toLowerCase()
+  const doc = wanted
+    ? docs.find((x) => String(x.nom || '').trim().toLowerCase() === wanted)
+    : docs[0]
+  if (!doc) {
+    return {
+      dossier: d.label,
+      documents: docs.map((x) => ({ nom: x.nom, taille: (x.texte || '').length })),
+      note: `Document « ${document} » introuvable — les documents disponibles sont listés.`,
+    }
+  }
+  const texte = String(doc.texte || '')
+  const start = Math.max(0, Math.floor(Number(offset) || 0))
+  const TRANCHE = 40_000
+  const slice = texte.slice(start, start + TRANCHE)
+  return {
+    dossier: d.label,
+    document: doc.nom,
+    tailleTotale: texte.length,
+    offset: start,
+    texte: slice,
+    suite: start + TRANCHE < texte.length
+      ? `Relire avec offset:${start + TRANCHE} pour la suite (${texte.length - start - TRANCHE} caractères restants).`
+      : undefined,
   }
 }
 
@@ -511,11 +557,27 @@ export async function appendMecNoteEnrichissement(keys, { nom, notes, alias }) {
   return { ok: true, cible: existante ? 'fiche enrichie' : 'fiche créée' }
 }
 
+/**
+ * Résout une extrémité de lien : le LIBELLÉ EXACT d'un dossier ex nihilo de
+ * la carte (→ son id), sinon un nom de personne (→ clé canonique). Permet
+ * les liens personne ↔ dossier manuel, pas seulement personne ↔ personne.
+ */
+function lienEndpoint(ov, nom) {
+  const clean = String(nom || '').trim()
+  if (!clean) return ''
+  const dexn = (ov?.dossiersExNihilo || []).find(
+    (d) => String(d.label || '').trim().toLowerCase() === clean.toLowerCase(),
+  )
+  if (dexn) return dexn.id
+  return mecCanonId(clean)
+}
+
 /** Ajoute un lien de renseignement à la carte (appliqué à la validation ✓). */
 export async function appendLien(keys, { sourceNom, targetNom, label, notes }) {
-  const source = mecCanonId(sourceNom)
-  const target = mecCanonId(targetNom)
-  if (!source || !target) throw new Error('Deux noms de personnes valides sont requis')
+  const ovResolve = loadOverlay(keys)
+  const source = lienEndpoint(ovResolve, sourceNom)
+  const target = lienEndpoint(ovResolve, targetNom)
+  if (!source || !target) throw new Error('Deux extrémités valides sont requises (nom de personne, ou libellé exact d\'un dossier ex nihilo)')
   if (source === target) throw new Error('Source et cible identiques')
   const ov = loadOverlay(keys) || emptyOverlay()
   ov.liensRenseignement = ov.liensRenseignement || []
@@ -533,6 +595,111 @@ export async function appendLien(keys, { sourceNom, targetNom, label, notes }) {
   })
   await saveOverlay(keys, ov)
   return { ok: true, source, target }
+}
+
+// ── Histoire d'un clan / portrait d'une personne ─────────────────────────
+// Rassemble en UN appel tout ce que la carte et les dossiers savent d'un
+// sujet (un camp ou une personne) : membres, fiches et notes du magistrat,
+// rôles cochés, liens tracés, dossiers réels et manuels concernés,
+// documents versés. C'est le POINT DE DÉPART du récit — la méthode jointe
+// dit quoi lire ensuite (CR, documents, pièces via sous-agents ou chantier).
+
+/**
+ * @param {string} sujet — libellé d'un camp, ou nom d'une personne.
+ */
+export function cartoHistoire(keys, { sujet }) {
+  const clean = String(sujet || '').trim()
+  if (!clean) throw new Error('Sujet requis (libellé d\'un camp ou nom d\'une personne)')
+  const ov = loadOverlay(keys)
+
+  // Camp ? (libellé insensible à la casse)
+  const campAssignments = (ov?.mecCamps || []).filter(
+    (c) => String(c.label || '').trim().toLowerCase() === clean.toLowerCase(),
+  )
+  const mode = campAssignments.length > 0 ? 'camp' : 'personne'
+  // Clés canoniques (insensibles à l'ordre des mots) des personnes visées.
+  const memberKeys = new Set(
+    mode === 'camp'
+      ? campAssignments.map((c) => mecCanonId(c.mecId)).filter(Boolean)
+      : [mecCanonId(clean)].filter(Boolean),
+  )
+  if (memberKeys.size === 0) throw new Error('Sujet introuvable')
+
+  const estMembre = (nom) => memberKeys.has(mecCanonId(nom))
+
+  // Fiches (notes/alias du magistrat) + rôles cochés + camps des membres.
+  const fiches = (ov?.mecsExNihilo || [])
+    .filter((m) => estMembre(m.displayName || m.id))
+    .map((m) => ({ nom: m.displayName || m.id, alias: m.alias || [], notes: m.notes }))
+  const roles = (ov?.mecScoreBoosts || [])
+    .filter((b) => b.role && memberKeys.has(mecCanonId(b.mecId)))
+    .map((b) => ({ personne: b.mecId, role: b.role, justification: b.reason }))
+  const campsDesMembres = (ov?.mecCamps || [])
+    .filter((c) => memberKeys.has(mecCanonId(c.mecId)))
+    .map((c) => ({ personne: c.mecId, camp: c.label }))
+
+  // Liens de renseignement touchant un membre.
+  const liens = (ov?.liensRenseignement || [])
+    .filter((l) => memberKeys.has(mecCanonId(l.source)) || memberKeys.has(mecCanonId(l.target)))
+    .map((l) => ({ source: l.source, target: l.target, label: l.label, notes: l.notes }))
+
+  // Dossiers RÉELS où figure au moins un membre : le squelette du récit.
+  const { data } = loadContentieux(keys)
+  const enquetes = (data.enquetes || [])
+    .filter((e) => (e.misEnCause || []).some((m) => m.nom && estMembre(m.nom)))
+    .map((e) => ({
+      numero: e.numero,
+      statut: e.statut,
+      objet: stripHtml(e.description || '').slice(0, 400),
+      nbCR: (e.comptesRendus || []).length,
+      misEnCause: (e.misEnCause || []).map((m) => m.nom).filter(Boolean).slice(0, 40),
+      membresConcernes: (e.misEnCause || []).map((m) => m.nom).filter((n) => n && estMembre(n)),
+    }))
+  // Instruction : mêmes personnes côté module instruction.
+  let instruction = []
+  try {
+    instruction = instructionCorpus(keys)
+      .filter((d) => (d.misEnCause || []).some((n) => estMembre(typeof n === 'string' ? n : n?.nom)))
+  } catch { /* module instruction absent */ }
+
+  // Dossiers EX NIHILO touchant un membre : l'histoire ancienne y vit
+  // souvent (vieux jugements, réseaux démantelés), avec les documents versés.
+  const nomDeMec = new Map()
+  for (const m of ov?.mecsExNihilo || []) nomDeMec.set(m.id, m.displayName || m.id)
+  const dossiersExN = (ov?.dossiersExNihilo || [])
+    .filter((d) => (d.mecIds || []).some((id) => memberKeys.has(mecCanonId(id))))
+    .map((d) => ({
+      label: d.label,
+      dateApprox: d.dateApprox,
+      misEnCause: (d.mecIds || []).map((id) => nomDeMec.get(id) || id).slice(0, 40),
+      notes: d.notes,
+      documents: (d.documents || []).map((doc) => ({ nom: doc.nom, taille: (doc.texte || '').length })),
+    }))
+
+  return {
+    contentieux: attacheTj(),
+    sujet: clean,
+    mode,
+    nbMembres: memberKeys.size,
+    membres: mode === 'camp' ? campAssignments.map((c) => c.mecId).slice(0, 120) : [clean],
+    fiches,
+    roles,
+    campsDesMembres,
+    liens,
+    dossiersReels: enquetes.slice(0, 60),
+    instruction: instruction.slice(0, 40),
+    dossiersExNihilo: dossiersExN.slice(0, 60),
+    methode: [
+      'MÉTHODE DU RÉCIT — chronologique et SOURCÉ (chaque fait cite son dossier/pièce/note) :',
+      '1. Lis les dossiers réels listés (lire_dossier : description ET section "cr" — les CR racontent l\'affaire) et les dossiers d\'instruction (descriptions, notes, documents versés au module instruction via dossier_arborescence + lire_document).',
+      '2. Lis les documents versés sur les dossiers ex nihilo (carto_lire_document, paginé) : synthèses et dossiers complets déposés par le magistrat — souvent la mémoire des réseaux démantelés.',
+      '3. Croise avec les fiches (notes du magistrat — ne JAMAIS les contredire), les rôles cochés (chef/lieutenant), les camps et les liens.',
+      '4. Cherche les SUCCESSIONS et SCISSIONS : un réseau démantelé dont un lieutenant remonte sa propre structure avec les mêmes hommes (ex. clan dissous → son second crée le sien). Dates, déclencheur (interpellations, condamnations), qui a suivi qui.',
+      '5. Pour un CONFLIT entre deux camps : dossiers où les deux apparaissent (violences croisées, victimes d\'un bord mises en cause de l\'autre), territoires, épisodes datés.',
+      '6. Au fil de la lecture, PROPOSE ce que tu découvres — proposer_lien (personne↔personne ou personne↔dossier ex nihilo, motif et source à l\'appui), proposer_note_mec (enrichissement de fiche), proposer_camp_carto (nouveau camp ou successeur, membres sûrs).',
+      'Si la matière déborde (dizaines de pièces à lire), délègue aux sous_agents ou dépose un CHANTIER (chantier_proposer) avec devis — ne bâcle pas le récit.',
+    ].join('\n'),
+  }
 }
 
 // ── Recoupement des personnes (aide à la création de dossier) ────────────

@@ -41,7 +41,7 @@ import { listDepot, readDepotText, readMailPieceText, rangerDocument, rangerPiec
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { lireRegistre, recouperRegistres } from './attache/registre.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
-import { analyserReseau, listerLiens, listerFiches, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
+import { analyserReseau, listerLiens, listerFiches, lireDocumentExNihilo, cartoHistoire, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
 import { saveProduction, listProductions, readProduction, deleteProduction, diffProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
 import { appendMemory, rewriteMemory, memoryStats, MEMORY_BUDGET } from './attache/memory.mjs'
 import { recordLearningSignal, pendingSignals, learningState, learningMetrics, metricsSummary } from './attache/apprentissage.mjs'
@@ -1414,6 +1414,32 @@ const TOOLS = [
     handler: async () => listerFiches(keys),
   },
   {
+    name: 'carto_lire_document',
+    description: 'Lit un DOCUMENT versé par le magistrat sur un dossier ex nihilo de la carte (synthèse d\'affaire ou dossier complet, converti en texte au téléversement). Paginé par tranches de 40 000 caractères (offset). Ces documents sont LA source pour comprendre l\'histoire d\'un réseau : d\'où vient un clan, qui l\'a dirigé, comment il a été démantelé. Sans `document`, lit le premier ; la liste des documents d\'un dossier est dans carto_lire_fiches.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dossier: { type: 'string', description: 'Libellé exact du dossier ex nihilo' },
+        document: { type: 'string', description: 'Nom du document (optionnel — défaut : le premier)' },
+        offset: { type: 'number', description: 'Position de départ en caractères (pagination)' },
+      },
+      required: ['dossier'],
+    },
+    handler: async (a) => lireDocumentExNihilo(keys, { dossier: a.dossier, document: a.document, offset: a.offset }),
+  },
+  {
+    name: 'carto_histoire',
+    description: 'DOSSIER DE RENSEIGNEMENT d\'un sujet de la carte — point de départ pour « raconte l\'histoire du clan X », « le conflit entre X et Y », « qui est X ? ». Donné un camp (libellé) ou une personne (nom), rassemble en un appel : membres, fiches et notes du magistrat, rôles cochés (chef/lieutenant), camps, liens tracés, dossiers réels et d\'instruction concernés, dossiers ex nihilo avec leurs documents versés — plus la MÉTHODE du récit (chronologique, sourcé, successions/scissions de clans, propositions au fil de la lecture). Pour un conflit entre deux camps, appelle-le une fois par camp puis croise. Travail LOURD par nature : suis la méthode, délègue aux sous_agents, ou propose un chantier si la matière déborde.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sujet: { type: 'string', description: 'Libellé d\'un camp (ex: « Réseau Ben Cherki ») ou nom d\'une personne' },
+      },
+      required: ['sujet'],
+    },
+    handler: async (a) => cartoHistoire(keys, { sujet: a.sujet }),
+  },
+  {
     name: 'carto_lister_liens',
     description: 'Liste les liens de renseignement déjà tracés sur la carte (person↔person), pour éviter de re-proposer un lien existant.',
     inputSchema: { type: 'object', properties: {} },
@@ -1421,7 +1447,7 @@ const TOOLS = [
   },
   {
     name: 'proposer_lien',
-    description: 'Propose un LIEN DE RENSEIGNEMENT entre deux personnes, détecté en lisant une pièce (communications récurrentes, lien familial, logistique, même adresse/plaque/téléphone…) et non encore tracé sur la carte. Créé sur la carte SEULEMENT au ✓ de l\'administrateur. Toujours citer la source. Les deux personnes peuvent être des MEC réels OU des personnes ex nihilo (proposer_mec_carto d\'abord si l\'une est un surnom/second plan absent des dossiers). `numero` FACULTATIF = dossier d\'où vient la détection (contexte d\'affichage) ; pour un lien transversal entre plusieurs affaires, laisse-le vide.',
+    description: 'Propose un LIEN DE RENSEIGNEMENT détecté en lisant une pièce, un CR, une description ou un document versé (communications récurrentes, lien familial, logistique, même adresse/plaque/téléphone…) et non encore tracé sur la carte. Créé sur la carte SEULEMENT au ✓ de l\'administrateur. TOUJOURS motiver : la nature du lien (label) ET la source précise. Chaque extrémité est une personne (MEC réel ou ex nihilo — proposer_mec_carto d\'abord si surnom/second plan absent des dossiers) OU le libellé EXACT d\'un dossier ex nihilo de la carte (lien personne ↔ dossier : implication au sens large). `numero` FACULTATIF = dossier d\'où vient la détection ; pour un lien transversal, laisse-le vide.',
     inputSchema: {
       type: 'object',
       properties: {

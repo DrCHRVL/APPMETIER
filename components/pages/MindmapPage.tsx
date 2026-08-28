@@ -446,8 +446,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     const text = `Recherche tout ce que nos dossiers (enquêtes, instruction, pièces, CR) disent de ${mec.displayName}`
       + (alias.length ? ` (alias/orthographes : ${alias.join(', ')})` : '')
       + `. Rôle supposé, entourage, dossiers où il apparaît, adresses/téléphones/véhicules, éléments de contexte — cite tes sources (pièce et dossier). `
-      + `Consulte AUSSI les fiches de la carte (carto_lire_fiches) : les notes des personnes et les descriptions des dossiers ex nihilo `
-      + `que j'ai créés sont riches en renseignement. `
+      + `Consulte AUSSI les fiches de la carte (carto_lire_fiches) : les notes des personnes, les descriptions des dossiers ex nihilo `
+      + `que j'ai créés, et les documents que j'y ai versés (carto_lire_document) sont riches en renseignement. `
       + `Quand tu as fini, dépose UNE proposition d'enrichissement de sa fiche avec proposer_note_mec `
       + `(l'ajout sera fait à la suite de mes notes, sans jamais les modifier ni les contredire). N'écris rien d'office.`;
     setEnrichPrefill(prev => ({ text, seq: (prev?.seq ?? 0) + 1 }));
@@ -499,10 +499,14 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     ).join('\n');
     const text = `Détection de camps sur ${retained.length > 1 ? 'les plus gros amas' : 'le plus gros amas'} de la carte.\n${blocs}\n`
       + `Analyse ce qui structure ${retained.length > 1 ? 'chaque amas' : 'cet amas'} : lis les descriptions et CR des dossiers communs (lire_dossier), `
-      + `mes fiches et dossiers ex nihilo (carto_lire_fiches — leurs notes sont riches), les liens tracés (carto_lister_liens) et les co-occurrences (carto_analyser). `
+      + `mes fiches et dossiers ex nihilo (carto_lire_fiches — leurs notes sont riches) et les DOCUMENTS que j'y ai versés (carto_lire_document : synthèses, dossiers complets), `
+      + `les liens tracés (carto_lister_liens) et les co-occurrences (carto_analyser). `
       + `Identifie les CAMPS/CLANS rivaux (2 à 4 par amas maximum) et propose CHAQUE camp avec proposer_camp_carto — membres SÛRS uniquement `
-      + `(dans le doute, laisse la personne hors camp), motif sourcé. Les camps déjà assignés sont dans carto_lire_fiches : ne les contredis pas. `
-      + `N'écris rien d'office — je validerai ✓/✗ chaque camp.`;
+      + `(dans le doute, laisse la personne hors camp), motif sourcé. `
+      + `Cherche aussi les SUCCESSIONS et SCISSIONS : un clan démantelé dont un lieutenant a remonté son propre réseau avec les mêmes hommes `
+      + `— nomme alors le camp successeur explicitement (ex. « Réseau Zouaoui (ex-Krasniqi) ») et dis la filiation dans le motif. `
+      + `Au passage, propose les LIENS que ta lecture révèle (proposer_lien — nature du lien et source à l'appui, personne↔personne ou personne↔dossier ex nihilo). `
+      + `Les camps déjà assignés sont dans carto_lire_fiches : ne les contredis pas. N'écris rien d'office — je validerai ✓/✗ chaque proposition.`;
     setEnrichPrefill(prev => ({ text, seq: (prev?.seq ?? 0) + 1 }));
   }, [graph, showToast]);
 
