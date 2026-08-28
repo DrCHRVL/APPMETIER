@@ -20,14 +20,14 @@ import crypto from 'node:crypto'
 import { attacheDir, ensureDir, atomicWrite, readJson, withFileLock } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { ajouterMec, enregistrerActe, classerNote, getMecNoms, normalizeNom, proximiteNoms, mecParNom, creerDossier, dossierExiste } from './dossier.mjs'
-import { appendLien, appendDossierExNihilo, dossierExNihiloExiste, appendMecExNihilo, mecExNihiloExiste, appendMecNoteEnrichissement } from './carto.mjs'
+import { appendLien, appendDossierExNihilo, dossierExNihiloExiste, appendMecExNihilo, mecExNihiloExiste, appendMecNoteEnrichissement, appendCampAssignments } from './carto.mjs'
 import { saveTrame, readTrame, safeTrameName, MODELE_PREFIX } from './trames.mjs'
 import { saveSkill, readSkill, safeSkillName, AUTO_SKILL_PREFIX } from './skills.mjs'
 import { audit } from './journal.mjs'
 import { recordLearningSignal } from './apprentissage.mjs'
 
 const FILE = () => attacheDir('propositions.json')
-const TYPES = ['mec', 'acte', 'cr', 'lien', 'dossier', 'dossier_carto', 'mec_carto', 'mec_note', 'trame', 'skill']
+const TYPES = ['mec', 'acte', 'cr', 'lien', 'dossier', 'dossier_carto', 'mec_carto', 'mec_note', 'camp_carto', 'trame', 'skill']
 // Types rattachés à un dossier EXISTANT (numéro requis). « dossier » porte le
 // numéro du dossier à créer ; « dossier_carto », « mec_carto » et « lien »
 // sont globaux (carte — numéro facultatif pour un lien : simple contexte
@@ -113,6 +113,21 @@ export async function addProposition(keys, { numero, type, payload, source, titr
     const pendante = propositions.find((p) => p.statut === 'en_attente' && p.type === 'mec_note'
       && normalizeNom(p.payload?.nom || '') === norm)
     if (pendante) return { doublon: true, message: 'Un enrichissement de cette fiche est déjà en attente — le magistrat n\'a pas encore tranché' }
+    numero = ''
+  }
+
+  // CAMP (clan) détecté sur un gros amas : global. À la validation, chaque
+  // membre listé reçoit le camp — sans écraser ni ressusciter les choix
+  // manuels du magistrat (cf. appendCampAssignments).
+  if (type === 'camp_carto') {
+    const lbl = String(payload.label || '').trim()
+    if (!lbl) throw new Error('Libellé du camp requis')
+    if (!Array.isArray(payload.membres) || payload.membres.filter(Boolean).length === 0) {
+      throw new Error('Membres du camp requis')
+    }
+    const pendante = propositions.find((p) => p.statut === 'en_attente' && p.type === 'camp_carto'
+      && String(p.payload?.label || '').trim().toLowerCase() === lbl.toLowerCase())
+    if (pendante) return { doublon: true, message: `Un camp « ${lbl} » est déjà en attente de validation` }
     numero = ''
   }
 
@@ -234,6 +249,7 @@ function defaultTitre(type, payload) {
   }
   if (type === 'mec_carto') return `Personne ex nihilo (carte) : ${payload.nom || '?'}${Array.isArray(payload.alias) && payload.alias.length ? ` (alias ${payload.alias.slice(0, 3).join(', ')})` : ''}`
   if (type === 'mec_note') return `Enrichissement de fiche : ${payload.nom || '?'}`
+  if (type === 'camp_carto') return `Camp : ${payload.label || '?'} (${Array.isArray(payload.membres) ? payload.membres.length : 0} membres)`
   if (type === 'trame') return payload.existante ? `Trame « ${payload.nom} » — amélioration proposée` : `Nouvelle trame proposée : ${payload.nom}`
   if (type === 'skill') return payload.existante ? `Skill « ${payload.nom} » — amélioration proposée` : `Nouvelle skill proposée : ${payload.nom}`
   if (type === 'lien') return `Lien de renseignement : ${payload.sourceNom} ↔ ${payload.targetNom}${payload.label ? ` (${payload.label})` : ''}`
@@ -287,6 +303,8 @@ export async function decideProposition(keys, { id, action, par, motif }) {
       applique = await appendMecExNihilo(keys, prop.payload)
     } else if (prop.type === 'mec_note') {
       applique = await appendMecNoteEnrichissement(keys, prop.payload)
+    } else if (prop.type === 'camp_carto') {
+      applique = await appendCampAssignments(keys, prop.payload)
     } else if (prop.type === 'trame') {
       // écriture versionnée : l'ancienne version reste récupérable ; la
       // description existante est conservée si la proposition n'en porte pas

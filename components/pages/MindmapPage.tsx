@@ -8,7 +8,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, FileDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pin, PinOff, Plus, RefreshCw, Save, Shrink, Trophy, User, X } from 'lucide-react';
+import { Check, ChevronDown, FileDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pin, PinOff, Plus, RefreshCw, Save, Shrink, Sparkles, Trophy, User, X } from 'lucide-react';
 import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { Enquete } from '@/types/interfaces';
 import {
@@ -52,7 +52,7 @@ import { clearLayoutCache } from '../mindmap/useForceLayout';
 
 // Types de propositions carto revus depuis la carte (constante stable :
 // évite qu'un tableau inline ne relance le chargement à chaque rendu).
-const CARTO_REVIEW_KINDS = ['dossier_carto', 'mec_carto', 'mec_note', 'lien'] as const;
+const CARTO_REVIEW_KINDS = ['dossier_carto', 'mec_carto', 'mec_note', 'camp_carto', 'lien'] as const;
 
 // ──────────────────────────────────────────────
 // PROPS
@@ -452,6 +452,59 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       + `(l'ajout sera fait à la suite de mes notes, sans jamais les modifier ni les contredire). N'écris rien d'office.`;
     setEnrichPrefill(prev => ({ text, seq: (prev?.seq ?? 0) + 1 }));
   }, []);
+
+  // Détection automatique des camps par l'attaché : réservée aux GROS amas
+  // (c'est là que les groupes rivaux s'enchevêtrent — inutile sur un petit
+  // réseau). On calcule les composantes connexes côté client, on donne à
+  // l'attaché les membres des plus grosses, et il PROPOSE des camps ✓/✗ —
+  // sans jamais écraser une assignation ou un retrait manuels.
+  const DETECT_MIN_MEC = 15;
+  const handleDetectCamps = React.useCallback(() => {
+    // Composantes connexes sur les arêtes de données (les liens de
+    // renseignement ne fusionnent pas les réseaux — même règle que les
+    // couleurs et les bulles).
+    const adj = new Map<string, string[]>();
+    for (const e of graph.edges) {
+      if (e.kind === 'renseignement') continue;
+      if (!adj.has(e.source)) adj.set(e.source, []);
+      if (!adj.has(e.target)) adj.set(e.target, []);
+      adj.get(e.source)!.push(e.target);
+      adj.get(e.target)!.push(e.source);
+    }
+    const visited = new Set<string>();
+    const bigComponents: string[][] = [];
+    for (const mec of graph.mecById.values()) {
+      if (visited.has(mec.id)) continue;
+      const compMecs: string[] = [];
+      const queue = [mec.id];
+      visited.add(mec.id);
+      while (queue.length) {
+        const id = queue.shift()!;
+        const node = graph.mecById.get(id);
+        if (node) compMecs.push(node.displayName);
+        for (const nb of adj.get(id) || []) {
+          if (!visited.has(nb)) { visited.add(nb); queue.push(nb); }
+        }
+      }
+      if (compMecs.length >= DETECT_MIN_MEC) bigComponents.push(compMecs);
+    }
+    if (bigComponents.length === 0) {
+      showToast(`Aucun amas assez gros (≥ ${DETECT_MIN_MEC} personnes) pour une détection de camps`, 'info');
+      return;
+    }
+    bigComponents.sort((a, b) => b.length - a.length);
+    const retained = bigComponents.slice(0, 2);
+    const blocs = retained.map((names, i) =>
+      `Amas ${i + 1} (${names.length} personnes) : ${names.slice(0, 100).join(', ')}${names.length > 100 ? '…' : ''}`,
+    ).join('\n');
+    const text = `Détection de camps sur ${retained.length > 1 ? 'les plus gros amas' : 'le plus gros amas'} de la carte.\n${blocs}\n`
+      + `Analyse ce qui structure ${retained.length > 1 ? 'chaque amas' : 'cet amas'} : lis les descriptions et CR des dossiers communs (lire_dossier), `
+      + `mes fiches et dossiers ex nihilo (carto_lire_fiches — leurs notes sont riches), les liens tracés (carto_lister_liens) et les co-occurrences (carto_analyser). `
+      + `Identifie les CAMPS/CLANS rivaux (2 à 4 par amas maximum) et propose CHAQUE camp avec proposer_camp_carto — membres SÛRS uniquement `
+      + `(dans le doute, laisse la personne hors camp), motif sourcé. Les camps déjà assignés sont dans carto_lire_fiches : ne les contredis pas. `
+      + `N'écris rien d'office — je validerai ✓/✗ chaque camp.`;
+    setEnrichPrefill(prev => ({ text, seq: (prev?.seq ?? 0) + 1 }));
+  }, [graph, showToast]);
 
   // ────────────────────────────────────────────
   // ACTIONS
@@ -1067,8 +1120,9 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         )}
 
         {/* Légende des camps : un clic met le camp en surbrillance (le reste
-            de la carte s'estompe), un second clic annule. */}
-        {campsSummary.length > 0 && (
+            de la carte s'estompe), un second clic annule. Pour l'admin, elle
+            porte aussi la détection automatique par l'attaché (gros amas). */}
+        {(campsSummary.length > 0 || isAdmin()) && (
           <div className="absolute bottom-3 left-3 z-20 bg-white/95 border border-slate-200 rounded-lg shadow-md px-3 py-2 max-w-[260px]">
             <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">Camps</div>
             <div className="flex flex-col gap-1">
@@ -1089,6 +1143,21 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
                   </button>
                 );
               })}
+              {campsSummary.length === 0 && (
+                <div className="text-[11px] text-slate-400 px-1.5 pb-0.5">
+                  Aucun camp — assigne-les depuis la fiche d&apos;une personne.
+                </div>
+              )}
+              {isAdmin() && (
+                <button
+                  onClick={handleDetectCamps}
+                  title="L'attaché lit les descriptions de dossiers, les CR, les fiches et les liens du plus gros amas, puis propose des camps à valider ✓/✗ — vos assignations et retraits manuels ne sont jamais écrasés"
+                  className="mt-1 inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold px-2 py-1.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  Détecter les camps (attaché)
+                </button>
+              )}
             </div>
           </div>
         )}

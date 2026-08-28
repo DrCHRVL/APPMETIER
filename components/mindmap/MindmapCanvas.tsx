@@ -136,7 +136,7 @@ const CENTERED_HANDLE_STYLE: React.CSSProperties = {
 };
 
 const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
-  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus, isPinned, isVictime, isSuspect, suspectRole, isCondamne, campLabel, campColor, role } = data as MecNodeData & { isSuspect?: boolean; suspectRole?: string; isCondamne?: boolean; campLabel?: string; campColor?: string; role?: string };
+  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus, isPinned, isVictime, isSuspect, suspectRole, isCondamne, campLabel, role } = data as MecNodeData & { isSuspect?: boolean; suspectRole?: string; isCondamne?: boolean; campLabel?: string; role?: string };
   const size = radius * 2;
   // MEC "pont" : présent sur ≥ 2 contentieux distincts → halo violet pour
   // matérialiser la transversalité (signal du score, mais visuel).
@@ -181,18 +181,16 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
       <div
         className="absolute inset-0 rounded-full"
         style={{
-          // Le camp prime sur tout autre fond : c'est LE discriminant visuel
-          // entre deux groupes rivaux enchevêtrés dans les mêmes dossiers.
-          // Les étiquettes (Suspect/Condamné) restent affichées sous le nom.
-          background: campColor
-            ? `linear-gradient(135deg, ${campColor} 0%, ${campColor}cc 100%)`
-            : isSuspect
-              ? 'linear-gradient(135deg, #7c2d12 0%, #9a3412 100%)'
-              : isCondamne
-                ? 'linear-gradient(135deg, #064e3b 0%, #047857 100%)'
-                : recent
-                  ? 'linear-gradient(135deg, #1f2937 0%, #374151 100%)'
-                  : 'linear-gradient(135deg, #475569 0%, #64748b 100%)',
+          // La couleur de camp ne teinte PAS la bulle : elle vit dans l'aura
+          // peinte au niveau des sphères de réseau (cf. CampAuraView). La
+          // bulle garde ses codes habituels (suspect / condamné / récent).
+          background: isSuspect
+            ? 'linear-gradient(135deg, #7c2d12 0%, #9a3412 100%)'
+            : isCondamne
+              ? 'linear-gradient(135deg, #064e3b 0%, #047857 100%)'
+              : recent
+                ? 'linear-gradient(135deg, #1f2937 0%, #374151 100%)'
+                : 'linear-gradient(135deg, #475569 0%, #64748b 100%)',
         }}
       />
       <span
@@ -336,6 +334,85 @@ const HullNodeView = ({ data }: NodeProps<Node<HullNodeData>>) => {
   );
 };
 
+// ──────────────────────────────────────────────
+// AURA DE CAMP
+// ──────────────────────────────────────────────
+//
+// La couleur d'un camp ne teinte pas les bulles des personnes : elle est
+// peinte DANS la sphère de réseau, comme une nappe qui suit les membres du
+// camp (un disque flouté par membre + un tube le long des liens entre
+// membres proches). Le flou gaussien + le mode de fusion « multiply » font
+// que deux camps qui se touchent se brouillent et se mélangent à la
+// frontière — on lit la zone de friction d'un coup d'œil.
+
+/** Rayon ajouté autour de chaque membre pour la nappe de camp (px). */
+const CAMP_AURA_PADDING = 34;
+/** Rayon du flou gaussien (px monde). */
+const CAMP_AURA_BLUR = 22;
+/** Longueur max d'un tube entre deux membres liés : au-delà, on ne peint
+ *  pas de traînée de couleur à travers la carte (chaque poche du camp garde
+ *  sa propre nappe). */
+const CAMP_AURA_MAX_CAPSULE = 700;
+
+type CampAuraData = {
+  label: string;
+  color: string;
+  circles: Array<{ x: number; y: number; r: number }>;
+  capsules: Array<{ x1: number; y1: number; x2: number; y2: number; r: number }>;
+  bbox: { minX: number; minY: number; maxX: number; maxY: number };
+  dimmed: boolean;
+} & Record<string, unknown>;
+
+const CampAuraView = ({ data, id }: NodeProps<Node<CampAuraData>>) => {
+  const { color, circles, capsules, bbox, dimmed, label } = data;
+  const pad = CAMP_AURA_BLUR * 2;
+  const w = bbox.maxX - bbox.minX + pad * 2;
+  const h = bbox.maxY - bbox.minY + pad * 2;
+  const ox = bbox.minX - pad;
+  const oy = bbox.minY - pad;
+  const filterId = `campblur_${id}`;
+  return (
+    <svg
+      width={w}
+      height={h}
+      style={{
+        pointerEvents: 'none',
+        overflow: 'visible',
+        // multiply : deux nappes qui se recouvrent se MÉLANGENT (rouge ∩
+        // bleu → violet sombre), et la nappe se fond dans la sphère de
+        // réseau au lieu de la masquer.
+        mixBlendMode: 'multiply',
+        opacity: dimmed ? 0.1 : 1,
+        transition: 'opacity 200ms',
+      }}
+      aria-label={`Camp ${label}`}
+    >
+      <defs>
+        <filter id={filterId} x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation={CAMP_AURA_BLUR} />
+        </filter>
+      </defs>
+      <g filter={`url(#${filterId})`} opacity={0.34} fill={color} stroke={color}>
+        {capsules.map((cap, i) => (
+          <line
+            key={`cap_${i}`}
+            x1={cap.x1 - ox}
+            y1={cap.y1 - oy}
+            x2={cap.x2 - ox}
+            y2={cap.y2 - oy}
+            strokeWidth={2 * cap.r}
+            strokeLinecap="round"
+            fill="none"
+          />
+        ))}
+        {circles.map((c, i) => (
+          <circle key={`c_${i}`} cx={c.x - ox} cy={c.y - oy} r={c.r} stroke="none" />
+        ))}
+      </g>
+    </svg>
+  );
+};
+
 // Label de cluster : pill cliquable centrée au-dessus du blob. Affiche le nom
 // si annoté, ou un placeholder "+ Nommer ce réseau" sinon. Le clic est
 // géré au niveau MindmapCanvas via onNodeClick (router par node.type).
@@ -378,6 +455,7 @@ const NODE_TYPES = {
   mec: MecNodeView,
   dossier: DossierNodeView,
   hull: HullNodeView,
+  campAura: CampAuraView,
   clusterLabel: ClusterLabelView,
 } as const;
 
@@ -676,6 +754,86 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     return out;
   }, [influenceClusters, nodes, edges, positions, showInfluence]);
 
+  // Nappes de camp : pour chaque camp, l'union (floutée au rendu) d'un
+  // disque par membre et d'un tube par lien entre membres proches. La
+  // couleur du camp vit ICI, dans la sphère de réseau — pas sur les bulles.
+  const campAuras = useMemo(() => {
+    const byCamp = new Map<string, { color: string; members: MecNode[] }>();
+    for (const n of nodes) {
+      if (n.type !== 'mec' || !n.campLabel) continue;
+      let entry = byCamp.get(n.campLabel);
+      if (!entry) {
+        entry = { color: n.campColor || '#475569', members: [] };
+        byCamp.set(n.campLabel, entry);
+      }
+      entry.members.push(n);
+    }
+    type AuraGeom = {
+      label: string;
+      color: string;
+      circles: Array<{ x: number; y: number; r: number }>;
+      capsules: Array<{ x1: number; y1: number; x2: number; y2: number; r: number }>;
+      bbox: { minX: number; minY: number; maxX: number; maxY: number };
+      memberIds: string[];
+    };
+    if (byCamp.size === 0) return [] as AuraGeom[];
+
+    const out: AuraGeom[] = [];
+    for (const [label, { color, members }] of byCamp) {
+      const memberSet = new Set(members.map(m => m.id));
+      const circles: CampAuraData['circles'] = [];
+      const posById = new Map<string, { x: number; y: number }>();
+      for (const m of members) {
+        const p = positions.get(m.id);
+        if (!p) continue;
+        posById.set(m.id, p);
+        circles.push({ x: p.x, y: p.y, r: getCollisionRadius(m) + CAMP_AURA_PADDING });
+      }
+      if (circles.length === 0) continue;
+      const capsules: CampAuraData['capsules'] = [];
+      // Deux membres du même camp DANS le même dossier : reliés via le
+      // dossier (arête mec→dossier chacun), pas entre eux — on capsule
+      // directement les paires de membres suffisamment proches pour que la
+      // nappe soit continue autour d'un même système.
+      for (let i = 0; i < members.length; i++) {
+        for (let j = i + 1; j < members.length; j++) {
+          const a = posById.get(members[i].id);
+          const b = posById.get(members[j].id);
+          if (!a || !b) continue;
+          const d = Math.hypot(b.x - a.x, b.y - a.y);
+          const linked = members[i].dossierIds.some(did => members[j].dossierIds.includes(did));
+          if (d > CAMP_AURA_MAX_CAPSULE) continue;
+          if (!linked && d > CAMP_AURA_MAX_CAPSULE / 2) continue;
+          capsules.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, r: CAMP_AURA_PADDING });
+        }
+      }
+      // Liens de renseignement entre membres (peuvent dépasser la distance
+      // « proche » : le trait existe, la nappe le suit — borné quand même).
+      for (const e of edges) {
+        if (e.kind !== 'renseignement') continue;
+        if (!memberSet.has(e.source) || !memberSet.has(e.target)) continue;
+        const a = posById.get(e.source);
+        const b = posById.get(e.target);
+        if (!a || !b) continue;
+        if (Math.hypot(b.x - a.x, b.y - a.y) > CAMP_AURA_MAX_CAPSULE) continue;
+        capsules.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, r: CAMP_AURA_PADDING * 0.7 });
+      }
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const c of circles) {
+        if (c.x - c.r < minX) minX = c.x - c.r;
+        if (c.y - c.r < minY) minY = c.y - c.r;
+        if (c.x + c.r > maxX) maxX = c.x + c.r;
+        if (c.y + c.r > maxY) maxY = c.y + c.r;
+      }
+      out.push({
+        label, color, circles, capsules,
+        bbox: { minX, minY, maxX, maxY },
+        memberIds: members.map(m => m.id),
+      });
+    }
+    return out;
+  }, [nodes, edges, positions]);
+
   // Mode ego-network : calcule l'ensemble des nœuds visibles (= ego + voisins
   // jusqu'à `egoDepth`). En dehors du mode, tout est visible.
   const egoVisibleSet = useMemo(() => {
@@ -799,6 +957,34 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       } satisfies Node);
     }
 
+    // Nappes de camp : au-dessus des sphères et sous les nœuds. Rendues
+    // APRÈS les sub-hulls (même zIndex → ordre du tableau) pour que la
+    // couleur du camp reste visible par-dessus les mini-aires.
+    for (const aura of campAuras) {
+      // Une nappe s'estompe quand un filtre actif (ego ou surbrillance d'un
+      // autre camp) exclut TOUS ses membres.
+      const dimmed = !!highlightSet && !aura.memberIds.some(id => highlightSet.has(id));
+      const egoDimmedAura = !!egoVisibleSet && !aura.memberIds.some(id => egoVisibleSet.has(id));
+      const data: CampAuraData = {
+        label: aura.label,
+        color: aura.color,
+        circles: aura.circles,
+        capsules: aura.capsules,
+        bbox: aura.bbox,
+        dimmed: dimmed || egoDimmedAura,
+      };
+      out.push({
+        id: `campaura_${aura.label}`,
+        type: 'campAura',
+        position: { x: aura.bbox.minX - CAMP_AURA_BLUR * 2, y: aura.bbox.minY - CAMP_AURA_BLUR * 2 },
+        data: data as unknown as Record<string, unknown>,
+        draggable: false,
+        selectable: false,
+        zIndex: -1,
+        style: { pointerEvents: 'none' },
+      } satisfies Node);
+    }
+
     for (const n of nodes) {
       const pos = positions.get(n.id);
       const radius = getNodeRadius(n);
@@ -850,7 +1036,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       } satisfies Node);
     }
     return out;
-  }, [nodes, positions, focusedId, ctxColorById, dossierRotations, influenceClusters, subClusters, focusedClusterId, clusterAnnotations, egoVisibleSet, highlightSet, isDimmed, clusterColors, pinnedSet]);
+  }, [nodes, positions, focusedId, ctxColorById, dossierRotations, influenceClusters, subClusters, campAuras, focusedClusterId, clusterAnnotations, egoVisibleSet, highlightSet, isDimmed, clusterColors, pinnedSet]);
 
   // Obstacles pour le contournement des liens renseignement : tous les
   // nœuds positionnés avec leur rayon de collision (les extrémités du lien
