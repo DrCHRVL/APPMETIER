@@ -25,7 +25,7 @@ import { downloadActePdf, downloadActeDocx, acteFileBase } from '@/lib/web/acteE
 import { downloadActePptx, estPresentable } from '@/lib/web/pptxExport';
 import { downloadActeXlsx, contientTableaux } from '@/lib/web/xlsxExport';
 import { AttacheConfig, loadAttacheConfig } from './modelOptions';
-import { useEnquetesStore } from '@/stores/useEnquetesStore';
+import { messageProductionActe, useEnquetesStore } from '@/stores/useEnquetesStore';
 import type { ActeMeta } from '@/types/interfaces';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
@@ -154,9 +154,12 @@ export function ProductionPopup({ numero, prodId, service, onClose, onChanged }:
       const rec = { ...prod, contenu: draft, traite: !prod.traite, traiteLe: prod.traite ? undefined : now, updatedAt: now };
       if (await persist(rec)) {
         setProd(rec);
-        // Crée (validation) ou retire (réouverture) l'acte lié dans l'enquête.
-        syncProductionActe(rec.numero, { id: rec.id, type: rec.type, titre: rec.titre, meta: rec.acteMeta, objet: rec.objet }, !!rec.traite);
-        setNotice(rec.traite ? 'Validé — acte créé dans l\'enquête.' : 'Remis en attente.');
+        // Répercute la validation (ou la réouverture) dans l'enquête : acte
+        // créé, prolongation demandée sur l'acte existant, ou rien — on le dit.
+        const r = syncProductionActe(rec.numero, { id: rec.id, type: rec.type, titre: rec.titre, meta: rec.acteMeta, objet: rec.objet }, !!rec.traite);
+        setNotice(rec.traite
+          ? `Validé — ${messageProductionActe(r)}`
+          : `Remis en attente.${r.action === 'rien' ? '' : ` ${messageProductionActe(r)}`}`);
         onChanged?.();
       } else setNotice('Action impossible (service injoignable ?).');
     } finally { setBusy(null); }

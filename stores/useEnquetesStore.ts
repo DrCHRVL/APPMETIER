@@ -10,7 +10,12 @@
 
 import { create } from '@/lib/zustand';
 import { Enquete, CompteRendu, NewEnqueteData, ActeMeta } from '@/types/interfaces';
-import { buildProductionActe } from '@/utils/productionActe';
+import {
+  ActeCollection,
+  ProductionRef,
+  libelleActe,
+  planProductionActe,
+} from '@/utils/productionActe';
 import { findEnqueteParNumero } from '@/utils/numeroDossier';
 import { SiralBridge } from '@/utils/siralBridge';
 import { ContentieuxId } from '@/types/userTypes';
@@ -161,21 +166,23 @@ interface EnquetesState {
   /**
    * Répercute la validation (ou la réouverture) d'un acte rédigé par l'attaché
    * de justice sur les actes de l'enquête, retrouvée par son `numero`.
-   *  - `validated = true` : crée un acte IDENTIQUE à une saisie manuelle
-   *    (rubrique écoute / géoloc / autre + catégorie légale + statut dérivé),
-   *    à partir des métadonnées `prod.meta` de la production, lié par `prodId`.
-   *    Idempotent : ne recrée rien si l'acte existe déjà. Certaines productions
-   *    (note, livrable) ne créent aucun acte.
-   *  - `validated = false` : retire l'acte auto-créé s'il est resté à son état
-   *    initial (le magistrat ne l'a pas repris en main : pas de pose, pas de
-   *    prolongation). Sinon on le préserve.
-   * No-op si aucune enquête propre ne porte ce `numero`.
+   * La DÉCISION (créer / prolonger / ne rien faire) est prise par
+   * `planProductionActe` — voir utils/productionActe.ts pour les règles de
+   * cohérence : une prolongation ne crée jamais d'acte, une mesure déjà suivie
+   * n'est pas dupliquée, un écrit sans mesure ne crée rien.
+   *  - `validated = true` : applique le plan (acte créé identique à une saisie
+   *    manuelle et lié par `prodId` ; ou acte existant marqué « prolongation en
+   *    attente JLD » et lié par `prolongationRequest`). Idempotent.
+   *  - `validated = false` : défait ce qui a été fait, tant que le magistrat
+   *    n'a pas repris l'acte en main (pas de pose, pas de prolongation validée).
+   * Rend ce qui a été fait, pour que l'atelier « Actes rédigés » le DISE au
+   * magistrat plutôt que d'annoncer une création qui n'a pas eu lieu.
    */
   syncProductionActe: (
     numero: string,
     prod: { id: string; type: string; titre: string; meta?: ActeMeta; objet?: string },
     validated: boolean,
-  ) => void;
+  ) => ProductionActeResult;
 
   // ── CRUD Comptes-Rendus ──
   ajoutCR: (enqueteId: number, cr: CompteRendu | Omit<CompteRendu, 'id'>) => void;
@@ -193,6 +200,130 @@ interface EnquetesState {
 
   // ── Transfert ──
   transferEnquete: (enqueteId: number, targetContentieuxId: ContentieuxId) => Promise<boolean>;
+}
+
+/**
+ * Ce que la validation (ou la réouverture) d'un acte rédigé a réellement fait
+ * dans l'enquête — l'atelier « Actes rédigés » le rend au magistrat.
+ */
+export interface ProductionActeResult {
+  action: 'cree' | 'prolonge' | 'existant' | 'retire' | 'prolongation_annulee' | 'rien';
+  /** Acte concerné (« écoute 07 64 45 45 16 », « géolocalisation… »). */
+  libelle?: string;
+  raison?: 'deja_fait' | 'sans_mesure' | 'prolongation_orpheline' | 'enquete_introuvable';
+}
+
+/**
+ * Ce qu'on DIT au magistrat après une validation / réouverture d'acte rédigé.
+ * Toujours la vérité : une prolongation ne crée aucun acte, une mesure déjà
+ * suivie n'en crée pas un second, et un acte prolongé introuvable se répare à
+ * la main — mieux vaut le dire que fabriquer un acte de plus.
+ */
+export function messageProductionActe(r: ProductionActeResult): string {
+  switch (r.action) {
+    case 'cree':
+      return `acte créé dans l'enquête${r.libelle ? ` (${r.libelle})` : ''}.`;
+    case 'prolonge':
+      return `prolongation demandée au JLD sur la ${r.libelle} — aucun nouvel acte créé.`;
+    case 'existant':
+      return `la ${r.libelle} est déjà suivie dans l'enquête — aucun doublon créé.`;
+    case 'retire':
+      return `l'acte créé à la validation a été retiré de l'enquête.`;
+    case 'prolongation_annulee':
+      return `la demande de prolongation a été annulée sur la ${r.libelle}.`;
+    default:
+      if (r.raison === 'prolongation_orpheline') {
+        return `prolongation : l'acte prolongé n'a pas été retrouvé dans l'enquête — demandez la prolongation à la main sur l'acte concerné.`;
+      }
+      if (r.raison === 'enquete_introuvable') return `aucune enquête ne porte ce numéro — rien n'a été créé.`;
+      if (r.raison === 'deja_fait') return `déjà répercuté dans l'enquête.`;
+      return `aucun acte de suivi à créer.`;
+  }
+}
+
+/** Un acte est-il resté à l'état où la validation l'a créé (magistrat pas intervenu) ? */
+function acteIntact(a: { statut: string; datePose?: string; prolongationsHistory?: unknown[] }): boolean {
+  const statutInitial = a.statut === 'autorisation_pending' || a.statut === 'pose_pending' || a.statut === 'en_cours';
+  return statutInitial && !a.datePose && !(a.prolongationsHistory && a.prolongationsHistory.length);
+}
+
+/**
+ * Applique dans UNE enquête ce que la validation (ou la réouverture) d'un acte
+ * rédigé implique. Fonction pure : rend l'enquête à écrire (identique si rien
+ * ne change) et le compte rendu de ce qui a été fait. Partagée par l'enquête
+ * propre et l'enquête co-saisie — les deux chemins doivent se comporter pareil.
+ * L'entrée « modifications » n'est PAS posée ici : sur l'enquête propre elle
+ * naît du diff de `updateEnquete` (exactement comme une saisie manuelle) ;
+ * l'enquête co-saisie, qui ne passe pas par là, la pose elle-même.
+ */
+function appliquerProductionActe(
+  e: Enquete,
+  prod: ProductionRef,
+  validated: boolean,
+): { enquete: Enquete; result: ProductionActeResult } {
+  const now = new Date().toISOString();
+  const collections: ActeCollection[] = ['ecoutes', 'geolocalisations', 'actes'];
+
+  if (validated) {
+    const plan = planProductionActe(prod, e);
+    if (plan.action === 'creer') {
+      const next: Enquete = {
+        ...e,
+        [plan.collection]: [...(e[plan.collection] || []), plan.acte],
+        dateMiseAJour: now,
+      };
+      return { enquete: next, result: { action: 'cree', libelle: libelleActe(plan.collection, plan.acte) } };
+    }
+    if (plan.action === 'prolonger') {
+      // Rien de créé : l'acte EXISTANT entre dans le chemin de prolongation
+      // déjà en place (« Attente JLD » → colonne Prolongations), exactement
+      // comme le bouton « Demander la prolongation » du détail d'enquête.
+      const coll = (e[plan.collection] || []).map((a) => {
+        if (a.id !== plan.acteId) return a;
+        const prevStatut = a.statut === 'prolongation_pending'
+          ? (a.prolongationRequest?.prevStatut ?? 'en_cours')
+          : a.statut;
+        return {
+          ...a,
+          statut: 'prolongation_pending' as const,
+          prolongationRequestedAt: now,
+          prolongationRequest: { prodId: prod.prodId, prevStatut },
+        };
+      });
+      const next: Enquete = { ...e, [plan.collection]: coll, dateMiseAJour: now };
+      return { enquete: next, result: { action: 'prolonge', libelle: plan.libelle } };
+    }
+    if (plan.action === 'existant') {
+      // La mesure est DÉJÀ suivie (saisie manuelle, enregistrer_acte, ✓ d'une
+      // proposition) : on ne la double pas — et on ne touche à rien.
+      return { enquete: e, result: { action: 'existant', libelle: plan.libelle } };
+    }
+    return { enquete: e, result: { action: 'rien', raison: plan.raison } };
+  }
+
+  // ── Réouverture : défaire, tant que le magistrat n'a pas repris la main ──
+  for (const c of collections) {
+    const liste = e[c] || [];
+    const cree = liste.find((a) => a.prodId === prod.prodId);
+    if (cree) {
+      if (!acteIntact(cree)) return { enquete: e, result: { action: 'rien' } };
+      const next: Enquete = { ...e, [c]: liste.filter((a) => a.id !== cree.id), dateMiseAJour: now };
+      return { enquete: next, result: { action: 'retire', libelle: libelleActe(c, cree) } };
+    }
+    const prolonge = liste.find((a) => a.prolongationRequest?.prodId === prod.prodId);
+    if (prolonge) {
+      // Le JLD a statué entre-temps (statut sorti de l'attente) : on ne défait rien.
+      if (prolonge.statut !== 'prolongation_pending') return { enquete: e, result: { action: 'rien' } };
+      const coll = liste.map((a) => {
+        if (a.id !== prolonge.id) return a;
+        const { prolongationRequest, prolongationRequestedAt, ...reste } = a;
+        return { ...reste, statut: prolongationRequest!.prevStatut };
+      });
+      const next: Enquete = { ...e, [c]: coll, dateMiseAJour: now };
+      return { enquete: next, result: { action: 'prolongation_annulee', libelle: libelleActe(c, prolonge) } };
+    }
+  }
+  return { enquete: e, result: { action: 'rien' } };
 }
 
 // ── Helper interne pour mettre à jour les enquêtes propres + synchroniser `enquetes` ──
@@ -478,81 +609,56 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
   },
 
   syncProductionActe: (numero, prod, validated) => {
+    const ref: ProductionRef = {
+      prodId: prod.id, type: prod.type, titre: prod.titre, meta: prod.meta, objet: prod.objet,
+    };
     // Rapprochement TOLÉRANT : l'acte rédigé peut porter une écriture courte
     // du numéro (« 85103/843/2026 ») quand l'enquête s'appelle
     // « 85103/843/2026 - GRIVESNES 2 » — même règle que l'ouverture d'un
     // dossier depuis le journal de l'attaché.
     const enquete = findEnqueteParNumero(get().ownEnquetes, numero);
-    if (!enquete) {
-      // Enquête PARTAGÉE (co-saisine) : l'acte doit naître dans le contentieux
-      // d'ORIGINE — même mécanique qu'ajoutCR. Sans cela, la validation
-      // marquait l'acte « traité » sans jamais créer l'acte de suivi.
-      const shared = findEnqueteParNumero(get().sharedEnquetes, numero);
-      if (!shared?.contentieuxOrigine) return; // introuvable partout : on ne fait rien.
-      const built = validated
-        ? buildProductionActe({ prodId: prod.id, type: prod.type, titre: prod.titre, meta: prod.meta, objet: prod.objet })
-        : null;
-      const manager = ContentieuxManager.getInstance();
-      const originEnquetes = manager.getEnquetes(shared.contentieuxOrigine);
-      const sharedCollections = ['actes', 'geolocalisations', 'ecoutes'] as const;
-      let changed = false;
-      const updated = originEnquetes.map(e => {
-        if (e.id !== shared.id) return e;
-        if (validated) {
-          if (!built) return e;
-          if (sharedCollections.some(c => (e[c] || []).find(a => a.prodId === prod.id))) return e; // idempotent
-          changed = true;
-          const next: Enquete = { ...e, [built.collection]: [...(e[built.collection] || []), built.acte], dateMiseAJour: new Date().toISOString() };
-          return appendModifications(next, [{ type: 'general_info_updated', label: `Acte créé depuis un acte rédigé validé : ${prod.titre}` }]);
-        }
-        // Réouverture : retirer l'acte resté à son état initial (même règle que ci-dessous).
-        for (const c of sharedCollections) {
-          const a = (e[c] || []).find(x => x.prodId === prod.id);
-          if (!a) continue;
-          const initialStatut = a.statut === 'autorisation_pending' || a.statut === 'pose_pending' || a.statut === 'en_cours';
-          const untouched = initialStatut && !a.datePose && !(a.prolongationsHistory && a.prolongationsHistory.length);
-          if (untouched) {
-            changed = true;
-            return { ...e, [c]: (e[c] || []).filter(x => x.id !== a.id), dateMiseAJour: new Date().toISOString() };
-          }
-        }
-        return e;
-      });
-      if (changed) {
-        manager.setEnquetes(shared.contentieuxOrigine, updated);
-        persistOriginContentieux(shared.contentieuxOrigine, updated);
-        get().loadSharedEnquetes();
+    if (enquete) {
+      const { enquete: next, result } = appliquerProductionActe(enquete, ref, validated);
+      if (next !== enquete) {
+        // On repasse par updateEnquete pour la persistance et la synchro de
+        // `selectedEnquete` : seules les collections d'actes ont pu changer.
+        get().updateEnquete(enquete.id, {
+          actes: next.actes,
+          ecoutes: next.ecoutes,
+          geolocalisations: next.geolocalisations,
+        });
       }
-      return;
+      return result;
     }
 
-    // Recherche de l'acte déjà lié à cette production, quelle que soit la rubrique.
-    const collections = ['actes', 'geolocalisations', 'ecoutes'] as const;
-    let hit: { collection: typeof collections[number]; acte: { id: number; prodId?: string; statut: string; datePose?: string; prolongationsHistory?: unknown[] } } | null = null;
-    for (const c of collections) {
-      const found = (enquete[c] || []).find(a => a.prodId === prod.id);
-      if (found) { hit = { collection: c, acte: found }; break; }
+    // Enquête PARTAGÉE (co-saisine) : l'acte doit naître dans le contentieux
+    // d'ORIGINE — même mécanique qu'ajoutCR. Sans cela, la validation
+    // marquait l'acte « traité » sans jamais créer l'acte de suivi.
+    const shared = findEnqueteParNumero(get().sharedEnquetes, numero);
+    if (!shared?.contentieuxOrigine) return { action: 'rien', raison: 'enquete_introuvable' };
+    const manager = ContentieuxManager.getInstance();
+    const originEnquetes = manager.getEnquetes(shared.contentieuxOrigine);
+    let result: ProductionActeResult = { action: 'rien', raison: 'enquete_introuvable' };
+    let changed = false;
+    const updated = originEnquetes.map(e => {
+      if (e.id !== shared.id) return e;
+      const applied = appliquerProductionActe(e, ref, validated);
+      result = applied.result;
+      if (applied.enquete === e) return e;
+      changed = true;
+      const label = applied.result.action === 'prolonge'
+        ? `Prolongation demandée au JLD depuis un acte rédigé validé : ${prod.titre}`
+        : applied.result.action === 'cree'
+          ? `Acte créé depuis un acte rédigé validé : ${prod.titre}`
+          : `Acte rédigé rouvert : ${prod.titre}`;
+      return appendModifications(applied.enquete, [{ type: 'general_info_updated', label }]);
+    });
+    if (changed) {
+      manager.setEnquetes(shared.contentieuxOrigine, updated);
+      persistOriginContentieux(shared.contentieuxOrigine, updated);
+      get().loadSharedEnquetes();
     }
-
-    if (validated) {
-      if (hit) return; // déjà créé : idempotent.
-      const built = buildProductionActe({ prodId: prod.id, type: prod.type, titre: prod.titre, meta: prod.meta, objet: prod.objet });
-      if (!built) return; // production sans acte associé (note, livrable).
-      const current = enquete[built.collection] || [];
-      get().updateEnquete(enquete.id, { [built.collection]: [...current, built.acte] });
-    } else {
-      // Réouverture : ne retirer l'acte que s'il est resté à son état initial
-      // (le magistrat ne l'a pas repris en main : pas de pose, pas de
-      // prolongation, statut de création). Sinon on préserve son travail.
-      if (!hit) return;
-      const a = hit.acte;
-      const initialStatut = a.statut === 'autorisation_pending' || a.statut === 'pose_pending' || a.statut === 'en_cours';
-      const untouched = initialStatut && !a.datePose && !(a.prolongationsHistory && a.prolongationsHistory.length);
-      if (untouched) {
-        const current = enquete[hit.collection] || [];
-        get().updateEnquete(enquete.id, { [hit.collection]: current.filter(x => x.id !== a.id) });
-      }
-    }
+    return result;
   },
 
   deleteEnquete: (id: number) => {

@@ -38,6 +38,7 @@ function sanitizeActeMeta(m) {
   const dureeUnit = m.dureeUnit === 'mois' ? 'mois' : (m.dureeUnit === 'jours' ? 'jours' : undefined)
   const str = (v, n) => (v == null ? undefined : String(v).slice(0, n))
   const dureeNum = Number(m.duree)
+  const acteId = Number(m.acteId)
   const out = {
     kind,
     categorie: str(m.categorie, 120),
@@ -47,6 +48,10 @@ function sanitizeActeMeta(m) {
     cible: str(m.cible, 200),
     objet: str(m.objet, 200),
     pendingJld: m.pendingJld === true ? true : undefined,
+    // Prolongation : id de l'acte EXISTANT prolongé. Une prolongation ne crée
+    // jamais d'acte — à la validation, l'acte visé passe « prolongation en
+    // attente JLD » (chemin de prolongation de l'app).
+    acteId: Number.isFinite(acteId) && acteId > 0 ? acteId : undefined,
   }
   // Retire les champs vides ; null si l'objet ne porte plus rien d'utile.
   const clean = Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined))
