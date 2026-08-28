@@ -7,7 +7,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  X, ChevronDown, ChevronRight, FileText, Minus, Plus, Star, Users,
+  X, ChevronDown, ChevronRight, FileText, Loader2, Minus, Pencil, Plus, Star, Users,
   Link as LinkIcon, StickyNote, Sparkles, Flag, Crown,
 } from 'lucide-react';
 import type { ContentieuxDefinition } from '@/types/userTypes';
@@ -35,6 +35,11 @@ interface MindmapSidePanelProps {
   /** Assigne / retire le camp (réseau d'appartenance). */
   onSetCamp?: (mecId: string, label: string, color: string) => void;
   onRemoveCamp?: (mecId: string) => void;
+  /** Renomme la personne PARTOUT où elle est enregistrée (dossiers compris).
+   *  Absent = le nom n'est pas éditable depuis la carte. */
+  onRename?: (mec: MecNode, nouveauNom: string) => void;
+  /** Vrai pendant l'écriture du renommage : le formulaire attend. */
+  renamePending?: boolean;
   /** Enregistre notes + surnoms de la fiche manuelle (créée au besoin). */
   onSaveFiche?: (mec: MecNode, data: { notes?: string; alias: string[] }) => void;
   /** Demande à l'attaché IA d'enrichir la fiche (action explicite, admin). */
@@ -59,6 +64,8 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
   onSetRole,
   onSetCamp,
   onRemoveCamp,
+  onRename,
+  renamePending = false,
   onSaveFiche,
   onEnrichRequest,
   onDeleteLien,
@@ -126,6 +133,30 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
     onSaveFiche(mec, { notes: notesDraft.trim() || undefined, alias: aliasDraft });
   };
 
+  // ── Nom (renommage propagé) ──
+  // Le nom d'une personne n'est pas une donnée de la carte : il vient des
+  // dossiers. L'éditer ici réécrit donc les dossiers eux-mêmes — d'où le
+  // crayon discret plutôt qu'un champ toujours ouvert.
+  const [nomFormOpen, setNomFormOpen] = useState(false);
+  const [nomDraft, setNomDraft] = useState('');
+  const openNomForm = () => {
+    setNomDraft(mec.displayName);
+    setNomFormOpen(true);
+  };
+  const submitNom = () => {
+    const nouveau = nomDraft.trim();
+    if (!nouveau || !onRename || nouveau === mec.displayName) {
+      setNomFormOpen(false);
+      return;
+    }
+    onRename(mec, nouveau);
+  };
+  // On change de personne (clic sur un autre nœud) : le formulaire se ferme,
+  // sinon la saisie en cours se retrouverait sur le mauvais dossier.
+  useEffect(() => {
+    setNomFormOpen(false);
+  }, [mec.id]);
+
   // ── Camp ──
   const [campFormOpen, setCampFormOpen] = useState(false);
   const [campLabelDraft, setCampLabelDraft] = useState('');
@@ -180,9 +211,62 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
       <div className="flex items-start justify-between p-4 border-b border-slate-200 bg-slate-50">
         <div className="flex-1 min-w-0">
           <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Mis en cause</div>
-          <div className="text-lg font-semibold text-slate-900 truncate" title={mec.displayName}>
-            {mec.displayName}
-          </div>
+          {nomFormOpen ? (
+            <div className="mb-1">
+              <input
+                type="text"
+                value={nomDraft}
+                onChange={e => setNomDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') submitNom();
+                  if (e.key === 'Escape') setNomFormOpen(false);
+                }}
+                disabled={renamePending}
+                className="w-full h-8 px-2 text-sm font-semibold border border-slate-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-slate-300 disabled:bg-slate-100"
+                autoFocus
+              />
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <span className="text-[10px] text-slate-500 flex-1 leading-tight">
+                  Corrige le nom dans tous les dossiers où il figure.
+                </span>
+                <button
+                  onClick={() => setNomFormOpen(false)}
+                  disabled={renamePending}
+                  className="text-[10px] px-2 py-1 rounded text-slate-500 hover:text-slate-800 hover:bg-slate-200/70 disabled:opacity-50"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={submitNom}
+                  disabled={renamePending || !nomDraft.trim() || nomDraft.trim() === mec.displayName}
+                  className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded ${
+                    !renamePending && nomDraft.trim() && nomDraft.trim() !== mec.displayName
+                      ? 'bg-slate-900 text-white hover:bg-slate-800'
+                      : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  }`}
+                >
+                  {renamePending && <Loader2 className="h-3 w-3 animate-spin" />}
+                  {renamePending ? 'Renommage…' : 'Renommer'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="group/nom flex items-center gap-1">
+              <div className="text-lg font-semibold text-slate-900 truncate" title={mec.displayName}>
+                {mec.displayName}
+              </div>
+              {onRename && (
+                <button
+                  onClick={openNomForm}
+                  title="Corriger le nom (propagé à tous les dossiers)"
+                  aria-label="Corriger le nom"
+                  className="flex-shrink-0 p-1 rounded text-slate-300 hover:text-slate-700 hover:bg-slate-200/70 opacity-0 group-hover/nom:opacity-100 focus:opacity-100"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          )}
           {(mec.manualAlias?.length || 0) > 0 && (
             <div className="text-xs text-slate-600 mt-0.5 truncate" title={mec.manualAlias!.join(', ')}>
               dit <span className="font-medium">{mec.manualAlias!.join(' · ')}</span>

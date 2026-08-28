@@ -44,6 +44,7 @@ import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { NouveauxDossiersPropositions } from '../attache/NouveauxDossiersPropositions';
 import { useToast } from '@/contexts/ToastContext';
 import type { InfluenceCluster } from '../mindmap/influenceHull';
+import type { RenameMecReport } from '@/utils/renameMec';
 import { CAMP_COLOR_PRESETS } from '../mindmap/campColors';
 import { MindmapCanvas } from '../mindmap/MindmapCanvas';
 import { MindmapSidePanel } from '../mindmap/MindmapSidePanel';
@@ -107,6 +108,11 @@ interface MindmapPageProps {
    *  fiche manuelle, pour ne pas doubler une personne déjà au fichier. */
   knownNames?: string[];
   knownNameHints?: Record<string, string>;
+  /** Renomme une personne dans TOUTES les données locales (enquêtes, dossiers
+   *  d'instruction, résultats d'audience) puis dans la carte. Fourni par la
+   *  page hôte, seule à détenir les stores concernés. Absent = le nom n'est
+   *  pas éditable depuis la carte. */
+  onRenameMec?: (ancienNom: string, nouveauNom: string) => Promise<RenameMecReport>;
 }
 
 // ──────────────────────────────────────────────
@@ -122,6 +128,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   onFocusUnresolved,
   knownNames = [],
   knownNameHints,
+  onRenameMec,
 }) => {
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [sidePanelMecId, setSidePanelMecId] = useState<string | undefined>();
@@ -760,6 +767,66 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     if (src && onOpenEnquete) onOpenEnquete(src.enquete, node.contentieuxId);
   };
 
+  // ── Renommage d'une personne ────────────────
+  //
+  // Le nom affiché sur la carte n'appartient pas à la carte : il est lu dans
+  // les dossiers. Le corriger réécrit donc les dossiers eux-mêmes — d'où la
+  // confirmation, qui annonce l'ampleur exacte. Les dossiers projetés par un
+  // collègue restent hors de portée : on le dit plutôt que de laisser croire
+  // à une correction complète.
+  const localDossierKeys = useMemo(
+    () => new Set(sources.map(s => `${s.contentieuxId}_${s.enquete.id}`)),
+    [sources],
+  );
+  const [renamePending, setRenamePending] = useState(false);
+  const handleRenameMec = async (mec: MecNode, nouveauNom: string) => {
+    if (!onRenameMec || renamePending) return;
+    const cible = nouveauNom.trim();
+    if (!cible || cible === mec.displayName) return;
+    const distants = mec.dossierIds.filter(
+      id => !id.startsWith('dexn_') && !localDossierKeys.has(id),
+    ).length;
+    const locaux = mec.dossierIds.length - distants;
+    const message = `Renommer « ${mec.displayName} » en « ${cible} » ?\n\n`
+      + (locaux > 0
+        ? `Le nom sera corrigé dans ${locaux} dossier${locaux > 1 ? 's' : ''} de ce poste `
+          + '(mis en cause, mis en examen, suspects, victimes, condamnés), '
+          + 'ainsi que dans son camp, ses bonus, ses liens et ses notes de la carte.'
+        : 'Aucun dossier de ce poste ne le cite : seules ses données de la carte '
+          + '(fiche, camp, bonus, liens, notes) seront corrigées.')
+      + (distants > 0
+        ? `\n\n${distants} dossier${distants > 1 ? 's' : ''} où il figure `
+          + `${distants > 1 ? 'appartiennent' : 'appartient'} à un collègue : `
+          + 'leur contenu ne peut pas être corrigé depuis ce poste.'
+        : '');
+    if (!window.confirm(message)) return;
+    setRenamePending(true);
+    try {
+      const rapport = await onRenameMec(mec.displayName, cible);
+      // L'identifiant d'un MEC dérive de son nom : le nœud change d'id. On
+      // rebranche panneau, sélection et ego-network sur le nouvel id, sinon
+      // la fiche se referme toute seule au prochain calcul du graphe.
+      const nouvelId = normalizeMecName(cible);
+      setSidePanelMecId(nouvelId);
+      setSelectedId(prev => (prev === mec.id ? nouvelId : prev));
+      setEgoNodeId(prev => (prev === mec.id ? nouvelId : prev));
+      const details = [
+        rapport.misEnCause > 0 && `${rapport.misEnCause} mis en cause`,
+        rapport.personnesInstruction > 0 && `${rapport.personnesInstruction} en instruction`,
+        rapport.condamnations > 0 && `${rapport.condamnations} à l'audience`,
+        rapport.overlayRefs > 0 && `${rapport.overlayRefs} sur la carte`,
+      ].filter(Boolean).join(' · ');
+      showToast(
+        details ? `Renommé en « ${cible} » — ${details}` : `Renommé en « ${cible} »`,
+        'success',
+      );
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Renommage impossible', 'error');
+    } finally {
+      setRenamePending(false);
+    }
+  };
+
   // Clic dans le vide de la carte : on relâche TOUT ce qu'un clic avait posé
   // — sélection, panneau latéral, ego-network (le recentrage/estompage visible
   // à l'écran) et surbrillance de camp. Les menus déroulants de la barre
@@ -1189,6 +1256,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             onSetRole={setMecRole}
             onSetCamp={setMecCamp}
             onRemoveCamp={removeMecCamp}
+            onRename={onRenameMec ? handleRenameMec : undefined}
+            renamePending={renamePending}
             onSaveFiche={handleSaveMecFiche}
             onEnrichRequest={isAdmin() ? handleEnrichMec : undefined}
             onDeleteLien={removeLien}
