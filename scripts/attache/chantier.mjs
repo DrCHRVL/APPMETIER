@@ -198,7 +198,10 @@ function piecesFaites(ch) { return (ch.plan || []).reduce((n, p) => n + p.lots.f
 function resumeChantier(ch) {
   return {
     id: ch.id, type: ch.type, numero: ch.numero, consigne: ch.consigne,
+    sujet: ch.sujet || null,
     numeros: ch.numeros || null, sansFiches: ch.sansFiches || [],
+    attendus: ch.attendus || [],
+    prerequis: (ch.prerequis || []).map((p) => ({ id: p.id, numero: p.numero })),
     etat: ch.etat, attente: ch.attente || null, nuitSeulement: Boolean(ch.nuitSeulement),
     attenteDepuis: ch.attenteDepuis || null, attenteDetail: ch.attenteDetail || null,
     forceJusqu: forceActive(ch) ? ch.forceJusqu : null,
@@ -469,21 +472,78 @@ async function createChantierFiches(keys, { type, numeros, consigne, nuitSeuleme
       lots: chunk(fiches.map((f) => f.id), LOT_FICHES).map((pieces, i) => ({ n: i + 1, pieces, etat: 'a_faire', echecs: 0 })),
     })
   }
-  if (plan.length < min) {
-    throw new Error(
-      `Aucune fiche d'analyse pour ${sansFiches.map((n) => `« ${n} »`).join(', ')} — les chantiers « ${type} » lisent les FICHES, jamais les pièces : lancez d'abord un chantier « dossier en détail » sur chaque dossier concerné.`
+
+  // DEVIS COMPLET EN DEUX ÉTAPES — un dossier sans fiches n'écarte plus la
+  // demande : pour chacun, un chantier « dossier » (étape 1, son propre devis,
+  // lancé automatiquement avec celui-ci) est créé — ou RÉUTILISÉ s'il en
+  // existe déjà un non terminé — et CE chantier (étape 2) attend leurs fiches
+  // avant de bâtir les pochettes correspondantes. Seuls les dossiers sans
+  // aucune pièce versée restent définitivement écartés.
+  const prerequis = []
+  const attendus = []
+  const ecartes = []
+  let chaineEtape1 = null
+  let lotsAttendus = 0
+  const cumulerEtape1 = (est) => {
+    chaineEtape1 = {
+      dossiers: (chaineEtape1?.dossiers || 0) + 1,
+      pieces: (chaineEtape1?.pieces || 0) + (est?.pieces || 0),
+      lots: (chaineEtape1?.lots || 0) + (est?.lots || 0),
+      jetonsMin: (chaineEtape1?.jetonsMin || 0) + (est?.jetonsMin || 0),
+      jetonsMax: (chaineEtape1?.jetonsMax || 0) + (est?.jetonsMax || 0),
+      nuits: Math.max(chaineEtape1?.nuits || 0, est?.nuits || 0),
+    }
+    // ~1 fiche par lot d'étape 1 → lots d'étape 2 attendus pour ce dossier.
+    lotsAttendus += Math.max(1, Math.ceil((est?.lots || 1) / LOT_FICHES))
+  }
+  for (const canon of sansFiches) {
+    // Un chantier « dossier » non terminé existe déjà ? On s'y accroche au
+    // lieu d'en créer un doublon (ses fiches serviront pareil).
+    const existant = tousChantiers(keys).find(
+      (c) => c.type === 'dossier' && String(c.numero) === canon && c.etat !== 'termine',
     )
+    if (existant) {
+      prerequis.push({ id: existant.id, numero: canon })
+      attendus.push(canon)
+      cumulerEtape1(existant.estimation)
+      continue
+    }
+    try {
+      const pre = await createChantier(keys, {
+        type: 'dossier',
+        numero: canon,
+        consigne: String(consigne || ''),
+        nuitSeulement,
+        origine,
+        modeleFiches,
+        budgetJetons: 0,
+      })
+      prerequis.push({ id: pre.id, numero: canon })
+      attendus.push(canon)
+      cumulerEtape1(pre.estimation)
+    } catch (e) {
+      ecartes.push({ numero: canon, motif: String(e?.message || e) })
+    }
   }
 
-  const nbLots = plan.reduce((n, p) => n + p.lots.length, 0)
+  if (plan.length + attendus.length < min) {
+    throw new Error(type === 'liens'
+      ? `Moins de deux dossiers exploitables — ${ecartes.map((x) => `« ${x.numero} » : ${x.motif}`).join(' | ') || 'vérifiez les numéros'}`
+      : `Aucun dossier exploitable — ${ecartes.map((x) => `« ${x.numero} » : ${x.motif}`).join(' | ') || 'vérifiez les numéros'}`)
+  }
+
+  const nbLots = plan.reduce((n, p) => n + p.lots.length, 0) + lotsAttendus
+  const fichesAttendues = chaineEtape1?.lots || 0
   const ch = {
     id: crypto.randomBytes(8).toString('hex'),
     type,
     // dossier « porteur » : les productions du chantier sont rangées dans ses
     // « Actes rédigés » (le rapport final y renvoie pour les autres dossiers)
-    numero: plan[0].nom,
-    numeros: plan.map((p) => p.nom),
-    sansFiches,
+    numero: plan[0]?.nom || attendus[0],
+    numeros: [...plan.map((p) => p.nom), ...attendus],
+    // Écartés DÉFINITIFS (rien à dépouiller — aucune pièce versée).
+    sansFiches: ecartes.map((x) => x.numero),
+    ...(prerequis.length ? { prerequis, attendus } : {}),
     ...(type === 'histoire' ? { sujet: String(sujet || '').slice(0, 120) } : {}),
     consigne: String(consigne || '').slice(0, 2000),
     nuitSeulement: Boolean(nuitSeulement),
@@ -497,19 +557,26 @@ async function createChantierFiches(keys, { type, numeros, consigne, nuitSeuleme
     fiches: [],
     totalPieces: totalFiches,
     estimation: {
-      pieces: totalFiches,
+      pieces: totalFiches + fichesAttendues,
       lots: nbLots,
       // lecture de fiches injectées (aucune pièce relue) : runs bien plus courts
       jetonsMin: (nbLots + 1) * 15_000,
       jetonsMax: (nbLots + 1) * 35_000,
       heures: heuresEstimees(nbLots + 1, MINUTES_PAR_LOT_FICHES),
       nuits: Math.max(1, Math.ceil(heuresEstimees(nbLots + 1, MINUTES_PAR_LOT_FICHES) / HEURES_PAR_NUIT)),
+      // DEVIS COMPLET : le coût de l'étape 1 (chantiers « dossier » liés,
+      // chacun avec son propre devis) et la part d'étape 2 estimée sur les
+      // fiches qu'elle produira.
+      ...(chaineEtape1 ? { chaine: { etape1: chaineEtape1, etape2Attendue: { fiches: fichesAttendues, lots: lotsAttendus } } } : {}),
     },
     journal: [],
   }
-  journal(ch, `Chantier « ${type === 'liens' ? 'liens entre dossiers' : type === 'histoire' ? `histoire — ${ch.sujet}` : 'cartographie'} » ${ch.origine === 'attache' ? 'proposé par l\'attaché (conversation)' : 'créé'} — ${plan.length} dossier(s), ${totalFiches} fiches, ${nbLots} lots. En attente de validation du devis.`)
-  if (sansFiches.length) {
-    journal(ch, `Écartés faute de fiches : ${sansFiches.join(' · ')} — dépouillez-les (chantier « dossier en détail ») puis recréez ce chantier pour les inclure.`)
+  journal(ch, `Chantier « ${type === 'liens' ? 'liens entre dossiers' : type === 'histoire' ? `histoire — ${ch.sujet}` : 'cartographie'} » ${ch.origine === 'attache' ? 'proposé par l\'attaché (conversation)' : 'créé'} — ${plan.length} dossier(s) avec fiches, ${totalFiches} fiches, ${nbLots} lots estimés. En attente de validation du devis.`)
+  if (attendus.length) {
+    journal(ch, `DEVIS COMPLET EN 2 ÉTAPES — étape 1 : dépouillement de ${attendus.join(' · ')} (${prerequis.length} chantier(s) « dossier » liés, lancés automatiquement avec celui-ci) ; étape 2 : cette analyse, qui intégrera leurs fiches dès qu'elles seront produites.`)
+  }
+  if (ecartes.length) {
+    journal(ch, `Écartés définitivement : ${ecartes.map((x) => `« ${x.numero} » (${x.motif})`).join(' · ')}.`)
   }
   writeChantier(keys, ch)
   await audit(keys, 'chantier_cree', { id: ch.id, type, numeros: ch.numeros, fiches: totalFiches, lots: nbLots })
@@ -661,13 +728,18 @@ export async function actionChantier(keys, { id, action }) {
   }
   if (action === 'lancer') {
     if (!['devis', 'pause'].includes(ch.etat)) throw new Error(`Ce chantier est « ${ch.etat} » — rien à lancer`)
-    ch.etat = lotsRestants(ch) ? 'en_cours' : 'synthese'
+    // Un chantier chaîné (fiches attendues de l'étape 1) reste « en_cours »
+    // même sans lot : il attend, puis intègre les fiches (cf. chantierStep).
+    ch.etat = (ch.attendus || []).length ? 'en_cours' : (lotsRestants(ch) ? 'en_cours' : 'synthese')
     ch.attente = null
     ch.attenteDepuis = null
     ch.attenteDetail = null
     journal(ch, ch.etat === 'en_cours' ? 'Devis validé — dépouillement lancé.' : 'Relancé — plus que la synthèse.')
     writeChantier(keys, ch)
     await audit(keys, 'chantier_lance', { id, numero: ch.numero })
+    // CASCADE : valider l'étape 2 vaut validation de l'étape 1 — les
+    // chantiers « dossier » liés encore en devis partent avec elle.
+    await lancerPrerequis(keys, ch, null)
     return resumeChantier(ch)
   }
   // « Forcer maintenant » — le geste qui manquait. Un chantier validé pouvait
@@ -678,7 +750,9 @@ export async function actionChantier(keys, { id, action }) {
   // reprend seul. Elle vaut aussi validation du devis : un seul clic suffit.
   if (action === 'forcer') {
     if (ch.etat === 'termine') throw new Error('Ce chantier est terminé')
-    if (['devis', 'pause'].includes(ch.etat)) ch.etat = lotsRestants(ch) ? 'en_cours' : 'synthese'
+    if (['devis', 'pause'].includes(ch.etat)) {
+      ch.etat = (ch.attendus || []).length ? 'en_cours' : (lotsRestants(ch) ? 'en_cours' : 'synthese')
+    }
     ch.forceJusqu = new Date(Date.now() + FORCE_MS).toISOString()
     ch.attente = null
     ch.attenteDepuis = null
@@ -686,6 +760,8 @@ export async function actionChantier(keys, { id, action }) {
     journal(ch, `Forcé par le magistrat — nuit et plafonds levés pendant ${Math.round(FORCE_MS / 3600_000)} h, le dépouillement démarre immédiatement.`)
     writeChantier(keys, ch)
     await audit(keys, 'chantier_force', { id, numero: ch.numero, jusqu: ch.forceJusqu })
+    // Forcer l'étape 2 force aussi l'étape 1 : sans ses fiches, rien ne part.
+    await lancerPrerequis(keys, ch, ch.forceJusqu)
     return resumeChantier(ch)
   }
   // Un lot passé « échec » après 3 tentatives était PERDU : ses pièces ne
@@ -741,6 +817,92 @@ function lotsRestants(ch) {
   // travail fait. L'oublier enverrait le chantier en synthèse alors que des
   // pièces sont encore en train d'être lues.
   return (ch.plan || []).some((p) => p.lots.some((l) => l.etat === 'a_faire' || l.etat === 'en_vol'))
+}
+
+// ── Chantiers chaînés (devis complet en 2 étapes) ───────────────────────────
+// L'étape 2 (liens / carto / histoire) attend les FICHES de l'étape 1 (les
+// chantiers « dossier » créés avec elle pour les dossiers non dépouillés).
+
+/** Lance (et force le cas échéant) les chantiers d'étape 1 encore en devis. */
+async function lancerPrerequis(keys, ch, forceJusqu) {
+  for (const pre of ch.prerequis || []) {
+    const c = readChantier(keys, pre.id)
+    if (!c) continue
+    let bouge = false
+    if (c.etat === 'devis' || (forceJusqu && c.etat === 'pause')) {
+      c.etat = lotsRestants(c) ? 'en_cours' : 'synthese'
+      journal(c, `Lancé automatiquement — étape 1 du chantier « ${ch.type} » ${ch.id} (${ch.type === 'histoire' ? ch.sujet : (ch.numeros || []).join(' · ')}).`)
+      bouge = true
+    }
+    if (forceJusqu && ['en_cours', 'synthese'].includes(c.etat)) {
+      c.forceJusqu = forceJusqu
+      c.attente = null
+      c.attenteDepuis = null
+      c.attenteDetail = null
+      bouge = true
+    }
+    if (bouge) {
+      writeChantier(keys, c)
+      await audit(keys, 'chantier_lance', { id: c.id, numero: c.numero, via: ch.id }).catch(() => {})
+    }
+  }
+}
+
+/** Vrai si tous les chantiers d'étape 1 sont terminés (un prérequis supprimé
+ *  compte comme terminé : l'intégration prendra les fiches qui existent). */
+function prerequisTermines(keys, ch) {
+  for (const pre of ch.prerequis || []) {
+    const c = readChantier(keys, pre.id)
+    if (c && c.etat !== 'termine') return false
+  }
+  return true
+}
+
+function noterAttentePrerequis(keys, ch) {
+  if (ch.attente === 'prerequis') return
+  ch.attente = 'prerequis'
+  ch.attenteDepuis = new Date().toISOString()
+  ch.attenteDetail = 'Étape 1 en cours — les dossiers liés sont en train d\'être dépouillés en fiches.'
+  writeChantier(keys, ch)
+}
+
+/**
+ * Étape 1 terminée : bâtit les pochettes des dossiers attendus depuis leurs
+ * fiches fraîchement produites, puis efface la chaîne. Un dossier dont le
+ * dépouillement n'a rien donné est écarté (nommé au journal).
+ */
+function integrerFichesAttendues(keys, ch) {
+  let ajoutes = 0
+  for (const canon of ch.attendus || []) {
+    const fiches = listProductions(keys, canon)
+      .filter((p) => p.type === 'fiche')
+      .sort((a, b) => String(a.titre).localeCompare(String(b.titre)))
+    if (!fiches.length) {
+      ch.sansFiches = [...new Set([...(ch.sansFiches || []), canon])]
+      journal(ch, `« ${canon} » : le dépouillement n'a produit aucune fiche — dossier écarté de l'analyse.`)
+      continue
+    }
+    ch.plan.push({
+      nom: canon,
+      lots: chunk(fiches.map((f) => f.id), LOT_FICHES).map((pieces, i) => ({ n: i + 1, pieces, etat: 'a_faire', echecs: 0 })),
+    })
+    ch.totalPieces = (ch.totalPieces || 0) + fiches.length
+    ajoutes++
+  }
+  ch.attendus = []
+  ch.prerequis = []
+  ch.numeros = ch.plan.map((p) => p.nom)
+  // Dossier porteur : doit exister dans le plan (les productions y sont rangées).
+  if (!ch.plan.some((p) => p.nom === ch.numero)) ch.numero = ch.plan[0]?.nom || ch.numero
+  journal(ch, `Étape 1 terminée — ${ajoutes} dossier(s) intégré(s) à l'analyse depuis leurs fiches. L'étape 2 démarre.`)
+  const min = ch.type === 'liens' ? 2 : 1
+  if (ch.plan.length < min) {
+    ch.etat = 'termine'
+    journal(ch, ch.type === 'liens'
+      ? 'Moins de deux dossiers avec fiches après l\'étape 1 — le croisement est abandonné.'
+      : 'Aucune fiche disponible après l\'étape 1 — chantier abandonné.')
+  }
+  writeChantier(keys, ch)
 }
 
 /** Les `n` prochains lots à faire, dans l'ordre du plan (pochette par pochette). */
@@ -958,6 +1120,14 @@ export async function chantierStep(keys, autorise) {
     let ch = null
     let feu = null
     for (const cand of actifs) {
+      // Chantier chaîné : tant que l'étape 1 (dépouillement des dossiers liés)
+      // n'est pas terminée, il attend — sans bloquer les autres. Une fois les
+      // prérequis terminés, ses pochettes se bâtissent depuis leurs fiches.
+      if (cand.etat === 'en_cours' && (cand.attendus || []).length) {
+        if (!prerequisTermines(keys, cand)) { noterAttentePrerequis(keys, cand); continue }
+        integrerFichesAttendues(keys, cand)
+        if (cand.etat !== 'en_cours') continue
+      }
       const verdict = autorise(cand) || { ok: false }
       if (verdict.ok) { ch = cand; feu = verdict; break }
       noterAttente(keys, cand, verdict)

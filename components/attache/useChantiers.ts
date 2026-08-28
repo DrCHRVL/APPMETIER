@@ -30,9 +30,14 @@ export interface PasEnCours {
 
 export interface Chantier {
   id: string; type: string; numero: string; consigne?: string;
+  /** Type « histoire » : le sujet du récit (camp ou personne). */
+  sujet?: string | null;
   numeros?: string[] | null; sansFiches?: string[];
+  /** Chaîne « devis complet » : dossiers dont les fiches viendront de l'étape 1. */
+  attendus?: string[];
+  prerequis?: Array<{ id: string; numero: string }>;
   etat: 'devis' | 'en_cours' | 'pause' | 'synthese' | 'termine';
-  attente?: 'nuit' | 'forfait' | null;
+  attente?: 'nuit' | 'forfait' | 'prerequis' | null;
   /** Le motif exact de l'attente (« fenêtre de 5 h à 104 % », « reprise vers 22 h »). */
   attenteDetail?: string | null;
   attenteDepuis?: string | null;
@@ -57,6 +62,12 @@ export interface Chantier {
   estimation?: {
     pieces: number; lots: number; jetonsMin: number; jetonsMax: number; heures?: number; nuits: number;
     doublonsExclus?: number; dejaCouvertes?: number;
+    /** Devis complet en 2 étapes : coût de l'étape 1 (dépouillements liés) et
+     *  part d'étape 2 estimée sur les fiches attendues. */
+    chaine?: {
+      etape1: { dossiers: number; pieces: number; lots: number; jetonsMin: number; jetonsMax: number; nuits: number };
+      etape2Attendue: { fiches: number; lots: number };
+    };
   };
   /** Le RÉEL à côté du devis : jetons consommés par ce chantier. */
   jetons?: { in: number; out: number; cacheW: number; cacheR: number; total: number } | null;
@@ -119,6 +130,7 @@ export function etatBadge(ch: Chantier): { label: string; cls: string; icone?: '
   if (ch.etat === 'termine') return { label: 'Terminé', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', icone: 'fini' };
   if (ch.etat === 'synthese') return { label: 'Synthèse en cours', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' };
   if (ch.forceJusqu) return { label: 'Forcé — en cours', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  if (ch.attente === 'prerequis') return { label: 'Étape 1 — dépouillement en cours', cls: 'bg-sky-50 text-sky-700 border-sky-200', icone: 'nuit' };
   if (ch.attente === 'nuit') return { label: 'Reprend cette nuit', cls: 'bg-slate-50 text-slate-600 border-slate-200', icone: 'nuit' };
   if (ch.attente === 'forfait') return { label: 'Forfait plein — reprise auto', cls: 'bg-orange-50 text-orange-600 border-orange-200', icone: 'forfait' };
   return { label: 'En cours', cls: 'bg-blue-50 text-blue-700 border-blue-200' };
@@ -129,7 +141,11 @@ export const TYPE_LABEL: Record<string, string> = { dossier: 'Dossier en détail
 /** L'unité de compte : le chantier « dossier » avance en pièces, les autres en fiches. */
 export const uniteChantier = (ch: Chantier) => (ch.type === 'dossier' ? 'pièces' : 'fiches');
 
-export const titreChantier = (ch: Chantier) => (ch.numeros?.length ? ch.numeros.join('  ×  ') : ch.numero);
+export const titreChantier = (ch: Chantier) => (
+  ch.type === 'histoire' && ch.sujet
+    ? `${ch.sujet}${ch.numeros?.length ? ` — ${ch.numeros.join(' × ')}` : ''}`
+    : ch.numeros?.length ? ch.numeros.join('  ×  ') : ch.numero
+);
 
 export const pourcentage = (ch: Chantier) => (ch.totalPieces ? Math.round((ch.piecesFaites / ch.totalPieces) * 100) : 0);
 
