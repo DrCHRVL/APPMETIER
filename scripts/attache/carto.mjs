@@ -697,7 +697,7 @@ export function cartoHistoire(keys, { sujet }) {
       '4. Cherche les SUCCESSIONS et SCISSIONS : un réseau démantelé dont un lieutenant remonte sa propre structure avec les mêmes hommes (ex. clan dissous → son second crée le sien). Dates, déclencheur (interpellations, condamnations), qui a suivi qui.',
       '5. Pour un CONFLIT entre deux camps : dossiers où les deux apparaissent (violences croisées, victimes d\'un bord mises en cause de l\'autre), territoires, épisodes datés.',
       '6. Au fil de la lecture, PROPOSE ce que tu découvres — proposer_lien (personne↔personne ou personne↔dossier ex nihilo, motif et source à l\'appui), proposer_note_mec (enrichissement de fiche), proposer_camp_carto (nouveau camp ou successeur, membres sûrs).',
-      'Si la matière déborde (dizaines de pièces à lire), délègue aux sous_agents ou dépose un CHANTIER (chantier_proposer) avec devis — ne bâcle pas le récit.',
+      'Si la matière déborde (dizaines de pièces à lire), délègue aux sous_agents ou dépose un CHANTIER type « histoire » (chantier_proposer, sujet = ce camp/cette personne) avec devis — chronique par lots la nuit, récit final sourcé. Ne bâcle pas le récit.',
     ].join('\n'),
   }
 }

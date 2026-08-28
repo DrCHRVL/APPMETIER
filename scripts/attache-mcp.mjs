@@ -234,11 +234,12 @@ const TOOLS = [
   },
   {
     name: 'chantier_proposer',
-    description: 'DÉPOSER UN CHANTIER D\'ANALYSE PROFONDE dans la bande « Analyses profondes » de la page Assistant de justice — l\'outil pour tout travail qui NE TIENT PAS dans une conversation : dépouiller un dossier entier (des centaines ou des milliers de pièces), croiser plusieurs dossiers, remplir la cartographie. Le chantier naît en DEVIS (pièces, lots, jetons, heures, nuits) et N\'EST PAS LANCÉ : le magistrat le valide d\'un clic, puis le moteur du service travaille EN ARRIÈRE-PLAN, la nuit par défaut, par lots courts, interruptible et repris tout seul (fermer l\'app ne change rien). Trois types : "dossier" (chaque pièce lue UNE fois → fiches factuelles cotées, puis synthèse — l\'investissement qui rend tout le reste gratuit), "liens" (≥ 2 dossiers : croise leurs FICHES → rapport de recoupements coté des deux côtés), "carto" (depuis les fiches → propositions carto à valider). Les types "liens" et "carto" exigent des fiches : sans elles, dépouille d\'abord (type "dossier"). RÈGLE : quand une demande du magistrat suppose de lire plus de pièces que tu ne peux en lire dans la conversation, ne bricole pas un balayage partiel et n\'annonce pas une réserve d\'exhaustivité — propose le chantier, annonce le devis, et dis ce qu\'il rapportera. `lancer:true` UNIQUEMENT si le magistrat a explicitement dit d\'y aller.',
+    description: 'DÉPOSER UN CHANTIER D\'ANALYSE PROFONDE dans la bande « Analyses profondes » de la page Assistant de justice — l\'outil pour tout travail qui NE TIENT PAS dans une conversation : dépouiller un dossier entier (des centaines ou des milliers de pièces), croiser plusieurs dossiers, remplir la cartographie. Le chantier naît en DEVIS (pièces, lots, jetons, heures, nuits) et N\'EST PAS LANCÉ : le magistrat le valide d\'un clic, puis le moteur du service travaille EN ARRIÈRE-PLAN, la nuit par défaut, par lots courts, interruptible et repris tout seul (fermer l\'app ne change rien). Quatre types : "dossier" (chaque pièce lue UNE fois → fiches factuelles cotées, puis synthèse — l\'investissement qui rend tout le reste gratuit), "liens" (≥ 2 dossiers : croise leurs FICHES → rapport de recoupements coté des deux côtés), "carto" (depuis les fiches → propositions carto à valider), "histoire" (donné un SUJET — un camp de la carte ou une personne — : chronique datée depuis les fiches de ses dossiers, puis RÉCIT chronologique sourcé — origines, organigramme, successions/scissions, conflits — enrichi du contexte carte et des documents versés ; les dossiers se déduisent du sujet si non fournis). Les types "liens", "carto" et "histoire" exigent des fiches : sans elles, dépouille d\'abord (type "dossier"). RÈGLE : quand une demande du magistrat suppose de lire plus de pièces que tu ne peux en lire dans la conversation, ne bricole pas un balayage partiel et n\'annonce pas une réserve d\'exhaustivité — propose le chantier, annonce le devis, et dis ce qu\'il rapportera. `lancer:true` UNIQUEMENT si le magistrat a explicitement dit d\'y aller.',
     inputSchema: {
       type: 'object',
       properties: {
-        type: { type: 'string', enum: ['dossier', 'liens', 'carto'], description: 'Défaut "dossier" (dépouillement des pièces).' },
+        type: { type: 'string', enum: ['dossier', 'liens', 'carto', 'histoire'], description: 'Défaut "dossier" (dépouillement des pièces).' },
+        sujet: { type: 'string', description: 'Type "histoire" : le sujet du récit — libellé d\'un camp de la carte, ou nom d\'une personne.' },
         numero: { type: 'string', description: 'Dossier visé (type "dossier"). Pour plusieurs dossiers, utiliser numeros.' },
         numeros: { type: 'array', items: { type: 'string' }, description: 'Dossiers visés : les dossiers à croiser pour "liens"/"carto" ; pour "dossier", un chantier est créé PAR dossier (12 max).' },
         consigne: { type: 'string', description: 'L\'angle demandé par le magistrat, en clair (question posée, personnes, période, adresse recherchée). C\'est ce qui oriente chaque lot — reprends ses mots.' },
@@ -248,7 +249,7 @@ const TOOLS = [
     },
     handler: async (a) => {
       const { createChantier, actionChantier } = await import('./attache/chantier.mjs')
-      const type = ['dossier', 'liens', 'carto'].includes(a?.type) ? a.type : 'dossier'
+      const type = ['dossier', 'liens', 'carto', 'histoire'].includes(a?.type) ? a.type : 'dossier'
       const liste = (Array.isArray(a?.numeros) ? a.numeros : []).map((n) => String(n)).filter(Boolean).slice(0, 12)
       // Un run autonome (apprentissage, étude) PROPOSE mais ne dépense pas :
       // le devis attend le magistrat, quoi qu'ait demandé le modèle.
@@ -269,7 +270,9 @@ const TOOLS = [
           ch = await createChantier(keys, {
             ...commun,
             type,
-            ...(type === 'dossier' ? { numero: cible } : { numero: String(a?.numero || ''), numeros: liste }),
+            ...(type === 'dossier'
+              ? { numero: cible }
+              : { numero: String(a?.numero || ''), numeros: liste, ...(type === 'histoire' ? { sujet: String(a?.sujet || '') } : {}) }),
           })
         } catch (e) {
           echecs.push({ numero: cible || liste.join(' · '), erreur: String(e?.message || e) })
@@ -1429,7 +1432,7 @@ const TOOLS = [
   },
   {
     name: 'carto_histoire',
-    description: 'DOSSIER DE RENSEIGNEMENT d\'un sujet de la carte — point de départ pour « raconte l\'histoire du clan X », « le conflit entre X et Y », « qui est X ? ». Donné un camp (libellé) ou une personne (nom), rassemble en un appel : membres, fiches et notes du magistrat, rôles cochés (chef/lieutenant), camps, liens tracés, dossiers réels et d\'instruction concernés, dossiers ex nihilo avec leurs documents versés — plus la MÉTHODE du récit (chronologique, sourcé, successions/scissions de clans, propositions au fil de la lecture). Pour un conflit entre deux camps, appelle-le une fois par camp puis croise. Travail LOURD par nature : suis la méthode, délègue aux sous_agents, ou propose un chantier si la matière déborde.',
+    description: 'DOSSIER DE RENSEIGNEMENT d\'un sujet de la carte — point de départ pour « raconte l\'histoire du clan X », « le conflit entre X et Y », « qui est X ? ». Donné un camp (libellé) ou une personne (nom), rassemble en un appel : membres, fiches et notes du magistrat, rôles cochés (chef/lieutenant), camps, liens tracés, dossiers réels et d\'instruction concernés, dossiers ex nihilo avec leurs documents versés — plus la MÉTHODE du récit (chronologique, sourcé, successions/scissions de clans, propositions au fil de la lecture). Pour un conflit entre deux camps, appelle-le une fois par camp puis croise. Travail LOURD par nature : suis la méthode, délègue aux sous_agents — et quand la matière déborde une conversation, propose un chantier type "histoire" (chantier_proposer, sujet = le camp ou la personne) : chronique par lots la nuit, récit final sourcé.',
     inputSchema: {
       type: 'object',
       properties: {
