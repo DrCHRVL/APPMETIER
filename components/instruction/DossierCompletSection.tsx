@@ -21,7 +21,7 @@ type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { siralBridge: Record<string, AnyFn> }).siralBridge;
 
 const ROOT = 'Dossier/';
-const MAX_FILES = 500;
+const MAX_TOTAL_BYTES = 500 * 1024 * 1024; // 500 Mo par versement (au global, pas par nombre de fichiers)
 // formats sans texte : inutile d'essayer la conversion, on les signale
 const SKIP_RE = /\.(png|jpe?g|gif|bmp|tiff?|heic|mp3|wav|m4a|ogg|mp4|avi|mov|mkv|zip|rar|7z|exe|dll)$/i;
 
@@ -46,7 +46,13 @@ export function DossierCompletSection({ numero }: { numero: string }) {
   useEffect(() => { refresh(); }, [refresh]);
 
   const verser = useCallback(async (incoming: Incoming[]) => {
-    const list = incoming.slice(0, MAX_FILES);
+    let total = 0;
+    let cut = incoming.length;
+    for (let i = 0; i < incoming.length; i++) {
+      total += incoming[i].file.size;
+      if (total > MAX_TOTAL_BYTES && i > 0) { cut = i; break; }
+    }
+    const list = incoming.slice(0, cut);
     if (!list.length) return;
     setReport(null);
     setProgress({ done: 0, total: list.length });
@@ -67,7 +73,11 @@ export function DossierCompletSection({ numero }: { numero: string }) {
       }
       setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
     }
-    if (incoming.length > MAX_FILES) ignores.push(`${incoming.length - MAX_FILES} fichier(s) au-delà de la limite de ${MAX_FILES} par versement`);
+    if (cut < incoming.length) {
+      const restants = incoming.length - cut;
+      const octetsRestants = incoming.slice(cut).reduce((s, x) => s + x.file.size, 0);
+      ignores.push(`${restants} fichier(s) au-delà de la limite de ${Math.round(MAX_TOTAL_BYTES / 1024 / 1024)} Mo par versement (${Math.round(octetsRestants / 1024 / 1024)} Mo restants) — versez le reste séparément`);
+    }
     setProgress(null);
     setReport({ ok, ignores });
     refresh();
