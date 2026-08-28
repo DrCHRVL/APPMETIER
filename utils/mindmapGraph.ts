@@ -60,6 +60,17 @@ import {
 // TYPES
 // ──────────────────────────────────────────────
 
+/** Rôles hiérarchiques cochables sur un MEC (panneau latéral). */
+export type MecRoleId = 'lieutenant' | 'chef_reseau';
+
+/** Bonus de points FIXE apporté par chaque rôle, ajouté après la formule et
+ *  le facteur temporel — comme le bonus manuel : un arbitrage humain ne se
+ *  fait pas rogner par l'ancienneté. */
+export const MEC_ROLE_POINTS: Record<MecRoleId, number> = {
+  lieutenant: 15,
+  chef_reseau: 30,
+};
+
 export interface MecNode {
   type: 'mec';
   /** Identifiant canonique (nom normalisé) — clé stable cross-dossiers */
@@ -128,6 +139,12 @@ export interface MecNode {
   manualBonus: number;
   /** Justification du bonus manuel, libre. */
   manualBonusReason?: string;
+  /** Rôle hiérarchique coché à la main (bonus fixe : cf. MEC_ROLE_POINTS). */
+  role?: MecRoleId;
+  /** Camp (réseau d'appartenance) assigné à la main — libellé partagé. */
+  campLabel?: string;
+  /** Couleur du camp (hex), posée à l'assignation. */
+  campColor?: string;
   /** Statuts uniques rencontrés (pour coloration éventuelle) */
   statuts: string[];
   /** Vrai si ce nœud représente une victime projetée sur la carte (et non un
@@ -236,7 +253,16 @@ export interface OverlayInput {
     mecId: string;
     bonus: number;
     reason?: string;
+    /** Rôle hiérarchique coché (bonus fixe, cf. MEC_ROLE_POINTS). */
+    role?: string;
     /** Départage deux entrées visant le même MEC (cf. boostByMec). */
+    updatedAt?: number;
+  }>;
+  /** Camps (réseau d'appartenance) par MEC canonique. */
+  mecCamps?: Array<{
+    mecId: string;
+    label: string;
+    color: string;
     updatedAt?: number;
   }>;
 }
@@ -1297,7 +1323,7 @@ export function buildMindmapGraph(
   // nœud diffèrent par l'ordre nom/prénom (« clement debus » vs « debus
   // clement ») : on garde la plus récente, sinon la valeur affichée dépendait
   // de l'ordre de la liste — qui change à chaque fusion serveur.
-  const boostByMec = new Map<string, { bonus: number; reason?: string; updatedAt: number }>();
+  const boostByMec = new Map<string, { bonus: number; reason?: string; role?: MecRoleId; updatedAt: number }>();
   if (overlay?.mecScoreBoosts) {
     for (const b of overlay.mecScoreBoosts) {
       const id = lookupCanonical(b.mecId) || b.mecId;
@@ -1305,7 +1331,23 @@ export function buildMindmapGraph(
       const updatedAt = b.updatedAt || 0;
       const existing = boostByMec.get(id);
       if (existing && existing.updatedAt > updatedAt) continue;
-      boostByMec.set(id, { bonus: b.bonus, reason: b.reason, updatedAt });
+      const role: MecRoleId | undefined =
+        b.role === 'lieutenant' || b.role === 'chef_reseau' ? b.role : undefined;
+      boostByMec.set(id, { bonus: b.bonus, reason: b.reason, role, updatedAt });
+    }
+  }
+
+  // Camps par MEC canonique — même règle « le plus récent gagne » que les
+  // boosts (deux entrées peuvent viser la même personne via l'ordre des mots).
+  const campByMec = new Map<string, { label: string; color: string; updatedAt: number }>();
+  if (overlay?.mecCamps) {
+    for (const c of overlay.mecCamps) {
+      const id = lookupCanonical(c.mecId) || c.mecId;
+      if (!id || !c.label) continue;
+      const updatedAt = c.updatedAt || 0;
+      const existing = campByMec.get(id);
+      if (existing && existing.updatedAt > updatedAt) continue;
+      campByMec.set(id, { label: c.label, color: c.color, updatedAt });
     }
   }
 
@@ -1345,9 +1387,17 @@ export function buildMindmapGraph(
     const boost = boostByMec.get(canonical);
     mecNode.manualBonus = boost?.bonus ?? 0;
     mecNode.manualBonusReason = boost?.reason;
-    // Le bonus manuel s'ajoute APRÈS le facteur temporel : un arbitrage humain
-    // explicite ne doit pas être rogné par l'ancienneté du dossier.
-    mecNode.rawScore = Math.max(0, computeRawScore(mecNode, weights) + mecNode.manualBonus);
+    mecNode.role = boost?.role;
+    const camp = campByMec.get(canonical);
+    if (camp) {
+      mecNode.campLabel = camp.label;
+      mecNode.campColor = camp.color;
+    }
+    // Le bonus manuel et le bonus de rôle s'ajoutent APRÈS le facteur
+    // temporel : un arbitrage humain explicite ne doit pas être rogné par
+    // l'ancienneté du dossier.
+    const rolePoints = mecNode.role ? MEC_ROLE_POINTS[mecNode.role] : 0;
+    mecNode.rawScore = Math.max(0, computeRawScore(mecNode, weights) + mecNode.manualBonus + rolePoints);
     if (mecNode.rawScore > maxRaw) maxRaw = mecNode.rawScore;
   }
 

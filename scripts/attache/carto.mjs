@@ -358,6 +358,53 @@ export async function appendMecExNihilo(keys, { nom, alias, notes }) {
   return { ok: true, id }
 }
 
+/**
+ * ENRICHISSEMENT de la fiche d'une personne (appliqué à la validation ✓ d'une
+ * proposition `mec_note`). Règle absolue : APPEND-ONLY — le texte existant de
+ * la fiche (écrit par le magistrat) n'est JAMAIS modifié, contredit ni
+ * effacé ; l'ajout arrive À LA SUITE, daté et signé « Attaché ». Les alias
+ * proposés sont fusionnés (jamais retirés). Si la personne n'a pas encore de
+ * fiche (MEC réel sans fiche manuelle, ou inconnue), la fiche est créée — un
+ * MEC réel homonyme la fusionnera dans son nœud côté carte.
+ */
+export async function appendMecNoteEnrichissement(keys, { nom, notes, alias }) {
+  const clean = String(nom || '').trim()
+  if (!clean) throw new Error('Nom de la personne requis')
+  const ajout = String(notes || '').trim()
+  if (!ajout) throw new Error('Notes à ajouter requises')
+  const key = mecCanonId(clean)
+  if (!key) throw new Error('Nom invalide')
+  const ov = loadOverlay(keys) || emptyOverlay()
+  ov.mecsExNihilo = ov.mecsExNihilo || []
+  const now = Date.now()
+  const stamp = new Date(now).toLocaleDateString('fr-FR')
+  const bloc = `— Attaché, le ${stamp} —\n${ajout.slice(0, 2000)}`
+  const aliasPropres = Array.isArray(alias)
+    ? alias.map((a) => String(a).trim()).filter(Boolean).slice(0, 12)
+    : []
+  const existante = ov.mecsExNihilo.find((m) => mecCanonId(m.displayName || m.id) === key)
+  if (existante) {
+    const courantes = String(existante.notes || '').trim()
+    // Plafond global généreux : on tronque l'HISTORIQUE des ajouts attaché le
+    // plus ancien avant de toucher au texte du magistrat (qui est en tête).
+    existante.notes = (courantes ? courantes + '\n\n' : '') + bloc
+    if (existante.notes.length > 8000) existante.notes = existante.notes.slice(0, 8000)
+    existante.alias = [...new Set([...(existante.alias || []), ...aliasPropres])].slice(0, 20)
+    existante.updatedAt = now
+  } else {
+    ov.mecsExNihilo.push({
+      id: normalizeMecName(clean),
+      displayName: clean,
+      alias: aliasPropres,
+      notes: bloc,
+      createdAt: now,
+      updatedAt: now,
+    })
+  }
+  await saveOverlay(keys, ov)
+  return { ok: true, cible: existante ? 'fiche enrichie' : 'fiche créée' }
+}
+
 /** Ajoute un lien de renseignement à la carte (appliqué à la validation ✓). */
 export async function appendLien(keys, { sourceNom, targetNom, label, notes }) {
   const source = mecCanonId(sourceNom)

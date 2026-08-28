@@ -98,12 +98,18 @@ export interface CartographieTombstoneEntry {
   deletedAt: number;
 }
 
+/** Rôle hiérarchique coché à la main sur un MEC. Chaque rôle vaut un bonus
+ *  de points fixe, ajouté après la formule (cf. MEC_ROLE_POINTS côté graphe) :
+ *  lieutenant = +15, chef_reseau = +30. */
+export type MecRole = 'lieutenant' | 'chef_reseau';
+
 /**
  * Bonus de score appliqué manuellement à un MEC. L'utilisateur peut booster
  * (ou minorer) la pondération d'une personne qu'il sait plus importante que
  * ce que la formule automatique calcule. Additionné après la formule de score
  * et sa pondération temporelle (les pondérations sont paramétrables depuis
- * Paramètres > Module Cartographie).
+ * Paramètres > Module Cartographie). Porte aussi le RÔLE coché (lieutenant /
+ * chef de réseau) : même entité « arbitrage humain », même merge inter-postes.
  */
 export interface MecScoreBoost {
   /** ID canonique du MEC (cf. normalizeMecName). */
@@ -112,6 +118,26 @@ export interface MecScoreBoost {
   bonus: number;
   /** Justification libre (visible dans le side panel). */
   reason?: string;
+  /** Rôle hiérarchique (bonus fixe additionnel : +15 / +30). */
+  role?: MecRole;
+  updatedAt: number;
+}
+
+/**
+ * Camp (réseau d'appartenance) assigné à la main à un MEC. Sert la LISIBILITÉ
+ * de la carte : deux groupes rivaux enchevêtrés dans les mêmes dossiers
+ * (mêmes procédures, traîtres qui changent de bord) restent distinguables si
+ * chaque personne porte la couleur de son camp. Le camp est un simple libellé
+ * partagé : tous les MEC portant le même libellé forment un camp, la couleur
+ * est celle posée à l'assignation (réutilisée pour tout le camp côté UI).
+ */
+export interface MecCampAssignment {
+  /** ID canonique du MEC (cf. normalizeMecName). */
+  mecId: string;
+  /** Libellé du camp (ex. « Réseau Ben Cherki », « Groupe le Corner »). */
+  label: string;
+  /** Couleur hex du camp. */
+  color: string;
   updatedAt: number;
 }
 
@@ -138,6 +164,7 @@ interface PersistedOverlay {
   liensRenseignement: LienRenseignement[];
   clusterAnnotations: ClusterAnnotation[];
   mecScoreBoosts: MecScoreBoost[];
+  mecCamps: MecCampAssignment[];
   tagZones: TagZoneAssignment[];
   // Tombstones par catégorie (toutes optionnelles pour rétrocompat).
   deletedMecExNihiloIds?: CartographieTombstoneEntry[];
@@ -145,6 +172,8 @@ interface PersistedOverlay {
   deletedLienIds?: CartographieTombstoneEntry[];
   deletedClusterAnnotationIds?: CartographieTombstoneEntry[];
   deletedMecScoreBoostIds?: CartographieTombstoneEntry[];
+  // camp par MEC : id = mecId canonique.
+  deletedMecCampIds?: CartographieTombstoneEntry[];
   // tag → zone : id = tag (cf. mergeTagZones côté sync service).
   deletedTagZones?: CartographieTombstoneEntry[];
   // Tombstones d'épinglage : trace les MEC désépinglés pour que le merge
@@ -191,6 +220,12 @@ interface OverlayState extends PersistedOverlay {
   // Boosts de score MEC
   setMecScoreBoost: (mecId: string, bonus: number, reason?: string) => void;
   removeMecScoreBoost: (mecId: string) => void;
+  /** Coche/décoche le rôle hiérarchique (préserve bonus + justification). */
+  setMecRole: (mecId: string, role: MecRole | undefined) => void;
+
+  // Camps (réseau d'appartenance)
+  setMecCamp: (mecId: string, label: string, color: string) => void;
+  removeMecCamp: (mecId: string) => void;
 
   // Assignation tag → zone géographique
   setTagZone: (tag: string, zone: TagZoneAssignment['zone']) => void;
@@ -204,12 +239,14 @@ const EMPTY: PersistedOverlay = {
   liensRenseignement: [],
   clusterAnnotations: [],
   mecScoreBoosts: [],
+  mecCamps: [],
   tagZones: [],
   deletedMecExNihiloIds: [],
   deletedDossierExNihiloIds: [],
   deletedLienIds: [],
   deletedClusterAnnotationIds: [],
   deletedMecScoreBoostIds: [],
+  deletedMecCampIds: [],
   deletedTagZones: [],
   deletedPinnedMecIds: [],
 };
@@ -279,12 +316,14 @@ async function _flush(force = false): Promise<void> {
       liensRenseignement: s.liensRenseignement,
       clusterAnnotations: s.clusterAnnotations,
       mecScoreBoosts: s.mecScoreBoosts,
+      mecCamps: s.mecCamps,
       tagZones: s.tagZones,
       deletedMecExNihiloIds: s.deletedMecExNihiloIds,
       deletedDossierExNihiloIds: s.deletedDossierExNihiloIds,
       deletedLienIds: s.deletedLienIds,
       deletedClusterAnnotationIds: s.deletedClusterAnnotationIds,
       deletedMecScoreBoostIds: s.deletedMecScoreBoostIds,
+      deletedMecCampIds: s.deletedMecCampIds,
       deletedTagZones: s.deletedTagZones,
       deletedPinnedMecIds: s.deletedPinnedMecIds,
     };
@@ -317,12 +356,14 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
         liensRenseignement: data.liensRenseignement || [],
         clusterAnnotations: data.clusterAnnotations || [],
         mecScoreBoosts: data.mecScoreBoosts || [],
+        mecCamps: data.mecCamps || [],
         tagZones: data.tagZones || [],
         deletedMecExNihiloIds: data.deletedMecExNihiloIds || [],
         deletedDossierExNihiloIds: data.deletedDossierExNihiloIds || [],
         deletedLienIds: data.deletedLienIds || [],
         deletedClusterAnnotationIds: data.deletedClusterAnnotationIds || [],
         deletedMecScoreBoostIds: data.deletedMecScoreBoostIds || [],
+        deletedMecCampIds: data.deletedMecCampIds || [],
         deletedTagZones: data.deletedTagZones || [],
         deletedPinnedMecIds: data.deletedPinnedMecIds || [],
         isLoaded: true,
@@ -349,12 +390,14 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
       liensRenseignement: snapshot.liensRenseignement ?? get().liensRenseignement,
       clusterAnnotations: snapshot.clusterAnnotations ?? get().clusterAnnotations,
       mecScoreBoosts: snapshot.mecScoreBoosts ?? get().mecScoreBoosts,
+      mecCamps: snapshot.mecCamps ?? get().mecCamps,
       tagZones: snapshot.tagZones ?? get().tagZones,
       deletedMecExNihiloIds: snapshot.deletedMecExNihiloIds ?? get().deletedMecExNihiloIds,
       deletedDossierExNihiloIds: snapshot.deletedDossierExNihiloIds ?? get().deletedDossierExNihiloIds,
       deletedLienIds: snapshot.deletedLienIds ?? get().deletedLienIds,
       deletedClusterAnnotationIds: snapshot.deletedClusterAnnotationIds ?? get().deletedClusterAnnotationIds,
       deletedMecScoreBoostIds: snapshot.deletedMecScoreBoostIds ?? get().deletedMecScoreBoostIds,
+      deletedMecCampIds: snapshot.deletedMecCampIds ?? get().deletedMecCampIds,
       deletedTagZones: snapshot.deletedTagZones ?? get().deletedTagZones,
       deletedPinnedMecIds: snapshot.deletedPinnedMecIds ?? get().deletedPinnedMecIds,
     });
@@ -631,11 +674,12 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
     if (!id) return;
     const list = get().mecScoreBoosts;
     const idx = list.findIndex(b => b.mecId === id);
-    // Bonus = 0 (et pas de raison) → on retire l'entrée pour rester clean.
+    const role = idx >= 0 ? list[idx].role : undefined;
+    // Bonus = 0 (ni raison ni rôle) → on retire l'entrée pour rester clean.
     // Tombstone OBLIGATOIRE : sans lui, le serveur avait encore l'entrée et
     // le prochain pull ressuscitait l'ancien bonus deux secondes plus tard —
     // la remise à zéro semblait « ne pas tenir ».
-    if (bonus === 0 && !reason) {
+    if (bonus === 0 && !reason && !role) {
       if (idx < 0) return;
       set({
         mecScoreBoosts: list.filter(b => b.mecId !== id),
@@ -644,9 +688,43 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
       markDirty();
       return;
     }
-    const next: MecScoreBoost = { mecId: id, bonus, reason, updatedAt: Date.now() };
+    const next: MecScoreBoost = { mecId: id, bonus, reason, role, updatedAt: Date.now() };
     // Nouvelle valeur après une remise à zéro : retirer le tombstone, sinon le
     // merge ré-évincerait aussitôt le bonus qu'on vient de saisir.
+    const tombs = get().deletedMecScoreBoostIds || [];
+    const nextTombs = tombs.some(t => t.id === id) ? tombs.filter(t => t.id !== id) : tombs;
+    if (idx < 0) {
+      set({ mecScoreBoosts: [...list, next], deletedMecScoreBoostIds: nextTombs });
+    } else {
+      const updated = [...list];
+      updated[idx] = next;
+      set({ mecScoreBoosts: updated, deletedMecScoreBoostIds: nextTombs });
+    }
+    markDirty();
+  },
+
+  // Coche/décoche un rôle en préservant bonus et justification : rôle et
+  // bonus vivent dans la MÊME entrée (même merge inter-postes), mais se
+  // règlent depuis deux contrôles distincts du panneau.
+  setMecRole: (mecId, role) => {
+    const id = normalizeMecName(mecId) || mecId;
+    if (!id) return;
+    const list = get().mecScoreBoosts;
+    const idx = list.findIndex(b => b.mecId === id);
+    const existing = idx >= 0 ? list[idx] : undefined;
+    const bonus = existing?.bonus ?? 0;
+    const reason = existing?.reason;
+    if (!role && bonus === 0 && !reason) {
+      // Plus rien à porter : suppression + tombstone (cf. setMecScoreBoost).
+      if (idx < 0) return;
+      set({
+        mecScoreBoosts: list.filter(b => b.mecId !== id),
+        deletedMecScoreBoostIds: appendTombstone(get().deletedMecScoreBoostIds, id),
+      });
+      markDirty();
+      return;
+    }
+    const next: MecScoreBoost = { mecId: id, bonus, reason, role, updatedAt: Date.now() };
     const tombs = get().deletedMecScoreBoostIds || [];
     const nextTombs = tombs.some(t => t.id === id) ? tombs.filter(t => t.id !== id) : tombs;
     if (idx < 0) {
@@ -666,6 +744,40 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
     set({
       mecScoreBoosts: list.filter(b => b.mecId !== id),
       deletedMecScoreBoostIds: appendTombstone(get().deletedMecScoreBoostIds, id),
+    });
+    markDirty();
+  },
+
+  // ── Camps (réseau d'appartenance) ────────────
+
+  setMecCamp: (mecId, label, color) => {
+    const id = normalizeMecName(mecId) || mecId;
+    const lbl = (label || '').trim();
+    if (!id || !lbl) return;
+    const list = get().mecCamps;
+    const idx = list.findIndex(c => c.mecId === id);
+    const next: MecCampAssignment = { mecId: id, label: lbl, color, updatedAt: Date.now() };
+    // Réassignation après retrait : lever le tombstone, sinon le merge
+    // ré-évincerait aussitôt le camp qu'on vient de poser.
+    const tombs = get().deletedMecCampIds || [];
+    const nextTombs = tombs.some(t => t.id === id) ? tombs.filter(t => t.id !== id) : tombs;
+    if (idx < 0) {
+      set({ mecCamps: [...list, next], deletedMecCampIds: nextTombs });
+    } else {
+      const updated = [...list];
+      updated[idx] = next;
+      set({ mecCamps: updated, deletedMecCampIds: nextTombs });
+    }
+    markDirty();
+  },
+
+  removeMecCamp: (mecId) => {
+    const id = normalizeMecName(mecId) || mecId;
+    const list = get().mecCamps;
+    if (!list.some(c => c.mecId === id)) return;
+    set({
+      mecCamps: list.filter(c => c.mecId !== id),
+      deletedMecCampIds: appendTombstone(get().deletedMecCampIds, id),
     });
     markDirty();
   },
@@ -719,6 +831,7 @@ export function pruneCartographieTombstones(): void {
     deletedLienIds: pruneTombstones(s.deletedLienIds, now),
     deletedClusterAnnotationIds: pruneTombstones(s.deletedClusterAnnotationIds, now),
     deletedMecScoreBoostIds: pruneTombstones(s.deletedMecScoreBoostIds, now),
+    deletedMecCampIds: pruneTombstones(s.deletedMecCampIds, now),
     deletedTagZones: pruneTombstones(s.deletedTagZones, now),
     deletedPinnedMecIds: pruneTombstones(s.deletedPinnedMecIds, now),
   });

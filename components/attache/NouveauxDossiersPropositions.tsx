@@ -20,7 +20,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Check, X, FolderPlus, Network, UserPlus, GitBranch, Loader2, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
 
-type Kind = 'dossier' | 'dossier_carto' | 'mec_carto' | 'lien';
+type Kind = 'dossier' | 'dossier_carto' | 'mec_carto' | 'mec_note' | 'lien';
 
 interface Mec { nom?: string; role?: string; statut?: string }
 
@@ -54,10 +54,11 @@ const TYPE_META: Record<Kind, { icon: typeof FolderPlus; label: string; tint: st
   dossier:       { icon: FolderPlus, label: 'Nouveau dossier',      tint: 'text-indigo-700 bg-indigo-50' },
   dossier_carto: { icon: Network,    label: 'Dossier ex nihilo',    tint: 'text-violet-700 bg-violet-50' },
   mec_carto:     { icon: UserPlus,   label: 'Personne ex nihilo',   tint: 'text-sky-700 bg-sky-50' },
+  mec_note:      { icon: Sparkles,   label: 'Enrichissement fiche', tint: 'text-emerald-700 bg-emerald-50' },
   lien:          { icon: GitBranch,  label: 'Lien de renseignement', tint: 'text-teal-700 bg-teal-50' },
 };
 
-const CARTO_KINDS: Kind[] = ['dossier_carto', 'mec_carto', 'lien'];
+const CARTO_KINDS: Kind[] = ['dossier_carto', 'mec_carto', 'mec_note', 'lien'];
 
 function mecName(m: Mec | string): string {
   return typeof m === 'string' ? m : (m?.nom || '');
@@ -211,6 +212,16 @@ export function NouveauxDossiersPropositions({
                       <Field label="Personne" value={p.payload.nom} />
                       <Field label="Alias / surnoms" value={(p.payload.alias || []).join(', ')} />
                       <Field label="Notes" value={p.payload.notes} />
+                    </>
+                  )}
+                  {p.type === 'mec_note' && (
+                    <>
+                      <Field label="Personne" value={p.payload.nom} />
+                      <Field label="Surnoms découverts" value={(p.payload.alias || []).join(', ')} />
+                      <Field label="Ajout aux notes" value={p.payload.notes} />
+                      <div className="text-[10px] text-gray-400">
+                        ✓ ajoute ce bloc À LA SUITE de la fiche (daté, signé Attaché) — vos notes ne sont jamais modifiées.
+                      </div>
                     </>
                   )}
                   {p.type === 'lien' && (

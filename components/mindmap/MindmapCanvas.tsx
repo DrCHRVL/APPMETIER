@@ -55,6 +55,9 @@ interface MindmapCanvasProps {
    *  jusqu'à `egoDepth` du nœud. Le reste passe en opacity dimmed. */
   egoNodeId?: string;
   egoDepth?: number;
+  /** Surbrillance externe (ex. camp choisi dans la légende) : seuls ces ids
+   *  restent nets, le reste est estompé. null/undefined = pas de filtre. */
+  highlightSet?: Set<string> | null;
   /** IDs canoniques des MEC marqués manuellement comme "à surveiller" :
    *  rendus avec un anneau rouge vif pour les repérer dans la carte. */
   pinnedIds?: string[];
@@ -130,7 +133,7 @@ const CENTERED_HANDLE_STYLE: React.CSSProperties = {
 };
 
 const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
-  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus, isPinned, isVictime, isSuspect, suspectRole, isCondamne } = data as MecNodeData & { isSuspect?: boolean; suspectRole?: string; isCondamne?: boolean };
+  const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus, isPinned, isVictime, isSuspect, suspectRole, isCondamne, campLabel, campColor, role } = data as MecNodeData & { isSuspect?: boolean; suspectRole?: string; isCondamne?: boolean; campLabel?: string; campColor?: string; role?: string };
   const size = radius * 2;
   // MEC "pont" : présent sur ≥ 2 contentieux distincts → halo violet pour
   // matérialiser la transversalité (signal du score, mais visuel).
@@ -151,13 +154,15 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
             : isBridge
               ? 'ring-2 ring-violet-400/70 shadow-md hover:scale-105'
               : 'shadow-md hover:scale-105';
-  const titleExtra = isSuspect
+  const titleExtra = (isSuspect
     ? ` • Suspect${suspectRole ? ` (${suspectRole})` : ''}`
     : isCondamne
       ? ' • Condamné (résultat d\'audience)'
       : isBridge
         ? ` • ${contentieuxIds.length} contentieux`
-        : '';
+        : '')
+    + (campLabel ? ` • camp ${campLabel}` : '')
+    + (role ? ` • ${role === 'chef_reseau' ? 'chef de réseau' : 'lieutenant'}` : '');
   return (
     <div
       title={`${displayName} — ${dossierIds.length} dossier(s)${titleExtra}${isBoosted ? ' • importance manuelle' : ''}${isPinned ? ' • marqué' : ''}`}
@@ -173,13 +178,18 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
       <div
         className="absolute inset-0 rounded-full"
         style={{
-          background: isSuspect
-            ? 'linear-gradient(135deg, #7c2d12 0%, #9a3412 100%)'
-            : isCondamne
-              ? 'linear-gradient(135deg, #064e3b 0%, #047857 100%)'
-              : recent
-                ? 'linear-gradient(135deg, #1f2937 0%, #374151 100%)'
-                : 'linear-gradient(135deg, #475569 0%, #64748b 100%)',
+          // Le camp prime sur tout autre fond : c'est LE discriminant visuel
+          // entre deux groupes rivaux enchevêtrés dans les mêmes dossiers.
+          // Les étiquettes (Suspect/Condamné) restent affichées sous le nom.
+          background: campColor
+            ? `linear-gradient(135deg, ${campColor} 0%, ${campColor}cc 100%)`
+            : isSuspect
+              ? 'linear-gradient(135deg, #7c2d12 0%, #9a3412 100%)'
+              : isCondamne
+                ? 'linear-gradient(135deg, #064e3b 0%, #047857 100%)'
+                : recent
+                  ? 'linear-gradient(135deg, #1f2937 0%, #374151 100%)'
+                  : 'linear-gradient(135deg, #475569 0%, #64748b 100%)',
         }}
       />
       <span
@@ -200,6 +210,11 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
         {isCondamne && (
           <span className="opacity-80 italic" style={{ fontSize: Math.max(8, Math.min(11, radius / 4.5)) }}>
             (Condamné)
+          </span>
+        )}
+        {role && (
+          <span className="opacity-90 font-semibold" style={{ fontSize: Math.max(8, Math.min(11, radius / 4.5)) }}>
+            {role === 'chef_reseau' ? '★ Chef de réseau' : '☆ Lieutenant'}
           </span>
         )}
       </span>
@@ -441,6 +456,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   onAnnotateCluster,
   egoNodeId,
   egoDepth = 2,
+  highlightSet,
   pinnedIds,
   groupByService = false,
   layout,
@@ -575,9 +591,10 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   }, [egoNodeId, edges, egoDepth]);
 
   const isDimmed = useCallback((id: string) => {
-    if (!egoVisibleSet) return false;
-    return !egoVisibleSet.has(id);
-  }, [egoVisibleSet]);
+    if (egoVisibleSet && !egoVisibleSet.has(id)) return true;
+    if (highlightSet && !highlightSet.has(id)) return true;
+    return false;
+  }, [egoVisibleSet, highlightSet]);
 
   // Composante connexe contenant le nœud focus → on l'illumine plus fort.
   const focusedClusterId = useMemo(() => {
@@ -596,7 +613,8 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       const effectiveColor = annotation?.color || c.color;
       // En mode ego, un cluster est "dimmed" si aucun de ses nœuds n'est
       // dans la zone visible.
-      const clusterDimmed = !!egoVisibleSet && !c.nodeIds.some(id => egoVisibleSet.has(id));
+      const clusterDimmed = (!!egoVisibleSet && !c.nodeIds.some(id => egoVisibleSet.has(id)))
+        || (!!highlightSet && !c.nodeIds.some(id => highlightSet.has(id)));
       const data: HullNodeData = {
         cluster: c,
         containsFocus: c.id === focusedClusterId,
@@ -648,7 +666,8 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     // (zIndex -1, le grand blob est à -2). Pas de label, le dossier au
     // centre fait office de titre visuel.
     for (const sc of subClusters) {
-      const subDimmed = !!egoVisibleSet && !sc.nodeIds.some(id => egoVisibleSet.has(id));
+      const subDimmed = (!!egoVisibleSet && !sc.nodeIds.some(id => egoVisibleSet.has(id)))
+        || (!!highlightSet && !sc.nodeIds.some(id => highlightSet.has(id)));
       const data: HullNodeData = {
         cluster: sc,
         containsFocus: focusedId ? sc.nodeIds.includes(focusedId) : false,
@@ -719,7 +738,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       } satisfies Node);
     }
     return out;
-  }, [nodes, positions, focusedId, ctxColorById, dossierRotations, influenceClusters, subClusters, focusedClusterId, clusterAnnotations, egoVisibleSet, isDimmed, clusterColors, pinnedSet]);
+  }, [nodes, positions, focusedId, ctxColorById, dossierRotations, influenceClusters, subClusters, focusedClusterId, clusterAnnotations, egoVisibleSet, highlightSet, isDimmed, clusterColors, pinnedSet]);
 
   const rfEdges: Edge[] = useMemo(() => {
     return edges.map(e => {

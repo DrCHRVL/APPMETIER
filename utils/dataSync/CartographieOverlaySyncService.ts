@@ -31,6 +31,7 @@ import {
   type ClusterAnnotation,
   type DossierExNihilo,
   type LienRenseignement,
+  type MecCampAssignment,
   type MecExNihilo,
   type MecScoreBoost,
   type TagZoneAssignment,
@@ -283,12 +284,14 @@ export class CartographieOverlaySyncService {
           liensRenseignement: merged.liensRenseignement,
           clusterAnnotations: merged.clusterAnnotations,
           mecScoreBoosts: merged.mecScoreBoosts,
+          mecCamps: merged.mecCamps,
           tagZones: merged.tagZones,
           deletedMecExNihiloIds: tombstonesToWire(merged.deletedMecExNihiloIds),
           deletedDossierExNihiloIds: tombstonesToWire(merged.deletedDossierExNihiloIds),
           deletedLienIds: tombstonesToWire(merged.deletedLienIds),
           deletedClusterAnnotationIds: tombstonesToWire(merged.deletedClusterAnnotationIds),
           deletedMecScoreBoostIds: tombstonesToWire(merged.deletedMecScoreBoostIds),
+          deletedMecCampIds: tombstonesToWire(merged.deletedMecCampIds),
           deletedTagZones: tombstonesToWire(merged.deletedTagZones),
           deletedPinnedMecIds: tombstonesToWire(merged.deletedPinnedMecIds),
         };
@@ -316,12 +319,14 @@ export class CartographieOverlaySyncService {
       liensRenseignement: s.liensRenseignement,
       clusterAnnotations: s.clusterAnnotations,
       mecScoreBoosts: s.mecScoreBoosts.map(b => ({ ...b, id: b.mecId })),
+      mecCamps: (s.mecCamps || []).map(c => ({ ...c, id: c.mecId })),
       tagZones: s.tagZones || [],
       deletedMecExNihiloIds: s.deletedMecExNihiloIds || [],
       deletedDossierExNihiloIds: s.deletedDossierExNihiloIds || [],
       deletedLienIds: s.deletedLienIds || [],
       deletedClusterAnnotationIds: s.deletedClusterAnnotationIds || [],
       deletedMecScoreBoostIds: s.deletedMecScoreBoostIds || [],
+      deletedMecCampIds: s.deletedMecCampIds || [],
       deletedTagZones: s.deletedTagZones || [],
       deletedPinnedMecIds: s.deletedPinnedMecIds || [],
     };
@@ -336,12 +341,15 @@ export class CartographieOverlaySyncService {
       clusterAnnotations: (file.clusterAnnotations || []) as ClusterAnnotation[],
       mecScoreBoosts: ((file.mecScoreBoosts || []) as MecScoreBoost[])
         .map(b => ({ ...b, id: b.mecId })),
+      mecCamps: ((file.mecCamps || []) as MecCampAssignment[])
+        .map(c => ({ ...c, id: c.mecId })),
       tagZones: (file.tagZones || []) as TagZoneAssignment[],
       deletedMecExNihiloIds: tombstonesFromWire(file.deletedMecExNihiloIds),
       deletedDossierExNihiloIds: tombstonesFromWire(file.deletedDossierExNihiloIds),
       deletedLienIds: tombstonesFromWire(file.deletedLienIds),
       deletedClusterAnnotationIds: tombstonesFromWire(file.deletedClusterAnnotationIds),
       deletedMecScoreBoostIds: tombstonesFromWire(file.deletedMecScoreBoostIds),
+      deletedMecCampIds: tombstonesFromWire(file.deletedMecCampIds),
       deletedTagZones: tombstonesFromWire(file.deletedTagZones),
       deletedPinnedMecIds: tombstonesFromWire(file.deletedPinnedMecIds),
     };
@@ -356,6 +364,7 @@ export class CartographieOverlaySyncService {
     const deletedLien = mergeTombstones(local.deletedLienIds, serverFile?.deletedLienIds);
     const deletedCluster = mergeTombstones(local.deletedClusterAnnotationIds, serverFile?.deletedClusterAnnotationIds);
     const deletedBoost = mergeTombstones(local.deletedMecScoreBoostIds, serverFile?.deletedMecScoreBoostIds);
+    const deletedCamp = mergeTombstones(local.deletedMecCampIds, serverFile?.deletedMecCampIds);
     const deletedTagZone = mergeTombstones(local.deletedTagZones, serverFile?.deletedTagZones);
     const deletedPinned = mergeTombstones(local.deletedPinnedMecIds, serverFile?.deletedPinnedMecIds);
 
@@ -380,6 +389,13 @@ export class CartographieOverlaySyncService {
           void _id;
           return rest as MecScoreBoost;
         }),
+      // mecCamps : même mécanique (key = mecId, id synthétique pour le merge).
+      mecCamps: mergeWithTombstones(local.mecCamps, server.mecCamps, deletedCamp)
+        .map((c: MecCampAssignment & { id: string }) => {
+          const { id: _id, ...rest } = c;
+          void _id;
+          return rest as MecCampAssignment;
+        }),
       // tagZones : key = tag, last-write-wins via updatedAt + tombstones par
       // tag pour que la suppression d'une assignation se propage entre postes.
       tagZones: mergeTagZones(local.tagZones, server.tagZones, deletedTagZone),
@@ -388,6 +404,7 @@ export class CartographieOverlaySyncService {
       deletedLienIds: deletedLien,
       deletedClusterAnnotationIds: deletedCluster,
       deletedMecScoreBoostIds: deletedBoost,
+      deletedMecCampIds: deletedCamp,
       deletedTagZones: deletedTagZone,
       deletedPinnedMecIds: deletedPinned,
     };
@@ -422,18 +439,21 @@ interface LocalSnapshot {
   // On ajoute virtuellement un `id` (= mecId) pour que les boosts passent
   // par le même algo de merge que les autres entités.
   mecScoreBoosts: (MecScoreBoost & { id: string })[];
+  mecCamps: (MecCampAssignment & { id: string })[];
   tagZones: TagZoneAssignment[];
   deletedMecExNihiloIds: CartographieTombstoneEntry[];
   deletedDossierExNihiloIds: CartographieTombstoneEntry[];
   deletedLienIds: CartographieTombstoneEntry[];
   deletedClusterAnnotationIds: CartographieTombstoneEntry[];
   deletedMecScoreBoostIds: CartographieTombstoneEntry[];
+  deletedMecCampIds: CartographieTombstoneEntry[];
   deletedTagZones: CartographieTombstoneEntry[];
   deletedPinnedMecIds: CartographieTombstoneEntry[];
 }
 
-type MergedSnapshot = Omit<LocalSnapshot, 'mecScoreBoosts'> & {
+type MergedSnapshot = Omit<LocalSnapshot, 'mecScoreBoosts' | 'mecCamps'> & {
   mecScoreBoosts: MecScoreBoost[];
+  mecCamps: MecCampAssignment[];
 };
 
 function emptySnapshot(): LocalSnapshot {
@@ -444,12 +464,14 @@ function emptySnapshot(): LocalSnapshot {
     liensRenseignement: [],
     clusterAnnotations: [],
     mecScoreBoosts: [],
+    mecCamps: [],
     tagZones: [],
     deletedMecExNihiloIds: [],
     deletedDossierExNihiloIds: [],
     deletedLienIds: [],
     deletedClusterAnnotationIds: [],
     deletedMecScoreBoostIds: [],
+    deletedMecCampIds: [],
     deletedTagZones: [],
     deletedPinnedMecIds: [],
   };
@@ -487,12 +509,14 @@ function canonicalSnapshot(s: LocalSnapshot | MergedSnapshot): string {
     clusterAnnotations: sortBy(s.clusterAnnotations, e => e.id),
     // strippe `id` synthétique avant tri (clé = mecId).
     mecScoreBoosts: sortBy(stripId(s.mecScoreBoosts as { id?: string; mecId: string }[]), e => e.mecId),
+    mecCamps: sortBy(stripId((s.mecCamps || []) as { id?: string; mecId: string }[]), e => e.mecId),
     tagZones: sortBy(s.tagZones, e => e.tag),
     deletedMecExNihiloIds: sortBy(s.deletedMecExNihiloIds, e => e.id),
     deletedDossierExNihiloIds: sortBy(s.deletedDossierExNihiloIds, e => e.id),
     deletedLienIds: sortBy(s.deletedLienIds, e => e.id),
     deletedClusterAnnotationIds: sortBy(s.deletedClusterAnnotationIds, e => e.id),
     deletedMecScoreBoostIds: sortBy(s.deletedMecScoreBoostIds, e => e.id),
+    deletedMecCampIds: sortBy(s.deletedMecCampIds, e => e.id),
     deletedTagZones: sortBy(s.deletedTagZones, e => e.id),
     deletedPinnedMecIds: sortBy(s.deletedPinnedMecIds, e => e.id),
   };

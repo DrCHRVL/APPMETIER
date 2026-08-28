@@ -1352,6 +1352,25 @@ const TOOLS = [
     write: true,
   },
   {
+    name: 'proposer_note_mec',
+    description: 'Propose un ENRICHISSEMENT de la fiche d\'une personne de la carte (notes + surnoms) après une recherche demandée par le magistrat — n\'écrit PAS directement : ✓/✗. À la validation, tes notes sont AJOUTÉES À LA SUITE de la fiche, datées et signées « Attaché » : le texte du magistrat n\'est JAMAIS modifié, contredit ni effacé — si un élément le contredit, présente-le comme un élément nouveau sourcé, sans réécrire le sien. Une seule proposition par personne (synthétise ta recherche). Fonctionne pour une personne déjà sur la carte (MEC réel ou fiche manuelle) comme pour une fiche à créer. Cite tes sources (pièce + dossier) dans les notes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nom: { type: 'string', description: 'Nom de la personne (tel qu\'affiché sur la carte)' },
+        notes: { type: 'string', description: 'Ce que la recherche a établi : rôle supposé, entourage, dossiers, adresses/téléphones/véhicules — avec les sources (pièce, dossier)' },
+        alias: { type: 'array', items: { type: 'string' }, description: 'Surnoms / alias découverts (fusionnés, jamais retirés)' },
+        source: { type: 'string', description: 'Pièce(s) principale(s) d\'où vient la recherche' },
+      },
+      required: ['nom', 'notes', 'source'],
+    },
+    handler: async (a) => addProposition(keys, {
+      type: 'mec_note', source: a.source,
+      payload: { nom: a.nom, notes: a.notes, alias: a.alias },
+    }),
+    write: true,
+  },
+  {
     name: 'carto_analyser',
     description: 'Analyse le réseau (cartographie) : figures centrales, « ponts » (personnes présentes dans plusieurs dossiers, qui relient des affaires), co-occurrences, nombre de liens de renseignement déjà tracés. Pour aider à voir les connexions et améliorer la visibilité. Interpréter : centralité, cloisonnements, liens manquants à tracer.',
     inputSchema: { type: 'object', properties: { archives: { type: 'boolean', description: 'Inclure les dossiers archivés' } } },

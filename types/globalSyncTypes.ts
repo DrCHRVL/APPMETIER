@@ -101,6 +101,9 @@ export interface CartographieOverlaySyncFile extends GlobalSyncMetadata {
   clusterAnnotations: any[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mecScoreBoosts: any[];
+  // Camps (réseau d'appartenance) par MEC — clé = mecId canonique.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mecCamps?: any[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tagZones?: any[];
   // Tombstones de suppression
@@ -109,6 +112,7 @@ export interface CartographieOverlaySyncFile extends GlobalSyncMetadata {
   deletedLienIds?: CartographieTombstone[];
   deletedClusterAnnotationIds?: CartographieTombstone[];
   deletedMecScoreBoostIds?: CartographieTombstone[];
+  deletedMecCampIds?: CartographieTombstone[];
   // Tombstones d'épinglage (clé = id canonique du MEC). Sans ça, le merge
   // par union ressuscitait une épingle retirée localement dès qu'un poste
   // avait encore l'entrée côté serveur.
