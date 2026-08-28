@@ -6,6 +6,7 @@ import {
   X, Edit, Trash2, Save, FileText, Users, Calendar, ListChecks,
   Lock, Scale, MapPin, ShieldOff, AlertTriangle, Archive, RotateCcw,
   ShieldCheck, Plus, ExternalLink, Link2, Unlink, ClipboardPaste,
+  Maximize2, Minimize2, Search,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -150,6 +151,9 @@ export const InstructionDetailModal = ({
   const cabinetColor = cabinet?.color || FALLBACK_CABINET_COLOR;
 
   const [activeTab, setActiveTab] = useState<TabKey>('apercu');
+  // Lecture confortable : l'un des deux grands panneaux de l'aperçu
+  // (description narrative / notes perso) peut occuper toute la largeur.
+  const [panneauEtendu, setPanneauEtendu] = useState<'description' | 'notes' | null>(null);
   // Picker de rattachement à l'enquête préliminaire d'origine.
   const [showLierPrelim, setShowLierPrelim] = useState(false);
   // Import « bricolage » Cassiopée par copier-coller.
@@ -313,9 +317,82 @@ export const InstructionDetailModal = ({
     onClose();
   };
 
+  const contentieuxDef = dossier.contentieuxId
+    ? contentieuxDefs.find(c => c.id === dossier.contentieuxId) ?? null
+    : null;
+
   const { rules: alertRules } = useInstructionAlertRules();
   const seuilFinDPJours = alertRules.find(r => r.trigger === 'dp_fin_proche')?.seuil ?? 21;
   const seuilMaxDPJours = alertRules.find(r => r.trigger === 'dp_max_proche')?.seuil ?? 90;
+
+  // Rattachement à l'enquête préliminaire d'origine : réglage de fiche, donc
+  // rendu en mode édition seulement — l'aperçu n'a pas à porter en permanence
+  // un encart « aucune enquête rattachée ».
+  const rattachementPrelim = (
+    <>
+  {/* Rattachement enquête préliminaire d'origine (résultat OI) :
+      lève le doublon de cartographie, sans toucher aux données de
+      l'enquête. */}
+  {dossier.enquetePreliminaireId != null ? (
+    <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <Link2 className="h-4 w-4 text-emerald-700 shrink-0" />
+          <div className="min-w-0">
+            <div className="text-[11px] uppercase font-semibold text-emerald-700">
+              Enquête préliminaire d'origine
+            </div>
+            <div className="text-sm font-medium text-gray-900 truncate">
+              {dossier.enquetePreliminaireNumero || `Enquête #${dossier.enquetePreliminaireId}`}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {onOpenEnquetePreliminaire && (
+            <button
+              onClick={() => onOpenEnquetePreliminaire(
+                dossier.enquetePreliminaireId!,
+                dossier.enquetePreliminaireContentieuxId,
+              )}
+              className="inline-flex items-center gap-1 text-xs font-medium text-emerald-800 bg-white border border-emerald-300 rounded px-2 py-1 hover:bg-emerald-100"
+            >
+              <ExternalLink className="h-3.5 w-3.5" /> Ouvrir l'enquête
+            </button>
+          )}
+          <button
+            onClick={() => setShowLierPrelim(true)}
+            className="inline-flex items-center gap-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded px-2 py-1 hover:bg-gray-100"
+          >
+            <Link2 className="h-3.5 w-3.5" /> Changer
+          </button>
+          <button
+            onClick={handleDelierPrelim}
+            className="inline-flex items-center gap-1 text-xs font-medium text-red-700 bg-white border border-red-200 rounded px-2 py-1 hover:bg-red-50"
+          >
+            <Unlink className="h-3.5 w-3.5" /> Détacher
+          </button>
+        </div>
+      </div>
+      <p className="text-[11px] text-emerald-700/80 mt-1.5">
+        Masquée comme doublon sur la cartographie — ses notes, CR et actes restent accessibles dans le module enquêtes.
+      </p>
+    </div>
+  ) : (
+    <div className="mb-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+      <div className="flex items-center gap-2 text-sm text-gray-500">
+        <Link2 className="h-4 w-4 text-gray-400" />
+        <span>Aucune enquête préliminaire rattachée.</span>
+      </div>
+      <button
+        onClick={() => setShowLierPrelim(true)}
+        className="inline-flex items-center gap-1 text-xs font-medium text-[#2B5746] bg-white border border-[#2B5746]/40 rounded px-2 py-1 hover:bg-[#2B5746]/5"
+      >
+        <Link2 className="h-3.5 w-3.5" /> Lier une enquête (OI)
+      </button>
+    </div>
+  )}
+    </>
+  );
 
   const stats = (() => {
     const byStatut = countMexByStatut(dossier);
@@ -363,6 +440,32 @@ export const InstructionDetailModal = ({
                   → {ORIENTATION_LABELS[dossier.orientationPrevisible]}
                 </Badge>
               )}
+              {/* Contentieux : identité du dossier, donc en tête de fiche avec
+                  le n° d'instruction et le cabinet — plus une section à part
+                  dans l'aperçu. */}
+              {contentieuxDef ? (
+                <span
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium"
+                  style={{
+                    background: `${contentieuxDef.color}20`,
+                    color: contentieuxDef.color,
+                    border: `1px solid ${contentieuxDef.color}`,
+                  }}
+                  title="Contentieux"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: contentieuxDef.color }} />
+                  {contentieuxDef.label}
+                </span>
+              ) : contentieuxDefs.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={onEdit}
+                  title="Renseignez le contentieux pour que ce dossier apparaisse dans le bon filtre cartographique"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100"
+                >
+                  <AlertTriangle className="h-3 w-3" /> Contentieux non précisé
+                </button>
+              ) : null}
             </div>
             <div className="text-xs text-gray-600 mt-0.5">
               N° instruction : {dossier.numeroInstruction || '—'}
@@ -489,70 +592,9 @@ export const InstructionDetailModal = ({
           )}
           {activeTab === 'apercu' && (
             <>
-            {/* Rattachement enquête préliminaire d'origine (résultat OI) :
-                lève le doublon de cartographie, sans toucher aux données de
-                l'enquête. Géré indépendamment du mode édition. */}
-            {dossier.enquetePreliminaireId != null ? (
-              <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2.5">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Link2 className="h-4 w-4 text-emerald-700 shrink-0" />
-                    <div className="min-w-0">
-                      <div className="text-[11px] uppercase font-semibold text-emerald-700">
-                        Enquête préliminaire d'origine
-                      </div>
-                      <div className="text-sm font-medium text-gray-900 truncate">
-                        {dossier.enquetePreliminaireNumero || `Enquête #${dossier.enquetePreliminaireId}`}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {onOpenEnquetePreliminaire && (
-                      <button
-                        onClick={() => onOpenEnquetePreliminaire(
-                          dossier.enquetePreliminaireId!,
-                          dossier.enquetePreliminaireContentieuxId,
-                        )}
-                        className="inline-flex items-center gap-1 text-xs font-medium text-emerald-800 bg-white border border-emerald-300 rounded px-2 py-1 hover:bg-emerald-100"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" /> Ouvrir l'enquête
-                      </button>
-                    )}
-                    <button
-                      onClick={() => setShowLierPrelim(true)}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded px-2 py-1 hover:bg-gray-100"
-                    >
-                      <Link2 className="h-3.5 w-3.5" /> Changer
-                    </button>
-                    <button
-                      onClick={handleDelierPrelim}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-red-700 bg-white border border-red-200 rounded px-2 py-1 hover:bg-red-50"
-                    >
-                      <Unlink className="h-3.5 w-3.5" /> Détacher
-                    </button>
-                  </div>
-                </div>
-                <p className="text-[11px] text-emerald-700/80 mt-1.5">
-                  Masquée comme doublon sur la cartographie — ses notes, CR et actes restent accessibles dans le module enquêtes.
-                </p>
-              </div>
-            ) : (
-              <div className="mb-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2 text-sm text-gray-500">
-                  <Link2 className="h-4 w-4 text-gray-400" />
-                  <span>Aucune enquête préliminaire rattachée.</span>
-                </div>
-                <button
-                  onClick={() => setShowLierPrelim(true)}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-[#2B5746] bg-white border border-[#2B5746]/40 rounded px-2 py-1 hover:bg-[#2B5746]/5"
-                >
-                  <Link2 className="h-3.5 w-3.5" /> Lier une enquête (OI)
-                </button>
-              </div>
-            )}
-
             {isEditing ? (
               <div className="space-y-4">
+                {rattachementPrelim}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label>N° instruction</Label>
@@ -670,13 +712,14 @@ export const InstructionDetailModal = ({
                   </p>
                 </div>
 
-                {/* Description sur une largeur restreinte pour rester lisible */}
-                <div className="max-w-2xl">
+                {/* Description : zone à masse d'information, on lui laisse de la
+                    place à la saisie comme à la lecture. */}
+                <div className="max-w-4xl">
                   <Label>Description</Label>
                   <RichTextEditor
                     value={editData.description || ''}
                     onChange={(val) => setEditData(d => ({ ...d, description: val }))}
-                    minHeight={120}
+                    minHeight={260}
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
                     La saisine in rem dispose désormais d'une section dédiée (onglet Aperçu,
@@ -688,7 +731,11 @@ export const InstructionDetailModal = ({
               <div className="space-y-4">
                 {/* Stats rapides */}
                 <div className="grid grid-cols-3 md:grid-cols-7 gap-2">
-                  <Stat label="MEX" value={stats.nbMex} />
+                  <Stat
+                    label="MEX"
+                    value={stats.nbMex}
+                    onClick={() => setActiveTab('mex')}
+                  />
                   <Stat label="En DP" value={stats.nbDetenu} highlight={stats.nbDetenu > 0 ? 'red' : undefined} />
                   <Stat label="CJ" value={stats.nbCJ} />
                   <Stat label="ARSE" value={stats.nbARSE} />
@@ -701,12 +748,74 @@ export const InstructionDetailModal = ({
                   />
                 </div>
 
-                {/* Mini-section victimes : noms uniquement (détails dans l'onglet Victimes) */}
+                {/* Personnes du dossier, en lignes de pastilles : mis en examen,
+                    victimes, mis en cause. Le détail vit dans les onglets dédiés —
+                    ici on veut la photo d'ensemble en trois lignes. */}
+                {dossier.misEnExamen.length > 0 && (
+                  <LigneChips
+                    icon={Users}
+                    iconClass="text-gray-600"
+                    titre="Mis en examen"
+                    count={dossier.misEnExamen.length}
+                    onAction={() => setActiveTab('mex')}
+                  >
+                    {dossier.misEnExamen.map(mex => {
+                      const meta = MESURE_BADGE[mex.mesureSurete.type];
+                      const Icon = meta.icon;
+                      const finDP = getDateFinDPCourante(mex);
+                      const joursRestants = getJoursRestantsAvantFinDP(mex);
+                      const finMax = getDateFinMaxLegale(mex);
+                      const joursMax = getJoursRestantsAvantMaxLegal(mex);
+                      const urgent =
+                        (joursRestants !== null && joursRestants <= seuilFinDPJours)
+                        || (joursMax !== null && joursMax <= seuilMaxDPJours);
+                      const dmlEnAttente = mex.mesureSurete.type === 'detenu'
+                        ? mex.dmls.filter(d => d.statut === 'en_attente').length
+                        : 0;
+                      const infos = [
+                        `MEX le ${mex.dateMiseEnExamen ? new Date(mex.dateMiseEnExamen).toLocaleDateString() : '—'}`,
+                        mex.infractions.length > 0
+                          ? `${mex.infractions.length} chef${mex.infractions.length > 1 ? 's' : ''}`
+                          : null,
+                        finDP
+                          ? `Fin DP : ${new Date(finDP).toLocaleDateString()}`
+                            + (joursRestants !== null ? ` (J${joursRestants >= 0 ? '+' : ''}${joursRestants})` : '')
+                          : null,
+                        finMax
+                          ? `Fin maximale : ${new Date(finMax).toLocaleDateString()}`
+                            + (joursMax !== null ? ` (J${joursMax >= 0 ? '+' : ''}${joursMax})` : '')
+                          : null,
+                        dmlEnAttente > 0 ? `${dmlEnAttente} DML en attente` : null,
+                      ].filter(Boolean).join(' · ');
+                      return (
+                        <button
+                          key={mex.id}
+                          type="button"
+                          onClick={() => setActiveTab('mex')}
+                          title={infos}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border hover:opacity-80 ${meta.color}`}
+                        >
+                          <Icon className="h-3 w-3 shrink-0" />
+                          <span className="font-medium">{mex.nom}</span>
+                          <span className="opacity-70">· {meta.short}</span>
+                          {dmlEnAttente > 0 && (
+                            <span className="opacity-70">· {dmlEnAttente} DML</span>
+                          )}
+                          {urgent && <AlertTriangle className="h-2.5 w-2.5 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </LigneChips>
+                )}
+
                 {(dossier.victimes || []).length > 0 && (
-                  <div className="flex items-start gap-1.5 flex-wrap text-xs">
-                    <span className="text-gray-500 uppercase font-semibold flex items-center gap-1 shrink-0">
-                      <ShieldCheck className="h-3 w-3 text-emerald-600" /> Victimes
-                    </span>
+                  <LigneChips
+                    icon={ShieldCheck}
+                    iconClass="text-emerald-600"
+                    titre="Victimes"
+                    count={(dossier.victimes || []).length}
+                    onAction={() => setActiveTab('victimes')}
+                  >
                     {(dossier.victimes || []).map(v => (
                       <span
                         key={v.id}
@@ -717,44 +826,31 @@ export const InstructionDetailModal = ({
                         {v.surCarto && <MapPin className="h-2.5 w-2.5 text-emerald-600" />}
                       </span>
                     ))}
-                    <button
-                      onClick={() => setActiveTab('victimes')}
-                      className="text-emerald-700 hover:underline"
-                    >
-                      gérer →
-                    </button>
-                  </div>
+                  </LigneChips>
                 )}
 
-                {/* Contentieux */}
-                {(() => {
-                  const ctx = dossier.contentieuxId
-                    ? contentieuxDefs.find(c => c.id === dossier.contentieuxId)
-                    : null;
-                  if (ctx) {
-                    return (
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="text-gray-500 uppercase font-semibold">Contentieux</span>
-                        <span
-                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-medium"
-                          style={{ background: `${ctx.color}20`, color: ctx.color, border: `1px solid ${ctx.color}` }}
-                        >
-                          <span className="h-1.5 w-1.5 rounded-full" style={{ background: ctx.color }} />
-                          {ctx.label}
-                        </span>
-                      </div>
-                    );
-                  }
-                  if (contentieuxDefs.length > 0) {
-                    return (
-                      <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
-                        Contentieux non précisé. Renseignez-le en mode édition pour
-                        que ce dossier apparaisse dans le bon filtre cartographique.
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
+                {(dossier.suspects || []).length > 0 && (
+                  <LigneChips
+                    icon={Search}
+                    iconClass="text-amber-600"
+                    titre="Mis en cause"
+                    count={(dossier.suspects || []).length}
+                    onAction={() => setActiveTab('mex')}
+                  >
+                    {(dossier.suspects || []).map(sus => (
+                      <button
+                        key={sus.id}
+                        type="button"
+                        onClick={() => setActiveTab('mex')}
+                        title={sus.role || 'Suspect / futur mis en examen'}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100"
+                      >
+                        {sus.nom}
+                        {sus.role && <span className="opacity-70">· {sus.role}</span>}
+                      </button>
+                    ))}
+                  </LigneChips>
+                )}
 
                 {/* Saisine in rem : qualifications structurées des faits dont le
                     juge est saisi (réquisitoire introductif + supplétifs). */}
@@ -777,36 +873,76 @@ export const InstructionDetailModal = ({
                   <SaisineManager value={dossier.saisine || []} readOnly />
                 </div>
 
-                {/* 3 colonnes : Description / Notes perso / Mis en examen */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 min-w-0">
-                    <div className="text-xs font-semibold text-gray-500 uppercase mb-1.5">Description</div>
-                    {dossier.description ? (
+                {/* Deux grands panneaux de lecture : le narratif et les notes.
+                    Ce sont les zones à masse d'information du dossier, donc
+                    elles prennent toute la largeur, défilent chacune de leur
+                    côté et l'une ou l'autre peut passer en pleine largeur. */}
+                <div className={`grid gap-3 ${panneauEtendu ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'}`}>
+                  {panneauEtendu !== 'notes' && (
+                    <section className="bg-white border border-gray-200 rounded-lg min-w-0 flex flex-col">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50/70 rounded-t-lg">
+                        <FileText className="h-3.5 w-3.5 text-gray-500 shrink-0" />
+                        <span className="text-xs font-semibold text-gray-500 uppercase">Description</span>
+                        <button
+                          onClick={onEdit}
+                          className="ml-auto inline-flex items-center gap-1 text-[11px] text-[#2B5746] hover:underline"
+                        >
+                          <Edit className="h-3 w-3" /> Modifier
+                        </button>
+                        <button
+                          onClick={() => setPanneauEtendu(panneauEtendu === 'description' ? null : 'description')}
+                          title={panneauEtendu === 'description' ? 'Revenir à deux colonnes' : 'Lire en pleine largeur'}
+                          className="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800"
+                        >
+                          {panneauEtendu === 'description'
+                            ? <><Minimize2 className="h-3 w-3" /> Réduire</>
+                            : <><Maximize2 className="h-3 w-3" /> Agrandir</>}
+                        </button>
+                      </div>
                       <div
-                        className="text-sm text-gray-700 break-words prose prose-sm max-w-none"
-                        dangerouslySetInnerHTML={{ __html: renderFormattedText(dossier.description) }}
-                      />
-                    ) : (
-                      <div className="text-sm text-gray-400 italic">Aucune description.</div>
-                    )}
-                  </div>
+                        className={`px-4 py-3 overflow-y-auto min-h-[260px] ${
+                          panneauEtendu === 'description' ? 'max-h-[70vh]' : 'max-h-[55vh]'
+                        }`}
+                      >
+                        {dossier.description ? (
+                          <div
+                            className="text-sm leading-6 text-gray-800 break-words prose prose-sm max-w-none prose-p:my-2"
+                            dangerouslySetInnerHTML={{ __html: renderFormattedText(dossier.description) }}
+                          />
+                        ) : (
+                          <div className="text-sm text-gray-400 italic">Aucune description.</div>
+                        )}
+                      </div>
+                    </section>
+                  )}
 
-                  <div className="bg-white border border-gray-200 rounded-lg p-3 min-w-0">
-                    <div className="text-xs font-semibold text-gray-500 uppercase mb-1.5">Notes perso</div>
-                    <NotesPersoSection
-                      notes={dossier.notesPerso}
-                      onChange={(notesPerso: NotePersoInstruction[]) => onUpdate(dossier.id, { notesPerso })}
-                    />
-                  </div>
-
-                  <div className="min-w-0">
-                    <MexCondenseList
-                      misEnExamen={dossier.misEnExamen}
-                      onJumpToMex={() => setActiveTab('mex')}
-                      seuilFinDPJours={seuilFinDPJours}
-                      seuilMaxDPJours={seuilMaxDPJours}
-                    />
-                  </div>
+                  {panneauEtendu !== 'description' && (
+                    <section className="bg-white border border-gray-200 rounded-lg min-w-0 flex flex-col">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50/70 rounded-t-lg">
+                        <ListChecks className="h-3.5 w-3.5 text-gray-500 shrink-0" />
+                        <span className="text-xs font-semibold text-gray-500 uppercase">Notes perso</span>
+                        <button
+                          onClick={() => setPanneauEtendu(panneauEtendu === 'notes' ? null : 'notes')}
+                          title={panneauEtendu === 'notes' ? 'Revenir à deux colonnes' : 'Lire en pleine largeur'}
+                          className="ml-auto inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800"
+                        >
+                          {panneauEtendu === 'notes'
+                            ? <><Minimize2 className="h-3 w-3" /> Réduire</>
+                            : <><Maximize2 className="h-3 w-3" /> Agrandir</>}
+                        </button>
+                      </div>
+                      <div
+                        className={`px-3 py-3 overflow-y-auto min-h-[260px] ${
+                          panneauEtendu === 'notes' ? 'max-h-[70vh]' : 'max-h-[55vh]'
+                        }`}
+                      >
+                        <NotesPersoSection
+                          notes={dossier.notesPerso}
+                          onChange={(notesPerso: NotePersoInstruction[]) => onUpdate(dossier.id, { notesPerso })}
+                        />
+                      </div>
+                    </section>
+                  )}
                 </div>
               </div>
             )}
@@ -1086,125 +1222,26 @@ const VictimesSection: React.FC<{
 };
 
 // ─────────────────────────────────────────────────────────────────
-// Liste condensée des mis en examen (Aperçu)
+// Ligne de pastilles « personnes » de l'aperçu (MEX, victimes, mis en cause)
 // ─────────────────────────────────────────────────────────────────
 
-const MexCondenseList: React.FC<{
-  misEnExamen: MisEnExamen[];
-  onJumpToMex: () => void;
-  seuilFinDPJours: number;
-  seuilMaxDPJours: number;
-}> = ({ misEnExamen, onJumpToMex, seuilFinDPJours, seuilMaxDPJours }) => {
-  if (misEnExamen.length === 0) {
-    return (
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-400 italic">
-        Aucun mis en examen pour ce dossier.
-      </div>
-    );
-  }
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg p-3">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 flex items-center gap-1.5">
-          <Users className="h-3.5 w-3.5" />
-          Mis en examen ({misEnExamen.length})
-        </h3>
-        <button
-          onClick={onJumpToMex}
-          className="text-xs text-emerald-700 hover:underline"
-        >
-          Voir les détails →
-        </button>
-      </div>
-      <ul className="grid grid-cols-1 gap-1.5">
-        {misEnExamen.map(mex => {
-          const meta = MESURE_BADGE[mex.mesureSurete.type];
-          const Icon = meta.icon;
-          const finDP = getDateFinDPCourante(mex);
-          const joursRestants = getJoursRestantsAvantFinDP(mex);
-          const finMax = getDateFinMaxLegale(mex);
-          const joursMax = getJoursRestantsAvantMaxLegal(mex);
-          const dmlEnAttente = mex.mesureSurete.type === 'detenu'
-            ? mex.dmls.filter(d => d.statut === 'en_attente').length
-            : 0;
-          const finDPClass =
-            joursRestants !== null && joursRestants < 0
-              ? 'bg-red-200 text-red-900 border-red-300'
-              : joursRestants !== null && joursRestants <= seuilFinDPJours
-              ? 'bg-red-100 text-red-700 border-red-300 font-semibold'
-              : 'bg-gray-50 text-gray-600 border-gray-200';
-          const finMaxClass =
-            joursMax !== null && joursMax < 0
-              ? 'bg-red-200 text-red-900 border-red-300'
-              : joursMax !== null && joursMax <= seuilMaxDPJours
-              ? 'bg-red-100 text-red-700 border-red-300 font-semibold'
-              : 'bg-gray-50 text-gray-600 border-gray-200';
-          return (
-            <li
-              key={mex.id}
-              className="border border-gray-200 rounded p-2 text-xs flex items-start gap-2 hover:bg-gray-50 cursor-pointer"
-              onClick={onJumpToMex}
-              title="Cliquez pour ouvrir l'onglet Mis en examen"
-            >
-              <Icon className="h-4 w-4 text-gray-500 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center flex-wrap gap-1.5">
-                  <span className="font-semibold text-gray-800 truncate">{mex.nom}</span>
-                  <span className={`inline-flex items-center gap-0.5 text-[10px] uppercase px-1.5 py-0.5 rounded border ${meta.color}`}>
-                    {meta.short}
-                  </span>
-                  {dmlEnAttente > 0 && (
-                    <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200">
-                      {dmlEnAttente} DML
-                    </span>
-                  )}
-                </div>
-                <div className="text-[11px] text-gray-500 mt-0.5">
-                  MEX le {mex.dateMiseEnExamen ? new Date(mex.dateMiseEnExamen).toLocaleDateString() : '—'}
-                  {mex.infractions.length > 0 && (
-                    <> · {mex.infractions.length} chef{mex.infractions.length > 1 ? 's' : ''}</>
-                  )}
-                </div>
-                {finDP && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    <span
-                      className={`text-[10px] px-1.5 py-0.5 rounded border inline-flex items-center gap-0.5 ${finDPClass}`}
-                      title={`Fin de la période DP courante${joursRestants !== null ? ` — J${joursRestants >= 0 ? '+' : ''}${joursRestants}` : ''}`}
-                    >
-                      {joursRestants !== null && joursRestants < 0 && <AlertTriangle className="h-2.5 w-2.5" />}
-                      Fin&nbsp;: {new Date(finDP).toLocaleDateString()}
-                    </span>
-                    {finMax && (
-                      <span
-                        className={`text-[10px] px-1.5 py-0.5 rounded border inline-flex items-center gap-0.5 ${finMaxClass}`}
-                        title={`Date à laquelle la durée légale max sera atteinte${joursMax !== null ? ` — J${joursMax >= 0 ? '+' : ''}${joursMax}` : ''}`}
-                      >
-                        {joursMax !== null && joursMax < 0 && <AlertTriangle className="h-2.5 w-2.5" />}
-                        Fin maximal&nbsp;: {new Date(finMax).toLocaleDateString()}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {mex.infractions.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {mex.infractions.slice(0, 3).map(inf => (
-                      <span
-                        key={inf.id}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200 truncate max-w-[200px]"
-                      >
-                        {inf.qualification}
-                      </span>
-                    ))}
-                    {mex.infractions.length > 3 && (
-                      <span className="text-[10px] text-gray-400">+{mex.infractions.length - 3}</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-};
+const LigneChips: React.FC<{
+  icon: React.ElementType;
+  iconClass?: string;
+  titre: string;
+  count: number;
+  /** Ouvre l'onglet qui détaille ces personnes. */
+  onAction: () => void;
+  children: React.ReactNode;
+}> = ({ icon: Icon, iconClass = '', titre, count, onAction, children }) => (
+  <div className="flex items-start gap-1.5 flex-wrap text-xs">
+    <span className="text-gray-500 uppercase font-semibold flex items-center gap-1 shrink-0">
+      <Icon className={`h-3 w-3 ${iconClass}`} /> {titre}
+      <span className="font-normal text-gray-400">({count})</span>
+    </span>
+    {children}
+    <button onClick={onAction} className="text-emerald-700 hover:underline">
+      gérer →
+    </button>
+  </div>
+);
