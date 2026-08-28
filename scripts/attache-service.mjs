@@ -1121,6 +1121,19 @@ const server = http.createServer(async (req, res) => {
         state: readState(),
         config: agentConfig(),
         governor: consumptionGovernor(agentConfig()),
+        // CAPACITÉS de CE binaire — l'app web les vérifie avant d'envoyer une
+        // consigne qui suppose un outil (ex. « Détecter les camps ») : un
+        // service pas encore redémarré sur la nouvelle version ne reçoit
+        // ainsi jamais une mission qu'il ne peut pas exécuter.
+        capacitesCarto: [
+          'proposer_camp_carto',
+          'proposer_note_mec',
+          'carto_lire_fiches',
+          'carto_lire_document',
+          'carto_histoire',
+          'chantier_histoire',
+          'devis_deux_etapes',
+        ],
       })
     }
 

@@ -437,11 +437,39 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     [mecsExNihilo, updateMec, addMec],
   );
 
+  // Le service attaché est un PROCESSUS SÉPARÉ de l'app : après une mise à
+  // jour, l'interface peut être neuve pendant que lui tourne encore sur
+  // l'ancienne version — il recevrait alors une consigne citant des outils
+  // qu'il n'a pas (ex. proposer_camp_carto) et rendrait une analyse sans
+  // aucune proposition. On vérifie donc SES capacités avant d'envoyer.
+  const verifierCapaciteAttache = React.useCallback(async (capacite: string): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/attache/status');
+      if (!res.ok) {
+        showToast('Service attaché injoignable — vérifie qu\'il est démarré', 'error');
+        return false;
+      }
+      const data = await res.json().catch(() => ({} as { capacitesCarto?: string[] }));
+      if (!Array.isArray(data.capacitesCarto) || !data.capacitesCarto.includes(capacite)) {
+        showToast(
+          'Le service attaché tourne sur une ANCIENNE version (il n\'a pas encore les outils cartographie récents) — mets-le à jour / redémarre-le, puis relance.',
+          'error',
+        );
+        return false;
+      }
+      return true;
+    } catch {
+      showToast('Service attaché injoignable — vérifie qu\'il est démarré', 'error');
+      return false;
+    }
+  }, [showToast]);
+
   // Enrichissement d'une fiche par l'attaché : PRÉ-REMPLIT le chat carto
   // (admin) avec la consigne de recherche — rien d'automatique, l'attaché
   // dépose ensuite une PROPOSITION ✓/✗ qui n'écrase jamais les notes.
   const [enrichPrefill, setEnrichPrefill] = useState<{ text: string; seq: number } | undefined>();
-  const handleEnrichMec = React.useCallback((mec: MecNode) => {
+  const handleEnrichMec = React.useCallback(async (mec: MecNode) => {
+    if (!(await verifierCapaciteAttache('proposer_note_mec'))) return;
     const alias = [...(mec.manualAlias || []), ...mec.variants].slice(0, 4);
     const text = `Recherche tout ce que nos dossiers (enquêtes, instruction, pièces, CR) disent de ${mec.displayName}`
       + (alias.length ? ` (alias/orthographes : ${alias.join(', ')})` : '')
@@ -451,7 +479,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       + `Quand tu as fini, dépose UNE proposition d'enrichissement de sa fiche avec proposer_note_mec `
       + `(l'ajout sera fait à la suite de mes notes, sans jamais les modifier ni les contredire). N'écris rien d'office.`;
     setEnrichPrefill(prev => ({ text, seq: (prev?.seq ?? 0) + 1 }));
-  }, []);
+  }, [verifierCapaciteAttache]);
 
   // Détection automatique des camps par l'attaché : réservée aux GROS amas
   // (c'est là que les groupes rivaux s'enchevêtrent — inutile sur un petit
@@ -459,7 +487,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   // l'attaché les membres des plus grosses, et il PROPOSE des camps ✓/✗ —
   // sans jamais écraser une assignation ou un retrait manuels.
   const DETECT_MIN_MEC = 15;
-  const handleDetectCamps = React.useCallback(() => {
+  const handleDetectCamps = React.useCallback(async () => {
+    if (!(await verifierCapaciteAttache('proposer_camp_carto'))) return;
     // Composantes connexes sur les arêtes de données (les liens de
     // renseignement ne fusionnent pas les réseaux — même règle que les
     // couleurs et les bulles).
@@ -506,9 +535,12 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       + `Cherche aussi les SUCCESSIONS et SCISSIONS : un clan démantelé dont un lieutenant a remonté son propre réseau avec les mêmes hommes `
       + `— nomme alors le camp successeur explicitement (ex. « Réseau Zouaoui (ex-Krasniqi) ») et dis la filiation dans le motif. `
       + `Au passage, propose les LIENS que ta lecture révèle (proposer_lien — nature du lien et source à l'appui, personne↔personne ou personne↔dossier ex nihilo). `
-      + `Les camps déjà assignés sont dans carto_lire_fiches : ne les contredis pas. N'écris rien d'office — je validerai ✓/✗ chaque proposition.`;
+      + `Les camps déjà assignés sont dans carto_lire_fiches : ne les contredis pas. N'écris rien d'office — je validerai ✓/✗ chaque proposition. `
+      + `Et propose TOUJOURS quelque chose : les camps dont tu es sûr partent en proposer_camp_carto MAINTENANT, même si l'analyse est incomplète ; `
+      + `si le reste demande de vraies lectures (pièces, documents volumineux), dépose TOI-MÊME le chantier adapté (chantier_proposer — type « carto », `
+      + `ou « histoire » avec le clan pressenti en sujet) et annonce son devis. Ne me renvoie jamais faire la démarche moi-même.`;
     setEnrichPrefill(prev => ({ text, seq: (prev?.seq ?? 0) + 1 }));
-  }, [graph, showToast]);
+  }, [graph, showToast, verifierCapaciteAttache]);
 
   // ────────────────────────────────────────────
   // ACTIONS
