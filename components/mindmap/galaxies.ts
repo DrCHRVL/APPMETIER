@@ -91,8 +91,12 @@ const INTER_GALAXY_PADDING_RENS = 60;
 /** Bonus de répulsion proportionnel à la "masse" de la galaxie : plus une
  *  galaxie est grosse (rayon estimé au-delà du système nominal), plus elle
  *  pousse ses voisines loin. Effet : un gros amas ne se laisse pas coller
- *  par un petit dossier indépendant — il y a un halo de respiration. */
-const GALAXY_MASS_PADDING_RATIO = 0.35;
+ *  par un petit dossier indépendant — il y a un halo de respiration.
+ *  Calibrage : un amas de rayon ~1000 px dégage ~340 px de halo, plafonné à
+ *  MASS_HALO_MAX pour rester raisonnable sur les très gros amas. */
+const GALAXY_MASS_PADDING_RATIO = 0.4;
+/** Plafond du halo de masse (px). */
+const MASS_HALO_MAX = 500;
 /** Pas du relâchement hull-SAT (px) : on translate au max de cette
  *  amplitude par itération pour éviter les sur-corrections. */
 const HULL_SAT_STEP = 0.5;
@@ -140,7 +144,7 @@ const ORPHAN_CENTRIFUGAL_STRENGTH = 0.05;
  *  estimé. Croit linéairement avec la "taille au-dessus du système
  *  nominal", capé pour rester raisonnable sur les très gros graphes. */
 function massHalo(r: number): number {
-  return Math.min(220, Math.max(0, r - SYSTEM_RADIUS) * GALAXY_MASS_PADDING_RATIO);
+  return Math.min(MASS_HALO_MAX, Math.max(0, r - SYSTEM_RADIUS) * GALAXY_MASS_PADDING_RATIO);
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -694,11 +698,12 @@ export function hullSatRelax(
       const d = Math.hypot(p.x - cx, p.y - cy) + visualR;
       if (d > r) r = d;
     }
-    // Disque effectif = enveloppe (incluant la taille des nœuds) + plein
-    // padding + halo de masse. Hull-SAT applique désormais le MÊME budget
-    // d'espace que la simulation macro — pas de marche d'escalier où le
-    // post-pass relâche un contact que la simu avait soigneusement écarté.
-    return { idx: g.index, x: cx, y: cy, r: r + interGalaxyPadding / 2 + massHalo(r) / 2 };
+    // Disque effectif = enveloppe (incluant la taille des nœuds) + demi
+    // padding. Le halo de masse n'est PAS pré-mélangé au disque : il est
+    // ajouté PAR PAIRE dans la boucle ci-dessous (c'est le plus gros des
+    // deux qui dicte le halo, et les paires renseignement en sont
+    // exemptées — on les veut proches).
+    return { idx: g.index, x: cx, y: cy, env: r, r: r + interGalaxyPadding / 2 };
   });
 
   // Translations cumulées par galaxie.
@@ -729,11 +734,16 @@ export function hullSatRelax(
         // Paires reliées par un lien renseignement : on autorise un
         // rapprochement plus serré (réduit le padding mais garde la
         // somme des rayons → toujours pas de chevauchement, juste un
-        // espace inter-galactique plus court).
-        const rensShrink = isRensPair(a.idx, b.idx)
+        // espace inter-galactique plus court) et AUCUN halo de masse.
+        // Paires sans lien : halo de masse dicté par la PLUS GROSSE des
+        // deux — un gros amas repousse les petits dossiers indépendants
+        // hors de sa zone d'orbite, deux petites galaxies s'ignorent.
+        const rensPair = isRensPair(a.idx, b.idx);
+        const rensShrink = rensPair
           ? (interGalaxyPadding - interGalaxyPaddingRens)
           : 0;
-        const minDist = a.r + b.r - rensShrink;
+        const massBonus = rensPair ? 0 : Math.max(massHalo(a.env), massHalo(b.env));
+        const minDist = a.r + b.r + massBonus - rensShrink;
         const penetration = minDist - d;
         if (penetration <= 0) continue;
         // On translate chacun de moitié dans la direction opposée. Pondération

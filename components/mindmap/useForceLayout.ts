@@ -95,10 +95,15 @@ const SERVICE_GRAVITY_STRENGTH = 0.12;
 // v9 : masque géométrique des dossiers voisins dans l'orbital pass + buffer
 //      MEC ↔ dossier non-parent dans node-SAT → planètes plus aérées et
 //      visiblement rattachées à leur étoile.
-const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v9';
+// v10 : halo de masse renforcé (un gros amas repousse les petits dossiers
+//       indépendants hors de sa zone d'orbite, hull-SAT au plein halo du
+//       plus gros des deux) — recalcul propre pour que l'espacement
+//       s'applique sans recompactage manuel.
+const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v10';
 // Cache séparé pour les centres de galaxies (clé = anchorId). v4 = attraction
 // renseignement + hull-SAT élargi → les centres bougent, on invalide.
-const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v4';
+// v5 = halo de masse renforcé (cf. positions v10).
+const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v5';
 // Cache des angles orbitaux par MEC (clé = id MEC). v4 : rayons d'anneau
 // recalculés en fonction de la taille de l'étoile (dossier large) → les
 // anciens angles cachés étaient valides mais on relance proprement.
