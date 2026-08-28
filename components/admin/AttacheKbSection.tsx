@@ -61,7 +61,7 @@ interface TreeNode { folders: Map<string, TreeNode>; files: KbEntry[] }
 
 export const KB_CATEGORIES = ['jurisprudence', 'textes-circulaires', 'modes-operatoires', 'fiches-reflexes', 'contacts-services', 'autre'];
 
-const MAX_FILES = 400;
+const MAX_TOTAL_BYTES = 500 * 1024 * 1024; // 500 Mo par versement (au global, pas par nombre de fichiers)
 /** Plafond de documents « réflexes » — la poignée de références mises en tête. */
 const MAX_REFLEXE = 3;
 const SKIP_RE = /\.(png|jpe?g|gif|bmp|tiff?|heic|mp3|wav|m4a|ogg|mp4|avi|mov|mkv|zip|rar|7z|exe|dll)$/i;
@@ -113,7 +113,13 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
 
   /** Conversion markdown de l'arborescence choisie — tout dans CE navigateur. */
   const stage = useCallback(async (incoming: Incoming[]) => {
-    const list = incoming.slice(0, MAX_FILES);
+    let total = 0;
+    let cut = incoming.length;
+    for (let i = 0; i < incoming.length; i++) {
+      total += incoming[i].file.size;
+      if (total > MAX_TOTAL_BYTES && i > 0) { cut = i; break; }
+    }
+    const list = incoming.slice(0, cut);
     if (!list.length) return;
     setConverting(true);
     setStaged([]);
@@ -137,8 +143,10 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
       }
       setStaged([...rows]);
     }
-    if (incoming.length > MAX_FILES) {
-      rows.push({ fichier: `… ${incoming.length - MAX_FILES} fichier(s) au-delà de la limite de ${MAX_FILES}`, chemin: '', titre: '', categorie: 'autre', contenu: '', erreur: 'limite par versement atteinte — versez le reste séparément' });
+    if (cut < incoming.length) {
+      const restants = incoming.length - cut;
+      const octetsRestants = incoming.slice(cut).reduce((s, x) => s + x.file.size, 0);
+      rows.push({ fichier: `… ${restants} fichier(s) au-delà de la limite de ${Math.round(MAX_TOTAL_BYTES / 1024 / 1024)} Mo (${Math.round(octetsRestants / 1024 / 1024)} Mo restants)`, chemin: '', titre: '', categorie: 'autre', contenu: '', erreur: 'limite par versement atteinte — versez le reste séparément' });
       setStaged([...rows]);
     }
     setConverting(false);
