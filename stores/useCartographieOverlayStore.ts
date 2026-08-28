@@ -34,6 +34,28 @@ export interface MecExNihilo {
   updatedAt?: number;
 }
 
+/**
+ * Document joint à un dossier ex nihilo, TEXTE UNIQUEMENT : le fichier est
+ * converti en markdown au téléversement (lib/web/fileToMarkdown — PDF, DOCX,
+ * ODT, TXT…) pour rester léger et directement lisible par l'attaché. But :
+ * verser une synthèse ou le dossier entier pour que l'attaché comprenne
+ * l'affaire (détection de camps, successions de clans, histoire du réseau).
+ */
+export interface DossierExNihiloDocument {
+  id: string;
+  /** Nom du fichier d'origine. */
+  nom: string;
+  /** Contenu converti en markdown (plafonné, cf. DOSSIER_EXN_DOC_MAX_CHARS). */
+  texte: string;
+  addedAt: number;
+}
+
+/** Plafond de caractères PAR document joint (aligné sur fileToMarkdown). */
+export const DOSSIER_EXN_DOC_MAX_CHARS = 400_000;
+/** Plafond CUMULÉ par dossier — le fichier d'overlay est synchronisé entre
+ *  postes en un bloc : on borne pour ne pas alourdir chaque sync. */
+export const DOSSIER_EXN_DOCS_TOTAL_MAX_CHARS = 1_000_000;
+
 export interface DossierExNihilo {
   /** Identifiant interne unique (préfixé pour ne pas collisionner avec les vrais dossiers) */
   id: string;
@@ -43,6 +65,8 @@ export interface DossierExNihilo {
   dateApprox?: string;
   /** IDs canoniques des MEC liés (réels ou ex nihilo) */
   mecIds: string[];
+  /** Documents joints (synthèse ou dossier complet), convertis en texte. */
+  documents?: DossierExNihiloDocument[];
   /** Codes NATINF associés (cible). Pondèrent le score top 10 via le poids
    *  NATINF ou, à défaut, le poids de la catégorie d'infraction. */
   natinfCodes?: string[];
@@ -203,7 +227,7 @@ interface OverlayState extends PersistedOverlay {
   removeMec: (id: string) => void;
 
   // Dossier ex nihilo
-  addDossier: (input: { label: string; dateApprox?: string; mecIds?: string[]; natinfCodes?: string[]; notes?: string }) => string;
+  addDossier: (input: { label: string; dateApprox?: string; mecIds?: string[]; natinfCodes?: string[]; notes?: string; documents?: DossierExNihiloDocument[] }) => string;
   updateDossier: (id: string, patch: Partial<Omit<DossierExNihilo, 'id' | 'createdAt'>>) => void;
   removeDossier: (id: string) => void;
 
@@ -540,6 +564,7 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
         ? [...input.natinfCodes]
         : undefined,
       notes: input.notes,
+      documents: input.documents && input.documents.length > 0 ? input.documents : undefined,
       createdAt: now,
       updatedAt: now,
     };

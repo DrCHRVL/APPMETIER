@@ -6,8 +6,8 @@
 
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { X, Search, ArrowRight, UserPlus, ChevronUp } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { X, Search, ArrowRight, UserPlus, ChevronUp, FileText, Loader2, Upload } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -21,7 +21,16 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { MecAutocompleteInput } from '../ui/MecAutocompleteInput';
 import type { GraphNode, MindmapGraph } from '@/utils/mindmapGraph';
-import type { MecExNihilo, DossierExNihilo, LienRenseignement, ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
+import {
+  DOSSIER_EXN_DOC_MAX_CHARS,
+  DOSSIER_EXN_DOCS_TOTAL_MAX_CHARS,
+  type MecExNihilo,
+  type DossierExNihilo,
+  type DossierExNihiloDocument,
+  type LienRenseignement,
+  type ClusterAnnotation,
+} from '@/stores/useCartographieOverlayStore';
+import { fileToMarkdown } from '@/lib/web/fileToMarkdown';
 import { NatinfPicker } from '../natinf/NatinfPicker';
 import { useNatinf } from '@/hooks/useNatinf';
 import { categoryForEntry } from '@/lib/natinf/nataff';
@@ -148,7 +157,7 @@ interface AddDossierModalProps {
   onClose: () => void;
   graph: MindmapGraph;
   initial?: DossierExNihilo;
-  onSubmit: (data: { label: string; dateApprox?: string; mecIds: string[]; natinfCodes?: string[]; notes?: string }) => void;
+  onSubmit: (data: { label: string; dateApprox?: string; mecIds: string[]; natinfCodes?: string[]; notes?: string; documents?: DossierExNihiloDocument[] }) => void;
   /** Crée un MEC ex nihilo et renvoie son id canonique (à ajouter aux mecIds liés). */
   onCreateMec?: (data: { displayName: string; alias: string[]; notes?: string }) => string;
 }
@@ -165,6 +174,12 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
   const [natinfCodes, setNatinfCodes] = useState<string[]>(initial?.natinfCodes || []);
   const [notes, setNotes] = useState(initial?.notes || '');
   const [search, setSearch] = useState('');
+  // Documents joints (texte converti) : synthèse ou dossier complet, pour que
+  // l'attaché comprenne l'affaire (camps, successions, histoire du réseau).
+  const [documents, setDocuments] = useState<DossierExNihiloDocument[]>(initial?.documents || []);
+  const [docConverting, setDocConverting] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
 
   // Référentiel NATINF : résolution code → libellé + catégorie (pour l'affichage
   // des puces sélectionnées et la pondération du score).
@@ -195,6 +210,9 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
       setNatinfCodes(initial?.natinfCodes || []);
       setNotes(initial?.notes || '');
       setSearch('');
+      setDocuments(initial?.documents || []);
+      setDocConverting(false);
+      setDocError(null);
       setCreateOpen(false);
       setCreatedLocally([]);
       resetCreateForm();
@@ -257,6 +275,44 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
     setNatinfCodes(prev => prev.filter(c => c !== code));
   };
 
+  // Conversion locale en markdown (fileToMarkdown : PDF, DOCX, ODT, TXT…)
+  // avec double plafond : par document, et cumulé par dossier (le fichier
+  // d'overlay est synchronisé en un bloc entre postes).
+  const handleDocFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setDocError(null);
+    setDocConverting(true);
+    try {
+      let totalChars = documents.reduce((sum, d) => sum + d.texte.length, 0);
+      const added: DossierExNihiloDocument[] = [];
+      for (const file of Array.from(files)) {
+        const { markdown, avertissement } = await fileToMarkdown(file, { maxChars: DOSSIER_EXN_DOC_MAX_CHARS });
+        const texte = (markdown || '').trim();
+        if (!texte) {
+          setDocError(`« ${file.name} » : aucun texte extrait${avertissement ? ` (${avertissement})` : ''}`);
+          continue;
+        }
+        if (totalChars + texte.length > DOSSIER_EXN_DOCS_TOTAL_MAX_CHARS) {
+          setDocError(`« ${file.name} » dépasserait le plafond du dossier (${Math.round(DOSSIER_EXN_DOCS_TOTAL_MAX_CHARS / 1000)} k caractères au total) — allège ou scinde.`);
+          continue;
+        }
+        totalChars += texte.length;
+        added.push({
+          id: `doc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+          nom: file.name,
+          texte,
+          addedAt: Date.now(),
+        });
+      }
+      if (added.length > 0) setDocuments(prev => [...prev, ...added]);
+    } catch (e) {
+      setDocError(e instanceof Error ? e.message : 'Conversion impossible');
+    } finally {
+      setDocConverting(false);
+      if (docInputRef.current) docInputRef.current.value = '';
+    }
+  };
+
   const handleSubmit = () => {
     if (!label.trim()) return;
     onSubmit({
@@ -265,6 +321,7 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
       mecIds,
       natinfCodes: natinfCodes.length > 0 ? natinfCodes : undefined,
       notes: notes.trim() || undefined,
+      documents: documents.length > 0 ? documents : undefined,
     });
     onClose();
   };
@@ -465,6 +522,56 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
               placeholder="Contexte, époque, informations clés…"
               rows={3}
             />
+          </div>
+          <div>
+            <Label>Documents pour l&apos;attaché</Label>
+            <p className="text-[11px] text-slate-400 mb-1.5">
+              Synthèse ou dossier complet (PDF, Word, ODT, TXT…) — converti en texte à
+              l&apos;ajout pour rester léger. L&apos;attaché le lit pour comprendre l&apos;affaire
+              (camps, successions de clans, histoire du réseau).
+            </p>
+            {documents.length > 0 && (
+              <ul className="mb-2 space-y-1">
+                {documents.map(d => (
+                  <li key={d.id} className="flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1.5">
+                    <FileText className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                    <span className="flex-1 min-w-0 truncate" title={d.nom}>{d.nom}</span>
+                    <span className="text-[10px] text-slate-400 flex-shrink-0">
+                      {d.texte.length >= 1000 ? `${Math.round(d.texte.length / 1000)} k car.` : `${d.texte.length} car.`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setDocuments(prev => prev.filter(x => x.id !== d.id))}
+                      className="text-slate-400 hover:text-red-600 flex-shrink-0"
+                      title="Retirer ce document"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <input
+              ref={docInputRef}
+              type="file"
+              multiple
+              accept=".pdf,.doc,.docx,.odt,.txt,.md,.csv,.html,.eml,.xlsx,.xls,.ods"
+              className="hidden"
+              onChange={e => handleDocFiles(e.target.files)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={docConverting}
+              onClick={() => docInputRef.current?.click()}
+            >
+              {docConverting
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Conversion…</>
+                : <><Upload className="h-3.5 w-3.5 mr-1.5" />Ajouter un document</>}
+            </Button>
+            {docError && (
+              <p className="text-[11px] text-amber-700 mt-1">{docError}</p>
+            )}
           </div>
         </div>
         <DialogFooter>
