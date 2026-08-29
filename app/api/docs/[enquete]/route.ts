@@ -4,7 +4,7 @@
  * POST : dépôt d'un document { rel, b64, category?, originalName? }.
  */
 import { requireTjSession, handle, jsonResponse } from '@/lib/server/auth'
-import { listDocs, saveDoc, appendLog, isSafeName } from '@/lib/server/store'
+import { listDocs, saveDoc, appendLog, isSafeName, isSafeRelPath } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,6 +24,9 @@ export async function POST(req: Request, { params }: { params: { enquete: string
     if (typeof rel !== 'string' || typeof b64 !== 'string') {
       return jsonResponse({ error: 'rel et b64 requis' }, { status: 400 })
     }
+    // Chemin invalide → 400 explicite (comme GET/DELETE de la route sœur) plutôt
+    // qu'une 500 générique via l'exception levée par docPath().
+    if (!isSafeRelPath(rel)) return jsonResponse({ error: 'Chemin de document invalide' }, { status: 400 })
     // Empreinte du clair (dédoublonnage strict) : optionnelle, format vérifié
     const shaOk = typeof sha === 'string' && /^[a-f0-9]{64}$/.test(sha) ? sha : undefined
     // Borne sur la taille réelle du document (le base64 pèse ~+33 %) pour que

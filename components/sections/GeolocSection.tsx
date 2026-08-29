@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Enquete, GeolocData, DateManagerData, ProlongationHistoryEntry } from '@/types/interfaces';
 import ProgressBar from '../ProgressBar';
@@ -29,6 +29,24 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
   const [showAddModal, setShowAddModal] = useState(false);
   const [expandedHistoryIds, setExpandedHistoryIds] = useState<number[]>([]);
   const [showTerminated, setShowTerminated] = useState(false);
+
+  // Ref pour tracker les setTimeout et les nettoyer au unmount (évite setState sur
+  // composant démonté si l'utilisateur ferme la fiche avant les 500ms).
+  const pendingTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  useEffect(() => {
+    const timeouts = pendingTimeoutsRef.current;
+    return () => {
+      timeouts.forEach(t => clearTimeout(t));
+      timeouts.clear();
+    };
+  }, []);
+  const scheduleTimeout = (fn: () => void, delay: number) => {
+    const t = setTimeout(() => {
+      pendingTimeoutsRef.current.delete(t);
+      fn();
+    }, delay);
+    pendingTimeoutsRef.current.add(t);
+  };
 
   const toggleHistoryExpansion = (id: number) => {
     setExpandedHistoryIds(prev => 
@@ -158,7 +176,7 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
     });
 
     onUpdate(enquete.id, { geolocalisations: updatedGeolocs });
-    setTimeout(() => {
+    scheduleTimeout(() => {
       setProlongationGeolocId(null);
     }, 500);
   };
@@ -195,7 +213,7 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
     });
 
     onUpdate(enquete.id, { geolocalisations: updatedGeolocs });
-    setTimeout(() => setValidationGeolocId(null), 500);
+    scheduleTimeout(() => setValidationGeolocId(null), 500);
   };
 
   const handleValidateAutorisation = (date: string) => {
@@ -213,7 +231,7 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
     });
 
     onUpdate(enquete.id, { geolocalisations: updatedGeolocs });
-    setTimeout(() => setAutorisationGeolocId(null), 500);
+    scheduleTimeout(() => setAutorisationGeolocId(null), 500);
   };
 
   const handleDeleteProlongation = (geolocId: number, prolongationIndex: number) => {

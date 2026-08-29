@@ -29,7 +29,10 @@ export async function POST(req: Request) {
     if (ct.length > 64 * 1024 || iv.length > 64) return jsonResponse({ error: 'Heartbeat trop volumineux' }, { status: 413 })
     await withFileLock('heartbeats:' + session.tj, async () => {
       const all = readJson<HeartbeatRecord[]>(hbPath(session.tj), [])
-      const next = all.filter((h) => h.username !== session.u)
+      // On profite de cette écriture (fréquente) pour purger les entrées expirées
+      // — GET les masque déjà (>10 min), mais elles restaient sur le disque.
+      const cutoff = Date.now() - 10 * 60 * 1000
+      const next = all.filter((h) => h.username !== session.u && Date.parse(h.updatedAt) > cutoff)
       next.push({ username: session.u, ct, iv, updatedAt: new Date().toISOString() })
       writeJson(hbPath(session.tj), next)
     })
