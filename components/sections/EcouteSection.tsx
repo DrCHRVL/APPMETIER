@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Enquete, EcouteData, GeolocData, DateManagerData, ProlongationHistoryEntry } from '@/types/interfaces';
 import ProgressBar from '../ProgressBar';
@@ -32,6 +32,24 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
   const [showDuplicateGeolocModal, setShowDuplicateGeolocModal] = useState(false);
   const [ecouteToDuplicate, setEcouteToDuplicate] = useState<EcouteData | null>(null);
   const [showTerminated, setShowTerminated] = useState(false);
+
+  // Ref pour tracker les setTimeout et les nettoyer au unmount (évite setState sur
+  // composant démonté si l'utilisateur ferme la fiche avant les 500ms).
+  const pendingTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  useEffect(() => {
+    const timeouts = pendingTimeoutsRef.current;
+    return () => {
+      timeouts.forEach(t => clearTimeout(t));
+      timeouts.clear();
+    };
+  }, []);
+  const scheduleTimeout = (fn: () => void, delay: number) => {
+    const t = setTimeout(() => {
+      pendingTimeoutsRef.current.delete(t);
+      fn();
+    }, delay);
+    pendingTimeoutsRef.current.add(t);
+  };
 
   const toggleHistoryExpansion = (id: number) => {
     setExpandedHistoryIds(prev => 
@@ -170,7 +188,7 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
     });
 
     onUpdate(enquete.id, { ecoutes: updatedEcoutes });
-    setTimeout(() => {
+    scheduleTimeout(() => {
       setProlongationEcouteId(null);
     }, 500);
   };
@@ -207,7 +225,7 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
     });
 
     onUpdate(enquete.id, { ecoutes: updatedEcoutes });
-    setTimeout(() => setValidationEcouteId(null), 500);
+    scheduleTimeout(() => setValidationEcouteId(null), 500);
   };
 
   const handleValidateAutorisation = (date: string) => {
@@ -225,7 +243,7 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
     });
 
     onUpdate(enquete.id, { ecoutes: updatedEcoutes });
-    setTimeout(() => setAutorisationEcouteId(null), 500);
+    scheduleTimeout(() => setAutorisationEcouteId(null), 500);
   };
 
   const handleDuplicateToGeoloc = (ecoute: EcouteData) => {

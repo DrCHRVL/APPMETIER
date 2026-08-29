@@ -1571,16 +1571,20 @@ export class ServerDocumentScanner {
   private static calculateEndDate(startDate: string, duree: string, unit: 'jours' | 'mois'): string {
     try {
       const [year, month, day] = startDate.split('-').map(Number);
+      const dureeNum = parseInt(duree, 10);
+      // Date de départ ou durée non numérique (extraction PDF incertaine) :
+      // on retombe sur la date de départ plutôt que de produire « NaN-NaN-NaN ».
+      if ([year, month, day, dureeNum].some(Number.isNaN)) return startDate;
       const date = new Date(year, month - 1, day);
 
       if (unit === 'mois') {
         // Ajout calendaire avec clamp de fin de mois (31 janv. + 1 mois = 28 févr.,
         // pas le 3 mars) — cohérent avec DateUtils.addCalendarMonths (date-fns).
         const targetDay = date.getDate();
-        date.setMonth(date.getMonth() + parseInt(duree));
+        date.setMonth(date.getMonth() + dureeNum);
         if (date.getDate() !== targetDay) date.setDate(0);
       } else {
-        date.setDate(date.getDate() + parseInt(duree));
+        date.setDate(date.getDate() + dureeNum);
       }
 
       return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;

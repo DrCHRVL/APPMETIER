@@ -3,6 +3,9 @@ import { AIRImportData } from '@/types/interfaces';
 
 // Flag de debug du matching (verbosité massive en double boucle sinon)
 const DEBUG_SIMILARITY = false;
+// Flag de debug de l'enrichissement AIR↔greffe (trace par mesure, bruyante en
+// production). L'erreur de cohérence, elle, reste toujours journalisée.
+const DEBUG_ENRICHISSEMENT = false;
 
 export interface GreffeData {
   numeroParquet: string;
@@ -617,7 +620,7 @@ export const compareAirWithGreffe = (
   airData: AIRImportData[], 
   greffeData: GreffeData[]
 ): ComparisonResult => {
-  console.log(`[ENRICHISSEMENT] Début: ${airData.length} mesures AIR vs ${greffeData.length} mesures Greffe`);
+  if (DEBUG_ENRICHISSEMENT) console.log(`[ENRICHISSEMENT] Début: ${airData.length} mesures AIR vs ${greffeData.length} mesures Greffe`);
   
   const enrichedAir: (AIRImportData & { numeroParquet: string })[] = [];
   const probables: ComparisonMatch[] = [];
@@ -625,7 +628,7 @@ export const compareAirWithGreffe = (
   const usedAirIndices = new Set<number>();
   
   // ÉTAPE UNIQUE : Comparaison par noms seulement
-  console.log(`[ENRICHISSEMENT] === Recherche par noms ===`);
+  if (DEBUG_ENRICHISSEMENT) console.log(`[ENRICHISSEMENT] === Recherche par noms ===`);
   
   airData.forEach((air, airIndex) => {
     let bestMatch: {
@@ -652,7 +655,7 @@ export const compareAirWithGreffe = (
 
     const best = bestMatch;
     if (best) {
-      console.log(`[MATCH] ${air.nomPrenom} ↔ ${best.greffe.nomPrenom} (${best.similarity.toFixed(3)})`);
+      if (DEBUG_ENRICHISSEMENT) console.log(`[MATCH] ${air.nomPrenom} ↔ ${best.greffe.nomPrenom} (${best.similarity.toFixed(3)})`);
 
       const match: ComparisonMatch = {
         greffe: best.greffe,
@@ -667,22 +670,22 @@ export const compareAirWithGreffe = (
       // Seuils : garder strict pour auto, élargir pour validation manuelle
       if (best.similarity >= 0.85) {
         // ENRICHISSEMENT AUTOMATIQUE : Ajout du numéro de parquet (seuil strict conservé)
-        console.log(`[ENRICHI] ${air.nomPrenom} reçoit le n° ${best.greffe.numeroParquet} (${best.similarity.toFixed(3)})`);
+        if (DEBUG_ENRICHISSEMENT) console.log(`[ENRICHI] ${air.nomPrenom} reçoit le n° ${best.greffe.numeroParquet} (${best.similarity.toFixed(3)})`);
         enrichedAir.push({
           ...air,
           numeroParquet: best.greffe.numeroParquet
         });
         usedGreffeIndices.add(best.greffeIndex);
         usedAirIndices.add(airIndex);
-        console.log(`[DEBUG] AIR index ${airIndex} marqué comme utilisé`);
+        if (DEBUG_ENRICHISSEMENT) console.log(`[DEBUG] AIR index ${airIndex} marqué comme utilisé`);
       } else if (best.similarity >= 0.4) {
         // CORRESPONDANCE PROBABLE : À valider manuellement (seuil élargi)
-        console.log(`[PROBABLE] ${air.nomPrenom} ↔ ${best.greffe.nomPrenom} à vérifier (${best.similarity.toFixed(3)})`);
+        if (DEBUG_ENRICHISSEMENT) console.log(`[PROBABLE] ${air.nomPrenom} ↔ ${best.greffe.nomPrenom} à vérifier (${best.similarity.toFixed(3)})`);
         probables.push(match);
         // ⚠️ IMPORTANT : Ne pas marquer comme utilisé pour les probables car pas encore validé
       }
     } else {
-      console.log(`[NO MATCH] ${air.nomPrenom} - aucune correspondance trouvée`);
+      if (DEBUG_ENRICHISSEMENT) console.log(`[NO MATCH] ${air.nomPrenom} - aucune correspondance trouvée`);
     }
   });
   
@@ -692,16 +695,18 @@ export const compareAirWithGreffe = (
   // ✅ CORRECTION CRITIQUE : Mesures AIR sans correspondance = pas de numéro de parquet disponible
   const airWithoutParquet = airData.filter((_, index) => {
     const isUsed = usedAirIndices.has(index);
-    console.log(`[DEBUG] AIR index ${index} (${airData[index].nomPrenom}): utilisé = ${isUsed}`);
+    if (DEBUG_ENRICHISSEMENT) console.log(`[DEBUG] AIR index ${index} (${airData[index].nomPrenom}): utilisé = ${isUsed}`);
     return !isUsed;
   });
   
-  console.log(`[RÉSULTATS]`);
-  console.log(`- Enrichies automatiquement: ${enrichedAir.length}`);
-  console.log(`- À vérifier manuellement: ${probables.length}`);
-  console.log(`- Nouvelles du greffe: ${newFromGreffe.length}`);
-  console.log(`- AIR non trouvées: ${airWithoutParquet.length}`);
-  console.log(`- Indices AIR utilisés: [${Array.from(usedAirIndices).join(', ')}]`);
+  if (DEBUG_ENRICHISSEMENT) {
+    console.log(`[RÉSULTATS]`);
+    console.log(`- Enrichies automatiquement: ${enrichedAir.length}`);
+    console.log(`- À vérifier manuellement: ${probables.length}`);
+    console.log(`- Nouvelles du greffe: ${newFromGreffe.length}`);
+    console.log(`- AIR non trouvées: ${airWithoutParquet.length}`);
+    console.log(`- Indices AIR utilisés: [${Array.from(usedAirIndices).join(', ')}]`);
+  }
   
   // ✅ VÉRIFICATION DE COHÉRENCE
   // Chaque AIR est soit enrichie (index marqué utilisé) soit sans correspondance

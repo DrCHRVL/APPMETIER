@@ -82,7 +82,7 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, buckets, alertRules, instruc
           contentieuxLabel: bucket.contentieuxLabel,
           category: (a as any).category,
           daysLeft,
-          key: `${bucket.contentieuxId}-${(a as any).id ?? idx}`,
+          key: `${bucket.contentieuxId}-${(a as any).category}-${(a as any).id ?? idx}`,
         };
       })
       .filter(a => a.daysLeft >= 0 && a.daysLeft <= acteThreshold)
