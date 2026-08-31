@@ -104,6 +104,9 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
   filtreSource?: string;
 }) {
   const [available, setAvailable] = useState(false);
+  // Service attaché endormi : la liste vient du disque (repli de lecture de la
+  // route) — on affiche les actes, mais rien ne peut être modifié.
+  const [degrade, setDegrade] = useState(false);
   const [items, setItems] = useState<Production[]>([]);
   const [open, setOpen] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -150,7 +153,8 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
       const res = await fetch('/api/attache/productions?numero=' + encodeURIComponent(numero));
       if (!res.ok) { setAvailable(false); return; }
       setAvailable(true);
-      const { productions } = await res.json();
+      const { productions, degrade: enPanne } = await res.json();
+      setDegrade(Boolean(enPanne));
       const out: Production[] = [];
       for (const p of (productions || []) as Array<{ id: string; envelope: unknown }>) {
         const rec = await eapi().attache_decrypt(p.envelope);
@@ -507,6 +511,13 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
       {open && (
         <div className="border-t border-gray-100 px-4 py-3">
           {notice && <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11.5px] text-emerald-800">{notice}</div>}
+          {degrade && (
+            <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11.5px] leading-snug text-amber-900">
+              Service attaché injoignable — <b>lecture seule</b>. Vos actes sont là et s&apos;ouvrent
+              normalement ; validation, édition et retouche IA reprendront dès que le service
+              répondra (diagnostic : Paramètres → Attaché IA).
+            </p>
+          )}
           {vue === 'chantier' && (
             <p className="mb-2 rounded-lg border border-indigo-200 bg-indigo-50/50 px-3 py-1.5 text-[11px] leading-snug text-indigo-900">
               Fiches et synthèses sorties des chantiers d&apos;analyse profonde. Ce ne sont pas des

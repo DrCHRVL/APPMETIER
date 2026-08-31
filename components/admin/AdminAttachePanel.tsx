@@ -265,7 +265,11 @@ export function AdminAttachePanel() {
         setStatus(data);
         setConfig(data.config || {});
       } else {
-        setStatus({ unavailable: true, code: res.status });
+        // On garde le MOTIF rendu par la route : c'est lui qui distingue le
+        // conteneur arrêté (« injoignable ») du secret de pont dépareillé (401)
+        // ou du TJ actif qui n'est pas le TJ confié (404).
+        const detail = await res.json().catch(() => ({} as { error?: string }));
+        setStatus({ unavailable: true, code: res.status, motif: detail?.error });
       }
     } catch {
       setStatus({ unavailable: true });
@@ -1164,14 +1168,29 @@ export function AdminAttachePanel() {
           <h3 className="text-base font-semibold text-gray-900">Attaché de justice (IA)</h3>
         </div>
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
-          Le service attaché n'est pas joignable. Vérifiez sur le serveur :
+          Le service attaché n'est pas joignable
+          {status?.code ? <> — réponse <code>{status.code}</code>{status?.motif ? <> : {status.motif}</> : null}</> : null}.
+          Rien n'est perdu : actes rédigés, propositions et conversations restent sur le serveur.
+          Vérifiez sur le serveur :
           <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-gray-500">
             <li><code>SIRAL_ATTACHE_URL</code> défini pour l'app (ex. <code>http://attache:8787</code>)</li>
-            <li>le conteneur <code>attache</code> démarré (<code>docker compose up -d attache</code>)</li>
+            <li>le conteneur <code>attache</code> démarré (<code>docker compose ps attache</code>, puis <code>docker compose up -d attache</code>)</li>
+            <li>son journal, si le conteneur redémarre en boucle : <code>docker compose logs --tail=50 attache</code></li>
             <li><code>SIRAL_ATTACHE_MASTER_KEY</code> défini (générer : <code>openssl rand -hex 32</code>)</li>
+            <li>réponse <code>401</code> : le secret de pont diffère entre l'app et le service —
+              <code>SIRAL_SECRET</code> (ou <code>SIRAL_ATTACHE_BRIDGE_SECRET</code>) doit être le MÊME
+              pour les deux conteneurs, et les deux doivent avoir été redémarrés après un changement</li>
+            <li>réponse <code>404</code> : le TJ actif n'est pas le TJ confié (<code>SIRAL_ATTACHE_TJ</code>) —
+              rebasculez sur ce tribunal, l'attaché n'existe que là</li>
           </ul>
           Guide complet : <code>docs/ATTACHE.md</code>
         </div>
+        <button
+          onClick={refresh}
+          className="inline-flex items-center gap-2 rounded-md border border-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+        >
+          <RefreshCw className="h-4 w-4" />Réessayer
+        </button>
       </div>
     );
   }

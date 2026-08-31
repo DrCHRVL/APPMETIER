@@ -79,7 +79,9 @@ export function FloatingDossierChat({
 
   // Disponibilité (admin + service actif)
   useEffect(() => {
-    fetch('/api/attache/status').then((r) => setAvailable(r.ok)).catch(() => setAvailable(false));
+    // Sonde brève : ce bouton n'a besoin que d'un « le service répond », pas de
+    // l'état complet — inutile de faire réveiller `claude --version` au service.
+    fetch('/api/attache/status?sonde=1').then((r) => setAvailable(r.ok)).catch(() => setAvailable(false));
   }, []);
 
   // Choix modèle/effort (partagé avec le panneau) : chargé à l'ouverture de la fenêtre

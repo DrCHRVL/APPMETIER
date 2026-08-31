@@ -207,6 +207,9 @@ function AppContent() {
   const [settingsContentieuxId, setSettingsContentieuxId] = useState<ContentieuxId | null>(null);
   // Attaché de justice IA (admin uniquement, activé côté serveur)
   const [attacheAvailable, setAttacheAvailable] = useState(false);
+  // Service attaché momentanément hors d'état : le module reste affiché, mais
+  // dit pourquoi il est vide (voir la sonde plus bas).
+  const [attacheInjoignable, setAttacheInjoignable] = useState(false);
   const [showAttache, setShowAttache] = useState(false);
   // Le journal « pendant votre absence » peut demander l'ouverture du panneau
   // attaché pour répondre aux décisions à trancher.
@@ -560,11 +563,37 @@ function AppContent() {
 
   // Attaché de justice IA : disponible seulement si le serveur l'active pour
   // CE TJ et CE compte (la route répond 404 à tout non-admin — invisible).
+  //
+  // La sonde distingue DEUX échecs que l'on confondait, et c'est tout le sujet :
+  //   • 404 → la fonctionnalité n'existe pas pour ce compte (non-admin, autre
+  //     TJ que le TJ confié, SIRAL_ATTACHE_URL vide). Le module reste invisible,
+  //     comme prévu ;
+  //   • 401 / 500 / 503 → la garde admin est PASSÉE : le module existe bien pour
+  //     ce magistrat, c'est le service qui est momentanément hors d'état
+  //     (conteneur arrêté, secret de pont dépareillé, machine saturée). On garde
+  //     alors l'entrée de menu, la page et l'onglet de paramètres — avec leur
+  //     écran de diagnostic — au lieu de faire disparaître l'assistant en
+  //     silence, et on resonde toutes les 60 s pour se raccrocher tout seul.
+  // Une exception réseau (app injoignable) ne révèle rien : simple nouvelle
+  // tentative, sans rien afficher.
   useEffect(() => {
-    if (!isAuthenticated || !isAdmin()) { setAttacheAvailable(false); return; }
-    fetch('/api/attache/status')
-      .then((r) => setAttacheAvailable(r.ok))
-      .catch(() => setAttacheAvailable(false));
+    if (!isAuthenticated || !isAdmin()) { setAttacheAvailable(false); setAttacheInjoignable(false); return; }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const sonder = async () => {
+      let etat: 'ok' | 'absent' | 'injoignable' | 'inconnu' = 'inconnu';
+      try {
+        const r = await fetch('/api/attache/status?sonde=1');
+        etat = r.ok ? 'ok' : r.status === 404 ? 'absent' : 'injoignable';
+      } catch { etat = 'inconnu'; }
+      if (cancelled) return;
+      if (etat === 'ok') { setAttacheAvailable(true); setAttacheInjoignable(false); return; }
+      if (etat === 'absent') { setAttacheAvailable(false); setAttacheInjoignable(false); return; }
+      if (etat === 'injoignable') { setAttacheAvailable(true); setAttacheInjoignable(true); }
+      timer = setTimeout(sonder, 60_000);
+    };
+    sonder();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [isAuthenticated, isAdmin]);
 
   // Démarrage des services temps réel (heartbeat, événements, audit)
@@ -1840,6 +1869,7 @@ return (
           instructionCount={sidebarInstructionCount}
           crossSearchResults={crossSearchResults}
           showAssistant={attacheAvailable && isAdmin()}
+          assistantInjoignable={attacheInjoignable}
         />
       </div>
       {mobileNavOpen && (
@@ -1859,7 +1889,8 @@ return (
               enqueteCounts={sidebarEnqueteCounts}
               instructionCount={sidebarInstructionCount}
               crossSearchResults={crossSearchResults}
-                  showAssistant={attacheAvailable && isAdmin()}
+              showAssistant={attacheAvailable && isAdmin()}
+              assistantInjoignable={attacheInjoignable}
             />
           </div>
         </div>
@@ -1973,7 +2004,7 @@ return (
 
           {/* Assistant de justice (attaché IA) — page dédiée, admin uniquement */}
           {baseView === 'assistant' && isAdmin() && (
-            <AssistantJusticePage onOpenDossier={handleOpenDossierByNumero} />
+            <AssistantJusticePage onOpenDossier={handleOpenDossierByNumero} serviceInjoignable={attacheInjoignable} />
           )}
 
           {baseView === 'enquetes' && (
