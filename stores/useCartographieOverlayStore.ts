@@ -16,7 +16,7 @@
 
 import { create } from '@/lib/zustand';
 import { SiralBridge } from '@/utils/siralBridge';
-import { normalizeMecName } from '@/utils/mindmapGraph';
+import { mecSortedKey, normalizeMecName } from '@/utils/mindmapGraph';
 
 const STORAGE_KEY = 'cartographie_overlays';
 
@@ -250,6 +250,18 @@ interface OverlayState extends PersistedOverlay {
   // Camps (réseau d'appartenance)
   setMecCamp: (mecId: string, label: string, color: string) => void;
   removeMecCamp: (mecId: string) => void;
+  /**
+   * Renomme une PERSONNE dans toutes les données manuelles de la carte.
+   * L'identifiant d'un MEC étant dérivé de son nom, un renommage déplace son
+   * id : sans remappage, ses camps, bonus, épingles, liens et fiches se
+   * retrouveraient orphelins. Retourne le nombre de références réécrites.
+   */
+  renameMecReferences: (oldMecId: string, newDisplayName: string) => number;
+  /** Renomme et/ou recolore un camp ENTIER : la modification s'applique à
+   *  tous ses membres d'un coup (le camp n'est qu'un libellé partagé, il n'a
+   *  pas d'existence propre en base). Renommer vers un libellé déjà utilisé
+   *  fusionne les deux camps. */
+  updateCamp: (label: string, patch: { label?: string; color?: string }) => void;
 
   // Assignation tag → zone géographique
   setTagZone: (tag: string, zone: TagZoneAssignment['zone']) => void;
@@ -773,6 +785,147 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
     markDirty();
   },
 
+  // ── Renommage d'une personne ────────────────
+
+  renameMecReferences: (oldMecId, newDisplayName) => {
+    const from = normalizeMecName(oldMecId) || oldMecId;
+    const to = normalizeMecName(newDisplayName);
+    if (!from || !to || from === to) return 0;
+    // Les ids stockés peuvent porter un autre ordre nom/prénom que celui du
+    // nœud (même règle que `lookupCanonical` côté graphe) : on compare donc
+    // sur la clé insensible à l'ordre des mots.
+    const fromKey = mecSortedKey(from);
+    const isTarget = (id: string) => mecSortedKey(id) === fromKey;
+    const now = Date.now();
+    let touched = 0;
+    const s = get();
+    const patch: Partial<PersistedOverlay> = {};
+
+    // Épingles : simple liste d'ids.
+    if (s.pinnedMecIds.some(isTarget)) {
+      const kept = s.pinnedMecIds.filter(id => !isTarget(id));
+      touched += s.pinnedMecIds.length - kept.length;
+      patch.pinnedMecIds = kept.includes(to) ? kept : [...kept, to];
+      patch.deletedPinnedMecIds = s.pinnedMecIds
+        .filter(isTarget)
+        .reduce((acc, id) => appendTombstone(acc, id), s.deletedPinnedMecIds || []);
+    }
+
+    // Fiche manuelle : l'id EST le nom canonique, donc la fiche déménage. Si
+    // une fiche existe déjà sous le nouveau nom (renommage vers une personne
+    // déjà au fichier), on fusionne plutôt que d'écraser : notes et surnoms
+    // saisis à la main ne se perdent pas en silence.
+    const ficheIdx = s.mecsExNihilo.findIndex(m => isTarget(m.id));
+    if (ficheIdx >= 0) {
+      const moved = s.mecsExNihilo[ficheIdx];
+      const existing = s.mecsExNihilo.find((m, i) => i !== ficheIdx && m.id === to);
+      const merged: MecExNihilo = existing
+        ? {
+          ...existing,
+          alias: Array.from(new Set([...(existing.alias || []), ...(moved.alias || [])])),
+          notes: [existing.notes, moved.notes].filter(Boolean).join('\n\n') || undefined,
+          statut: existing.statut ?? moved.statut,
+          updatedAt: now,
+        }
+        : { ...moved, id: to, displayName: newDisplayName.trim(), updatedAt: now };
+      patch.mecsExNihilo = [
+        ...s.mecsExNihilo.filter((m, i) => i !== ficheIdx && m.id !== to),
+        merged,
+      ];
+      patch.deletedMecExNihiloIds = appendTombstone(s.deletedMecExNihiloIds, moved.id);
+      touched += 1;
+    }
+
+    // Dossiers manuels : la personne y figure par son id.
+    let dossiersChanged = false;
+    const dossiers = s.dossiersExNihilo.map(d => {
+      if (!d.mecIds.some(isTarget)) return d;
+      dossiersChanged = true;
+      touched += 1;
+      const next = d.mecIds.filter(id => !isTarget(id));
+      if (!next.includes(to)) next.push(to);
+      return { ...d, mecIds: next, updatedAt: now };
+    });
+    if (dossiersChanged) patch.dossiersExNihilo = dossiers;
+
+    // Liens de renseignement : la personne est une extrémité.
+    let liensChanged = false;
+    const liens = s.liensRenseignement.map(l => {
+      const hitSource = isTarget(l.source);
+      const hitTarget = isTarget(l.target);
+      if (!hitSource && !hitTarget) return l;
+      liensChanged = true;
+      touched += 1;
+      return {
+        ...l,
+        source: hitSource ? to : l.source,
+        target: hitTarget ? to : l.target,
+        updatedAt: now,
+      };
+    // Un lien dont les deux bouts se rejoignent après renommage n'a plus de
+    // sens (on relierait la personne à elle-même) : il disparaît.
+    }).filter(l => l.source !== l.target);
+    if (liensChanged) {
+      patch.liensRenseignement = liens;
+      const perdus = s.liensRenseignement.filter(
+        l => !liens.some(k => k.id === l.id),
+      );
+      if (perdus.length > 0) {
+        patch.deletedLienIds = perdus.reduce(
+          (acc, l) => appendTombstone(acc, l.id),
+          s.deletedLienIds || [],
+        );
+      }
+    }
+
+    // Annotations d'aire : la personne fait partie du groupe snapshoté.
+    let annotationsChanged = false;
+    const annotations = s.clusterAnnotations.map(a => {
+      if (!a.nodeIds.some(isTarget)) return a;
+      annotationsChanged = true;
+      touched += 1;
+      const next = a.nodeIds.filter(id => !isTarget(id));
+      if (!next.includes(to)) next.push(to);
+      return { ...a, nodeIds: next, updatedAt: now };
+    });
+    if (annotationsChanged) patch.clusterAnnotations = annotations;
+
+    // Bonus de score et camps : une entrée par personne, id = mecId. Si la
+    // cible en a déjà une, la plus récente gagne (même règle que le merge de
+    // sync, qui tranche par updatedAt).
+    const boostIdx = s.mecScoreBoosts.findIndex(b => isTarget(b.mecId));
+    if (boostIdx >= 0) {
+      const moved = { ...s.mecScoreBoosts[boostIdx], mecId: to, updatedAt: now };
+      patch.mecScoreBoosts = [
+        ...s.mecScoreBoosts.filter((b, i) => i !== boostIdx && b.mecId !== to),
+        moved,
+      ];
+      patch.deletedMecScoreBoostIds = appendTombstone(
+        s.deletedMecScoreBoostIds,
+        s.mecScoreBoosts[boostIdx].mecId,
+      );
+      touched += 1;
+    }
+    const campIdx = s.mecCamps.findIndex(c => isTarget(c.mecId));
+    if (campIdx >= 0) {
+      const moved = { ...s.mecCamps[campIdx], mecId: to, updatedAt: now };
+      patch.mecCamps = [
+        ...s.mecCamps.filter((c, i) => i !== campIdx && c.mecId !== to),
+        moved,
+      ];
+      patch.deletedMecCampIds = appendTombstone(
+        s.deletedMecCampIds,
+        s.mecCamps[campIdx].mecId,
+      );
+      touched += 1;
+    }
+
+    if (touched === 0) return 0;
+    set(patch as Partial<OverlayState>);
+    markDirty();
+    return touched;
+  },
+
   // ── Camps (réseau d'appartenance) ────────────
 
   setMecCamp: (mecId, label, color) => {
@@ -803,6 +956,36 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
     set({
       mecCamps: list.filter(c => c.mecId !== id),
       deletedMecCampIds: appendTombstone(get().deletedMecCampIds, id),
+    });
+    markDirty();
+  },
+
+  updateCamp: (label, patch) => {
+    const from = (label || '').trim();
+    if (!from) return;
+    const to = patch.label !== undefined ? patch.label.trim() : from;
+    // Un camp sans libellé n'existe pas : on refuse plutôt que de perdre
+    // silencieusement l'appartenance de tous ses membres.
+    if (!to) return;
+    const list = get().mecCamps;
+    const members = list.filter(c => c.label === from);
+    if (members.length === 0) return;
+    // Couleur commune du camp résultant : celle demandée, sinon celle qu'il
+    // porte déjà. Renommer vers un libellé déjà pris FUSIONNE les deux camps :
+    // les membres du camp cible adoptent aussi cette couleur, sans quoi la
+    // carte peindrait un même camp de deux teintes (l'aura suit l'assignation
+    // de chaque membre, pas le libellé).
+    const color = patch.color || members[0].color;
+    const touched = list.filter(c => c.label === from || c.label === to);
+    // Ni renommage, ni recoloration effective : on ne salit pas le store.
+    if (to === from && touched.every(c => c.color === color)) return;
+    // updatedAt bumpé sur chaque membre touché : c'est la clé de résolution du
+    // merge de sync (par mecId), donc l'édition gagne face au serveur.
+    const now = Date.now();
+    set({
+      mecCamps: list.map(c => (c.label === from || c.label === to
+        ? { ...c, label: to, color, updatedAt: now }
+        : c)),
     });
     markDirty();
   },
