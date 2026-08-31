@@ -41,7 +41,7 @@ transpile('lib/server/store.ts', 'store.mjs')
 transpile('lib/server/auth.ts', 'auth.mjs')
 transpile('utils/numeroDossier.ts', 'numeroDossier.mjs')
 transpile('lib/server/attache.ts', 'attache.mjs')
-const { readProductionEnvelopes } = await import(path.join(TMP, 'attache.mjs'))
+const { readProductionEnvelopes, readIaMasquee, writeIaMasquee, attacheDiagnostic } = await import(path.join(TMP, 'attache.mjs'))
 
 let failures = 0
 const check = (nom, cond, detail = '') => {
@@ -90,6 +90,35 @@ check('« _hors-dossier » ne lit que son propre répertoire',
 fs.writeFileSync(path.join(racine, 'note.txt'), 'parasite')
 check('un fichier isolé à la racine ne casse rien',
   readProductionEnvelopes('85103/843/2026 - GRIVESNES 2').length === 2)
+
+console.log('\nInterrupteur « fonctionnalités IA » (tenu par l\'app, service éteint)')
+
+check('non réglé → rien n\'est masqué', readIaMasquee('default') === false)
+await writeIaMasquee('default', true, 'chevalier')
+check('coché → masqué, et relu tel quel', readIaMasquee('default') === true)
+check('le drapeau est propre à chaque tribunal', readIaMasquee('amiens') === false)
+await writeIaMasquee('default', false, 'chevalier')
+check('décoché → tout revient', readIaMasquee('default') === false)
+
+console.log('\nDiagnostic de présence (« pourquoi je ne le vois plus »)')
+
+delete process.env.SIRAL_ATTACHE_URL
+delete process.env.SIRAL_ATTACHE_TJ
+const eteint = await attacheDiagnostic({ r: 'admin', tj: 'default' })
+check('fonctionnalité non activée : dite comme telle', eteint.actif === false)
+check('service non interrogé quand elle est éteinte', eteint.service === null)
+
+process.env.SIRAL_ATTACHE_URL = 'http://attache:8787'
+process.env.SIRAL_ATTACHE_TJ = 'default'
+process.env.SIRAL_SECRET = 'secret-de-test'
+const mauvaisTj = await attacheDiagnostic({ r: 'admin', tj: 'amiens' })
+check('TJ actif ≠ TJ confié : la condition en défaut est nommée',
+  mauvaisTj.actif === true && mauvaisTj.tjConcorde === false
+  && mauvaisTj.tjActif === 'amiens' && mauvaisTj.tjConfie === 'default',
+  JSON.stringify({ actif: mauvaisTj.actif, tjConcorde: mauvaisTj.tjConcorde }))
+check('secret de pont dérivé de SIRAL_SECRET : présent', mauvaisTj.secretPont === true)
+check('service injoignable (aucun conteneur ici) : code rendu, pas d\'exception',
+  mauvaisTj.service !== null && mauvaisTj.service.joignable === false)
 
 fs.rmSync(TMP, { recursive: true, force: true })
 console.log(failures === 0 ? '\nOK — le repli tient.\n' : `\n${failures} échec(s).\n`)

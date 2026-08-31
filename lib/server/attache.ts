@@ -77,6 +77,77 @@ export async function attacheFetch(pathname: string, init?: { method?: string, b
   }
 }
 
+/** Le pont app ↔ service est-il configurable (secret partagé présent) ? */
+export function attacheBridgeConfigured(): boolean {
+  return Boolean(bridgeSecret())
+}
+
+// ── Interrupteur « fonctionnalités IA » (par tribunal, tenu par l'app) ──
+// Le magistrat peut TOUT masquer d'un geste : menu, page, raccourci, actes
+// rédigés, chat de dossier, boutons attaché de la cartographie. Seul l'onglet
+// « Attaché IA » des paramètres survit — sans lui, l'interrupteur ne pourrait
+// plus être rendu, donc jamais rouvert.
+//
+// Le drapeau appartient à l'APP, pas au service : il vit dans l'espace du TJ
+// ACTIF (et non du TJ confié) et s'écrit sans la moindre clé. Il se règle donc
+// même service éteint, et il suit le magistrat d'un appareil à l'autre.
+
+function visibiliteFile(tj: string): string {
+  return tjDataDir(tj, 'ia-visibilite.json')
+}
+
+/** Vrai = toutes les fonctionnalités IA sont masquées sur ce tribunal. */
+export function readIaMasquee(tj: string): boolean {
+  return readJson<{ masque?: boolean }>(visibiliteFile(tj), {}).masque === true
+}
+
+export async function writeIaMasquee(tj: string, masque: boolean, par: string): Promise<void> {
+  await withFileLock('ia-visibilite-' + tj, async () => {
+    atomicWrite(visibiliteFile(tj), JSON.stringify({ masque, at: new Date().toISOString(), par }, null, 2))
+  })
+}
+
+// ── Diagnostic de présence (administrateur connecté uniquement) ──
+// Quand /api/attache/status répond 404, c'est volontairement muet : ni le
+// motif, ni même l'existence de la fonctionnalité ne doivent transparaître.
+// Muet, l'admin n'avait pourtant AUCUN moyen de savoir laquelle des trois
+// conditions manquait — d'où des disparitions inexplicables. Ce diagnostic
+// nomme la condition en défaut ; il n'est rendu qu'à une session admin, tout
+// autre appelant recevant le même 404 qu'une route inexistante.
+
+export interface AttacheDiagnostic {
+  actif: boolean
+  tjActif: string
+  tjConfie: string
+  tjConcorde: boolean
+  secretPont: boolean
+  service: { joignable: boolean, code?: number, motif?: string } | null
+  masque: boolean
+}
+
+export async function attacheDiagnostic(session: { r: string, tj: string }): Promise<AttacheDiagnostic> {
+  const actif = attacheEnabled()
+  const tjConfie = attacheTjId()
+  const base: AttacheDiagnostic = {
+    actif,
+    tjActif: session.tj,
+    tjConfie,
+    tjConcorde: session.tj === tjConfie,
+    secretPont: attacheBridgeConfigured(),
+    service: null,
+    masque: readIaMasquee(session.tj),
+  }
+  if (!actif || !base.secretPont) return base
+  const res = await attacheFetch('/status?bref=1', { timeoutMs: 8_000 })
+  if (res.ok) {
+    base.service = { joignable: true }
+  } else {
+    const detail = await res.json().catch(() => ({} as { error?: string }))
+    base.service = { joignable: false, code: res.status, motif: detail?.error }
+  }
+  return base
+}
+
 // ── Lectures disque (enveloppes chiffrées, déchiffrées par le navigateur admin) ──
 
 function attacheDir(...segments: string[]): string {

@@ -38,6 +38,7 @@ import { downloadActePptx, estPresentable } from '@/lib/web/pptxExport';
 import { downloadActeXlsx, contientTableaux } from '@/lib/web/xlsxExport';
 import { useToast } from '@/contexts/ToastContext';
 import { useActeRunsStore, runKey, acteDoneToastMessage } from '@/stores/useActeRunsStore';
+import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 import { messageProductionActe, useEnquetesStore } from '@/stores/useEnquetesStore';
 import type { ActeMeta } from '@/types/interfaces';
 
@@ -103,6 +104,9 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
    *  (ex. « chantier:<id> » — les fiches et la synthèse d'un chantier). */
   filtreSource?: string;
 }) {
+  // Interrupteur « fonctionnalités IA » : coché, les actes rédigés disparaissent
+  // des fiches dossier comme le reste de l'attaché.
+  const iaMasquee = useIaMasquee();
   const [available, setAvailable] = useState(false);
   // Service attaché endormi : la liste vient du disque (repli de lecture de la
   // route) — on affiche les actes, mais rien ne peut être modifié.
@@ -479,6 +483,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
     }
   }, [chatBusy, redoInput, runActeChat]);
 
+  if (iaMasquee) return null;
   if (!available) return null;
   if (masquerSiVide && items.length === 0) return null;
 

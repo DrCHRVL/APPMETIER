@@ -20,6 +20,7 @@ import { entrySlug } from '@/lib/web/slug';
 import { AttacheKbSection } from './AttacheKbSection';
 import { TramesFormePanel } from './TramesFormePanel';
 import { AttacheConsignesSection } from './AttacheConsignesSection';
+import { useIaVisibiliteStore } from '@/stores/useIaVisibiliteStore';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { siralBridge?: Record<string, AnyFn> }).siralBridge;
@@ -255,6 +256,16 @@ export function AdminAttachePanel() {
   const [showConnJournal, setShowConnJournal] = useState(false);
   const [connTest, setConnTest] = useState<{ ok: boolean; detail: string } | null>(null);
   const [connTesting, setConnTesting] = useState(false);
+  // Interrupteur « fonctionnalités IA » — tenu par l'app, réglable service éteint.
+  const iaMasquee = useIaVisibiliteStore((s) => s.masque);
+  const definirIaMasquee = useIaVisibiliteStore((s) => s.definir);
+  const chargerIaMasquee = useIaVisibiliteStore((s) => s.charger);
+  // Diagnostic de présence : DIT laquelle des trois conditions manque quand
+  // l'assistant n'apparaît pas (fonctionnalité activée, TJ confié, service).
+  const [diag, setDiag] = useState<{
+    actif: boolean; tjActif: string; tjConfie: string; tjConcorde: boolean;
+    secretPont: boolean; service: { joignable: boolean; code?: number; motif?: string } | null;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -286,6 +297,15 @@ export function AdminAttachePanel() {
     } catch { /* silencieux : section secondaire */ }
   }, []);
   useEffect(() => { loadConn(); }, [loadConn]);
+
+  /** Diagnostic de présence — la seule réponse à « pourquoi je ne le vois plus ». */
+  const loadDiag = useCallback(async () => {
+    try {
+      const res = await fetch('/api/attache/diagnostic');
+      if (res.ok) setDiag(await res.json());
+    } catch { /* silencieux : le reste du panneau reste utilisable */ }
+  }, []);
+  useEffect(() => { loadDiag(); chargerIaMasquee(); }, [loadDiag, chargerIaMasquee]);
 
   const toggleConn = useCallback(async () => {
     if (!conn) return;
@@ -1156,6 +1176,74 @@ export function AdminAttachePanel() {
     }
   }, [instructions]);
 
+  /** Interrupteur maître + diagnostic de présence : rendus AVANT tout le reste,
+   *  y compris quand le service ne répond pas. Cet écran est le seul endroit
+   *  d'où l'on peut rallumer les fonctionnalités IA, et le seul qui dise
+   *  pourquoi l'assistant n'apparaît pas — il ne se masque donc jamais. */
+  const enTete = (
+    <>
+      <div className={`rounded-lg border p-3 ${iaMasquee ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-white'}`}>
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={iaMasquee}
+            onChange={async (e) => {
+              const cible = e.target.checked;
+              const ok = await definirIaMasquee(cible);
+              setNotice(ok
+                ? (cible
+                  ? 'Fonctionnalités IA masquées — cet onglet reste votre porte de retour.'
+                  : 'Fonctionnalités IA rétablies.')
+                : 'Le serveur a refusé le changement — réessayez.');
+            }}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#2B5746] focus:ring-[#2B5746]"
+          />
+          <span className="text-sm">
+            <span className="font-semibold text-gray-900">Masquer toutes les fonctionnalités IA</span>
+            <span className="mt-0.5 block text-xs leading-relaxed text-gray-500">
+              Retire de l&apos;application l&apos;entrée « Assistant de justice », sa page, le raccourci de la
+              barre du haut, les actes rédigés des fiches dossier, le chat de dossier, les propositions
+              de renseignement et les boutons attaché de la cartographie (« Détecter les camps »,
+              « Enrichir »). Rien n&apos;est supprimé et le service continue son travail de fond :
+              seule la présence à l&apos;écran change. Cet onglet, lui, reste accessible — sans quoi
+              vous ne pourriez plus revenir en arrière.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      {diag && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Pourquoi l&apos;assistant apparaît — ou non
+          </div>
+          <ul className="space-y-1 text-xs text-gray-600">
+            <li>
+              {diag.actif ? '✅' : '❌'} Fonctionnalité activée sur le serveur
+              {!diag.actif && <> — <code>SIRAL_ATTACHE_URL</code> n&apos;est pas défini pour l&apos;app</>}
+            </li>
+            <li>
+              {diag.tjConcorde ? '✅' : '❌'} Tribunal actif = tribunal confié
+              {!diag.tjConcorde && <> — vous êtes sur <b>{diag.tjActif}</b>, l&apos;attaché n&apos;existe que sur <b>{diag.tjConfie}</b> (<code>SIRAL_ATTACHE_TJ</code>)</>}
+            </li>
+            <li>
+              {diag.secretPont ? '✅' : '❌'} Secret de pont app ↔ service
+              {!diag.secretPont && <> — ni <code>SIRAL_SECRET</code> ni <code>SIRAL_ATTACHE_BRIDGE_SECRET</code></>}
+            </li>
+            <li>
+              {diag.service?.joignable ? '✅' : '❌'} Service attaché joignable
+              {diag.service && !diag.service.joignable && (
+                <> — réponse <code>{diag.service.code}</code>{diag.service.motif ? <> : {diag.service.motif}</> : null}</>
+              )}
+              {!diag.service && <> — non interrogé (condition précédente en défaut)</>}
+            </li>
+            {iaMasquee && <li>🚫 Interrupteur ci-dessus coché : tout est masqué à votre demande.</li>}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+
   if (loading) {
     return <div className="flex items-center gap-2 p-6 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" />Interrogation du service attaché…</div>;
   }
@@ -1167,6 +1255,8 @@ export function AdminAttachePanel() {
           <Scale className="h-5 w-5 text-[#2B5746]" />
           <h3 className="text-base font-semibold text-gray-900">Attaché de justice (IA)</h3>
         </div>
+        {enTete}
+        {notice && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800">{notice}</div>}
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
           Le service attaché n'est pas joignable
           {status?.code ? <> — réponse <code>{status.code}</code>{status?.motif ? <> : {status.motif}</> : null}</> : null}.
@@ -1186,7 +1276,7 @@ export function AdminAttachePanel() {
           Guide complet : <code>docs/ATTACHE.md</code>
         </div>
         <button
-          onClick={refresh}
+          onClick={() => { refresh(); loadDiag(); }}
           className="inline-flex items-center gap-2 rounded-md border border-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
         >
           <RefreshCw className="h-4 w-4" />Réessayer
@@ -1202,10 +1292,12 @@ export function AdminAttachePanel() {
       <div className="flex items-center gap-2">
         <Scale className="h-5 w-5 text-[#2B5746]" />
         <h3 className="text-base font-semibold text-gray-900">Attaché de justice (IA)</h3>
-        <button onClick={refresh} className="ml-auto rounded-md p-1.5 text-gray-400 hover:bg-gray-50 hover:text-gray-600" title="Actualiser">
+        <button onClick={() => { refresh(); loadDiag(); }} className="ml-auto rounded-md p-1.5 text-gray-400 hover:bg-gray-50 hover:text-gray-600" title="Actualiser">
           <RefreshCw className="h-4 w-4" />
         </button>
       </div>
+
+      {enTete}
 
       <p className="text-xs leading-relaxed text-gray-500">
         Assistant réservé à l'administrateur — invisible des autres utilisateurs. TJ : <b>{status?.tj}</b> ·

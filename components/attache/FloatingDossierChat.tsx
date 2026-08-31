@@ -18,6 +18,7 @@ import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig, loadAt
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { toolTouchesDossierData } from '@/lib/web/attacheWriteTools';
 import { ChantierDot } from './ChantierDot';
+import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 
 interface Msg { role: 'user' | 'assistant'; text: string; streaming?: boolean; tools?: string[] }
 
@@ -56,6 +57,8 @@ export function FloatingDossierChat({
    */
   inDialog?: boolean;
 }) {
+  // Interrupteur « fonctionnalités IA » : coché, le chat de dossier disparaît.
+  const iaMasquee = useIaMasquee();
   const [available, setAvailable] = useState(false);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null); // null = ancrage bas-droite
@@ -281,6 +284,7 @@ export function FloatingDossierChat({
     } finally { setMemSaving(false); }
   }, [numero, mem]);
 
+  if (iaMasquee) return null;
   if (!available) return null;
 
   const anchor = inDialog ? 'absolute' : 'fixed';

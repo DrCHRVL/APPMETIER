@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Inbox, RefreshCw, Loader2, CheckCircle2, Clock3, MailOpen, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { useToastStore } from '@/stores/useToastStore';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
+import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 
 interface InboxMessage {
   id: string;
@@ -47,6 +48,7 @@ const STATUT_UI: Record<string, { label: string; cls: string; Icon: typeof MailO
 };
 
 export function InboxWidget() {
+  const iaMasquee = useIaMasquee();
   const [available, setAvailable] = useState(false);
   const [messages, setMessages] = useState<InboxMessage[]>([]);
   const [open, setOpen] = useState(true);
@@ -133,6 +135,7 @@ export function InboxWidget() {
     }
   }, [load, showToast]);
 
+  if (iaMasquee) return null;
   if (!available) return null;
 
   const nonTraites = messages.filter((m) => statutOf(m) !== 'traite').length;

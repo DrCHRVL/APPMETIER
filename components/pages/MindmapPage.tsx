@@ -42,6 +42,7 @@ import { categoryForEntry } from '@/lib/natinf/nataff';
 import { useUser } from '@/contexts/UserContext';
 import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { NouveauxDossiersPropositions } from '../attache/NouveauxDossiersPropositions';
+import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 import { useToast } from '@/contexts/ToastContext';
 import type { InfluenceCluster } from '../mindmap/influenceHull';
 import { MindmapCanvas } from '../mindmap/MindmapCanvas';
@@ -122,6 +123,10 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   knownNames = [],
   knownNameHints,
 }) => {
+  // Interrupteur « fonctionnalités IA » : coché, la carte ne montre plus
+  // « Détecter les camps (attaché) », « Enrichir (attaché) », le chat carto ni
+  // les propositions de renseignement.
+  const iaMasquee = useIaMasquee();
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [sidePanelMecId, setSidePanelMecId] = useState<string | undefined>();
   // Mode ego-network : id du nœud focus, ou undefined pour vue globale.
@@ -1150,7 +1155,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             onSetCamp={setMecCamp}
             onRemoveCamp={removeMecCamp}
             onSaveFiche={handleSaveMecFiche}
-            onEnrichRequest={isAdmin() ? handleEnrichMec : undefined}
+            onEnrichRequest={isAdmin() && !iaMasquee ? handleEnrichMec : undefined}
             onDeleteLien={removeLien}
           />
         )}
@@ -1184,7 +1189,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
                   Aucun camp — assigne-les depuis la fiche d&apos;une personne.
                 </div>
               )}
-              {isAdmin() && (
+              {isAdmin() && !iaMasquee && (
                 <button
                   onClick={handleDetectCamps}
                   title="L'attaché lit les descriptions de dossiers, les CR, les fiches et les liens du plus gros amas, puis propose des camps à valider ✓/✗ — vos assignations et retraits manuels ne sont jamais écrasés"

@@ -1082,6 +1082,47 @@ La sonde est délibérément **brève** (`?bref=1` côté service) : elle ne lan
 par un run de nuit ne doit jamais faire disparaître l'assistant par simple
 lenteur.
 
+### Le diagnostic, dans l'application
+
+**Paramètres → Attaché IA** est désormais TOUJOURS offert à l'administrateur —
+service éteint, mauvais tribunal, fonctionnalité désactivée, peu importe. C'est
+l'écran qui répond à « pourquoi je ne le vois plus » : il coche ou barre les
+quatre conditions, une à une, avec la valeur en cause.
+
+```
+✅ Fonctionnalité activée sur le serveur
+❌ Tribunal actif = tribunal confié — vous êtes sur amiens, l'attaché n'existe que sur default
+✅ Secret de pont app ↔ service
+❌ Service attaché joignable — réponse 503 : Service attaché injoignable
+```
+
+Il s'appuie sur `GET /api/attache/diagnostic`, rendu à une session
+**administrateur** seulement ; tout autre appelant reçoit le 404 d'une route
+inexistante — l'attaché reste indevinable des autres comptes.
+
+## Masquer toutes les fonctionnalités IA
+
+Même écran, en tête : un interrupteur **« Masquer toutes les fonctionnalités
+IA »**. Coché, l'application redevient exactement celle d'avant l'attaché :
+
+| Disparaît | Reste |
+|---|---|
+| entrée de menu « Assistant de justice » et sa page | l'onglet Paramètres → Attaché IA |
+| raccourci de la barre du haut, panneau latéral, pastille de chantier | le service, qui poursuit son travail de fond |
+| « Actes rédigés » des fiches dossier et hors dossier | les actes eux-mêmes, intacts sur le serveur |
+| chat de dossier et chat carto | |
+| propositions de renseignement, barre de propositions, chronologie | |
+| « Détecter les camps (attaché) » et « Enrichir (attaché) » de la cartographie | |
+
+L'onglet des paramètres ne se masque jamais : c'est de là que l'on décoche. Le
+drapeau est tenu par l'**app** (`ia-visibilite.json` dans l'espace du TJ actif,
+`GET`/`PUT /api/attache/visibilite`, administrateur seul) : il se règle service
+éteint, et il vaut sur tous les appareils du magistrat — le `localStorage` n'en
+est qu'un cache de premier rendu, pour que rien ne clignote au chargement.
+
+Masquer n'est pas révoquer : le service continue de tourner, de lire et
+d'écrire. Pour l'arrêter vraiment, voir la révocation ci-dessous.
+
 ## Révocation & réversibilité
 
 | Geste | Effet |
@@ -1089,6 +1130,7 @@ lenteur.
 | Paramètres → Attaché IA → **Révoquer** | l'attaché ne déchiffre plus rien, immédiatement |
 | Changer `SIRAL_ATTACHE_MASTER_KEY` | trousseau illisible = révoqué de fait |
 | Vider `SIRAL_ATTACHE_URL` | fonctionnalité totalement absente de l'app |
+| Paramètres → Attaché IA → **Masquer toutes les fonctionnalités IA** | l'attaché disparaît de l'interface, mais continue de travailler (affichage seul) |
 | Annuler une écriture | Sauvegardes → versions du coffre (chaque écriture archive la précédente) |
 | Voir tout ce qu'il a fait | Paramètres → Attaché IA → **Journal d'audit** |
 
