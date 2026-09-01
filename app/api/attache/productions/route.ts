@@ -6,7 +6,7 @@
  * DELETE ?numero=&id= → suppression (réversible côté service)
  */
 import { handle, jsonResponse } from '@/lib/server/auth'
-import { requireAttacheAdmin, attacheFetch } from '@/lib/server/attache'
+import { requireAttacheAdmin, attacheFetch, readProductionEnvelopes } from '@/lib/server/attache'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,7 +15,16 @@ export async function GET(req: Request) {
     requireAttacheAdmin(req)
     const numero = new URL(req.url).searchParams.get('numero') || ''
     const res = await attacheFetch('/productions?numero=' + encodeURIComponent(numero))
-    return jsonResponse(await res.json().catch(() => ({ productions: [] })), { status: res.status })
+    const data = await res.json().catch(() => ({ productions: [] }))
+    // Service endormi : les enveloppes sont sur le volume partagé, l'app les
+    // lit elle-même. Les actes rédigés RESTENT donc consultables (le navigateur
+    // les déchiffre) — `degrade` prévient que rien ne peut être modifié tant
+    // que le service ne répond pas.
+    if (!res.ok && (data as { injoignable?: boolean })?.injoignable) {
+      const productions = readProductionEnvelopes(numero)
+      return jsonResponse({ productions, degrade: true }, { status: 200 })
+    }
+    return jsonResponse(data, { status: res.status })
   })
 }
 

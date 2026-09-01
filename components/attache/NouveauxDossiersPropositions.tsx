@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Check, X, FolderPlus, Network, UserPlus, GitBranch, Loader2, ChevronDown, ChevronUp, Sparkles, Flag } from 'lucide-react';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
+import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 
 type Kind = 'dossier' | 'dossier_carto' | 'mec_carto' | 'mec_note' | 'camp_carto' | 'lien';
 
@@ -77,6 +78,7 @@ export function NouveauxDossiersPropositions({
   /** Toute variation déclenche un rechargement (ex. fin d'un tour de chat). */
   reloadSignal?: number;
 }) {
+  const iaMasquee = useIaMasquee();
   const [props, setProps] = useState<Proposition[]>([]);
   const [available, setAvailable] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -134,6 +136,7 @@ export function NouveauxDossiersPropositions({
     }
   }, [props]);
 
+  if (iaMasquee) return null;
   if (!available || props.length === 0) return null;
 
   const allCarto = props.every((p) => CARTO_KINDS.includes(p.type));

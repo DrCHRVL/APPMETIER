@@ -18,6 +18,7 @@ import { MODEL_OPTIONS, EFFORT_OPTIONS, AttacheConfig, saveAttacheConfig, loadAt
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { toolTouchesDossierData } from '@/lib/web/attacheWriteTools';
 import { ChantierDot } from './ChantierDot';
+import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 
 interface Msg { role: 'user' | 'assistant'; text: string; streaming?: boolean; tools?: string[] }
 
@@ -56,6 +57,8 @@ export function FloatingDossierChat({
    */
   inDialog?: boolean;
 }) {
+  // Interrupteur « fonctionnalités IA » : coché, le chat de dossier disparaît.
+  const iaMasquee = useIaMasquee();
   const [available, setAvailable] = useState(false);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null); // null = ancrage bas-droite
@@ -79,7 +82,9 @@ export function FloatingDossierChat({
 
   // Disponibilité (admin + service actif)
   useEffect(() => {
-    fetch('/api/attache/status').then((r) => setAvailable(r.ok)).catch(() => setAvailable(false));
+    // Sonde brève : ce bouton n'a besoin que d'un « le service répond », pas de
+    // l'état complet — inutile de faire réveiller `claude --version` au service.
+    fetch('/api/attache/status?sonde=1').then((r) => setAvailable(r.ok)).catch(() => setAvailable(false));
   }, []);
 
   // Choix modèle/effort (partagé avec le panneau) : chargé à l'ouverture de la fenêtre
@@ -279,6 +284,7 @@ export function FloatingDossierChat({
     } finally { setMemSaving(false); }
   }, [numero, mem]);
 
+  if (iaMasquee) return null;
   if (!available) return null;
 
   const anchor = inDialog ? 'absolute' : 'fixed';

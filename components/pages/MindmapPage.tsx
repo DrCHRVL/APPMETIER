@@ -42,6 +42,7 @@ import { categoryForEntry } from '@/lib/natinf/nataff';
 import { useUser } from '@/contexts/UserContext';
 import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { NouveauxDossiersPropositions } from '../attache/NouveauxDossiersPropositions';
+import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 import { useToast } from '@/contexts/ToastContext';
 import type { InfluenceCluster } from '../mindmap/influenceHull';
 import type { RenameMecReport } from '@/utils/renameMec';
@@ -130,6 +131,10 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   knownNameHints,
   onRenameMec,
 }) => {
+  // Interrupteur « fonctionnalités IA » : coché, la carte ne montre plus
+  // « Détecter les camps (attaché) », « Enrichir (attaché) », le chat carto ni
+  // les propositions de renseignement.
+  const iaMasquee = useIaMasquee();
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [sidePanelMecId, setSidePanelMecId] = useState<string | undefined>();
   // Mode ego-network : id du nœud focus, ou undefined pour vue globale.
@@ -1259,7 +1264,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             onRename={onRenameMec ? handleRenameMec : undefined}
             renamePending={renamePending}
             onSaveFiche={handleSaveMecFiche}
-            onEnrichRequest={isAdmin() ? handleEnrichMec : undefined}
+            onEnrichRequest={isAdmin() && !iaMasquee ? handleEnrichMec : undefined}
             onDeleteLien={removeLien}
           />
         )}
@@ -1268,14 +1273,14 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             de la carte s'estompe), un second clic annule. Le crayon ouvre
             l'édition du camp entier (nom, couleur). Pour l'admin, la légende
             porte aussi la détection automatique par l'attaché (gros amas). */}
-        {(campsSummary.length > 0 || isAdmin()) && (
+        {(campsSummary.length > 0 || (isAdmin() && !iaMasquee)) && (
           <CampsLegend
             camps={campsSummary}
             highlight={campHighlight}
             onToggleHighlight={(label) =>
               setCampHighlight(prev => (prev === label ? undefined : label))}
             onUpdateCamp={handleUpdateCamp}
-            onDetect={isAdmin() ? handleDetectCamps : undefined}
+            onDetect={isAdmin() && !iaMasquee ? handleDetectCamps : undefined}
           />
         )}
 

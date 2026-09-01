@@ -33,6 +33,8 @@ interface MultiSideBarProps {
   /** Nombre d'utilisateurs en attente d'approbation (badge sur Paramètres) */
   /** Affiche l'entrée « Assistant de justice » (attaché IA activé + admin). */
   showAssistant?: boolean;
+  /** Service attaché momentanément hors d'état : l'entrée reste là, signalée. */
+  assistantInjoignable?: boolean;
 }
 
 /** Petit compteur discret (enquêtes/instructions en cours). */
@@ -152,6 +154,7 @@ export const MultiSideBar = ({
   instructionCount = 0,
   crossSearchResults = [],
   showAssistant = false,
+  assistantInjoignable = false,
 }: MultiSideBarProps) => {
   const { accessibleContentieux, canDo, isAdmin, isJLD, hasOverboard, hasModule, permissions, user } = useUser();
   // Le JLD n'a accès qu'au tableau de bord : on masque tous les blocs
@@ -241,7 +244,7 @@ export const MultiSideBar = ({
         {!jldRestricted && showAssistant && (
           <button
             className={`
-              w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm mb-1
+              relative w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm mb-1
               transition-all duration-150
               ${currentView === 'assistant'
                 ? 'bg-white/20 text-white font-semibold'
@@ -250,11 +253,18 @@ export const MultiSideBar = ({
             `}
             style={currentView === 'assistant' ? { boxShadow: 'inset 3px 0 0 rgba(255,255,255,0.85)' } : {}}
             onClick={() => onViewChange('assistant')}
-            title="Ce que votre attaché IA a préparé — visible de vous seul"
+            title={assistantInjoignable
+              ? 'Assistant de justice — service attaché injoignable (voir Paramètres → Attaché IA)'
+              : 'Ce que votre attaché IA a préparé — visible de vous seul'}
           >
             {isOpen
               ? <span className="truncate">Assistant de justice</span>
               : <span className="mx-auto text-[11px] font-bold tracking-tight">AJ</span>}
+            {/* Pastille ambre : le service ne répond pas. L'entrée RESTE — sa
+                disparition pure et simple ne disait rien au magistrat. */}
+            {assistantInjoignable && (
+              <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-400 ${isOpen ? 'ml-auto' : 'absolute right-2'}`} />
+            )}
           </button>
         )}
 
