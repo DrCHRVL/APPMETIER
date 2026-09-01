@@ -35,6 +35,10 @@ import { computeClusterColors } from './clusterColors';
 // PROPS
 // ──────────────────────────────────────────────
 
+/** Tolérance (px) entre l'appui et le relâchement en dessous de laquelle un
+ *  geste sur le fond compte comme un clic et non comme un déplacement. */
+const PANE_CLICK_MAX_DRAG = 4;
+
 interface MindmapCanvasProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
@@ -72,6 +76,10 @@ interface MindmapCanvasProps {
   layout?: CartographieLayoutConfig;
   onNodeClick?: (node: GraphNode) => void;
   onNodeDoubleClick?: (node: GraphNode) => void;
+  /** Clic dans le vide de la carte (fond, hors nœud et hors aire) : sert à
+   *  relâcher la sélection en cours. Un déplacement de la carte (pan) n'en
+   *  déclenche pas — cf. le garde-fou de distance dans le composant. */
+  onPaneClick?: () => void;
 }
 
 // ──────────────────────────────────────────────
@@ -652,6 +660,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
   layout,
   onNodeClick,
   onNodeDoubleClick,
+  onPaneClick,
 }) => {
   const pinnedSet = useMemo(() => new Set(pinnedIds || []), [pinnedIds]);
   const positions = useForceLayout(nodes, edges, refreshKey, { groupByService, layout });
@@ -1145,10 +1154,34 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     [nodes, onNodeDoubleClick],
   );
 
+  // Clic dans le vide → on remonte l'info au parent (qui relâche la
+  // sélection). Piège : le navigateur émet un `click` même après un
+  // glisser-déposer, donc un simple déplacement de la carte annulerait la
+  // sélection. React Flow filtre déjà ce cas (`paneClickDistance`), mais on
+  // double la garde ici — elle couvre aussi le tactile : on mémorise le point
+  // de départ du geste et on n'appelle le parent que si le pointeur n'a
+  // pratiquement pas bougé.
+  const paneDownRef = useRef<{ x: number; y: number } | null>(null);
+  const handlePanePointerDown = useCallback((e: React.PointerEvent) => {
+    paneDownRef.current = { x: e.clientX, y: e.clientY };
+  }, []);
+  const handlePaneClick = useCallback(
+    (e: React.MouseEvent) => {
+      const down = paneDownRef.current;
+      paneDownRef.current = null;
+      if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > PANE_CLICK_MAX_DRAG) return;
+      onPaneClick?.();
+    },
+    [onPaneClick],
+  );
+
   return (
     // touch-action:none permet à ReactFlow de gérer le pinch-zoom nativement
     // sur mobile sans conflit avec le scroll système.
-    <div style={{ width: '100%', height: '100%', touchAction: 'none' }}>
+    <div
+      style={{ width: '100%', height: '100%', touchAction: 'none' }}
+      onPointerDownCapture={handlePanePointerDown}
+    >
     <ReactFlow
       nodes={rfNodes}
       edges={rfEdges}
@@ -1166,6 +1199,10 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       maxZoom={2.5}
       onNodeClick={handleClick}
       onNodeDoubleClick={handleDoubleClick}
+      onPaneClick={handlePaneClick}
+      // Tolérance de React Flow (1 px par défaut) : un clic sur le fond reste
+      // un clic même si la main tremble un peu. Au-delà, c'est un pan.
+      paneClickDistance={PANE_CLICK_MAX_DRAG}
       proOptions={{ hideAttribution: true }}
     >
       <Background gap={24} size={1} color="#e2e8f0" />

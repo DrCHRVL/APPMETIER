@@ -176,6 +176,7 @@ const AboutContent = dynamic(() => import('@/components/AboutContent').then(m =>
 const AgendaPanel = dynamic(() => import('@/components/AgendaPanel').then(m => ({ default: m.AgendaPanel })), { ssr: false });
 const MyProfileContent = dynamic(() => import('@/components/MyProfileContent').then(m => ({ default: m.MyProfileContent })), { ssr: false });
 import { useOverboardData } from '@/hooks/useOverboardData';
+import { renameMecEverywhere } from '@/utils/renameMec';
 import { HeartbeatManager } from '@/utils/heartbeatManager';
 import { SharedEventManager } from '@/utils/sharedEventManager';
 import { NetworkStatusManager } from '@/utils/networkStatusManager';
@@ -1109,6 +1110,29 @@ function AppContent() {
   // Sources pour le module Mindmap : toutes enquêtes accessibles + instructions
   // Les dossiers d'instruction (nouveau modèle) sont enveloppés dans une
   // pseudo-Enquete pour rester compatibles avec le builder de graphe.
+  // Renommage d'une personne demandé depuis la cartographie. Le nom est lu
+  // dans les dossiers : on le réécrit donc à la source (enquêtes de tous les
+  // contentieux chargés, dossiers d'instruction, résultats d'audience) puis
+  // dans les données manuelles de la carte. Seul cet écran détient à la fois
+  // les dossiers d'instruction et leur mutateur — d'où l'injection.
+  const handleRenameMecFromCarto = useCallback(
+    async (ancienNom: string, nouveauNom: string) => {
+      const rapport = await renameMecEverywhere({
+        ancienNom,
+        nouveauNom,
+        instructions,
+        updateInstruction: handleUpdateInstruction,
+      });
+      // Le snapshot transversal des enquêtes est relu depuis le disque : sans
+      // ça, la carte garderait l'ancien nom jusqu'au prochain rechargement.
+      // Les dossiers d'instruction, eux, sont déjà à jour en mémoire (les
+      // recharger écraserait l'écriture encore throttlée du hook).
+      await refreshOverboard();
+      return rapport;
+    },
+    [instructions, handleUpdateInstruction, refreshOverboard],
+  );
+
   const mindmapSources = useMemo<EnqueteWithContext[]>(() => {
     const out: EnqueteWithContext[] = [];
     // Enquêtes préliminaires rattachées à un dossier d'instruction : on les
@@ -2232,6 +2256,7 @@ return (
               }}
               knownNames={allKnownMec}
               knownNameHints={knownNameHints}
+              onRenameMec={handleRenameMecFromCarto}
               onRefresh={() => {
                 void refreshOverboard();
                 void refreshInstructions();

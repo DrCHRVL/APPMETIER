@@ -7,7 +7,7 @@ import { tagSyncService, DELETED_TAG_IDS_KEY } from '@/utils/dataSync/TagSyncSer
 import { emitSyncCompleted } from '@/utils/dataSync/globalSyncCommon';
 import type { TagTombstone } from '@/types/globalSyncTypes';
 import { ContentieuxManager } from '@/utils/contentieuxManager';
-import { MultiSyncManager } from '@/utils/dataSync/MultiSyncManager';
+import { updateEnquetesAcrossContentieux as bulkUpdateEnquetes } from '@/utils/enquetesBulkUpdate';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import type { ContentieuxId } from '@/types/userTypes';
 
@@ -170,58 +170,12 @@ export const useTags = (): UseTagsReturn => {
     return updated;
   }, [createTagId]);
 
-  // Itère sur tous les contentieux chargés et applique `transformEnquete` à
-  // chacune de leurs enquêtes. Met à jour le store Zustand pour le contentieux
-  // actif (UI immédiate) et le ContentieuxManager pour les autres. Déclenche la
-  // sync serveur pour chaque contentieux modifié.
+  // Écriture en masse sur toutes les enquêtes chargées : la mécanique est
+  // partagée (cf. utils/enquetesBulkUpdate), on ne garde ici que le typage
+  // souple hérité des transformations de tags.
   const updateEnquetesAcrossContentieux = useCallback(async (
     transformEnquete: (enquete: any) => any | null,
-  ): Promise<number> => {
-    const manager = ContentieuxManager.getInstance();
-    const multiSync = MultiSyncManager.getInstance();
-    const store = useEnquetesStore.getState();
-    const activeId = store.contentieuxId;
-    let totalModified = 0;
-
-    for (const contentieuxId of manager.getLoadedContentieuxIds()) {
-      if (manager.getSyncMode(contentieuxId) === 'read_only') continue;
-
-      // Pour le contentieux actif, on travaille à partir des enquêtes du store
-      // (qui est la source de vérité de l'UI) plutôt que de celles du manager
-      // qui peuvent être plus anciennes si une édition n'a pas encore été
-      // flushée.
-      const source: Enquete[] = contentieuxId === activeId
-        ? useEnquetesStore.getState().ownEnquetes
-        : manager.getEnquetes(contentieuxId);
-
-      let modifiedCount = 0;
-      const updated: Enquete[] = source.map(enquete => {
-        const next = transformEnquete(enquete);
-        if (next) {
-          modifiedCount++;
-          return next as Enquete;
-        }
-        return enquete;
-      });
-
-      if (modifiedCount === 0) continue;
-      totalModified += modifiedCount;
-
-      // Persistance
-      await manager.setEnquetes(contentieuxId as ContentieuxId, updated);
-
-      if (contentieuxId === activeId) {
-        // Resynchroniser le store Zustand : ses propres écritures ne passent
-        // pas par le manager, donc l'UI ne se rafraîchirait pas autrement.
-        await useEnquetesStore.getState().loadEnquetes();
-      }
-
-      multiSync.triggerPostSaveSync(contentieuxId as ContentieuxId);
-      console.log(`[${contentieuxId}] ${modifiedCount} enquête(s) mise(s) à jour`);
-    }
-
-    return totalModified;
-  }, []);
+  ): Promise<number> => bulkUpdateEnquetes(transformEnquete), []);
 
   // Fonction de propagation des changements de tags (rename/delete)
   const propagateTagChange = useCallback(async (oldValue: string, newValue: string, category: TagCategory) => {
