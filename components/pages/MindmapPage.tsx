@@ -1457,7 +1457,19 @@ const CampsLegend: React.FC<{
 
   return (
     <div className="absolute bottom-3 left-3 z-20 bg-white/95 border border-slate-200 rounded-lg shadow-md px-3 py-2 w-[260px]">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">Camps</div>
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="text-[10px] uppercase tracking-wide text-slate-500">Camps</div>
+        {onDetect && (
+          <button
+            onClick={onDetect}
+            title="Détecter les camps (attaché) — lit les descriptions de dossiers, les CR, les fiches et les liens du plus gros amas, puis propose des camps à valider ✓/✗ — vos assignations et retraits manuels ne sont jamais écrasés"
+            aria-label="Détecter les camps"
+            className="flex-shrink-0 p-1 rounded text-slate-300 hover:text-emerald-700 hover:bg-emerald-50"
+          >
+            <Sparkles className="h-3 w-3" />
+          </button>
+        )}
+      </div>
       <div className="flex flex-col gap-1">
         {camps.map(c => {
           if (editing === c.label) {
@@ -1547,16 +1559,6 @@ const CampsLegend: React.FC<{
           <div className="text-[11px] text-slate-400 px-1.5 pb-0.5">
             Aucun camp — assigne-les depuis la fiche d&apos;une personne.
           </div>
-        )}
-        {onDetect && (
-          <button
-            onClick={onDetect}
-            title="L'attaché lit les descriptions de dossiers, les CR, les fiches et les liens du plus gros amas, puis propose des camps à valider ✓/✗ — vos assignations et retraits manuels ne sont jamais écrasés"
-            className="mt-1 inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold px-2 py-1.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
-          >
-            <Sparkles className="h-3 w-3" />
-            Détecter les camps (attaché)
-          </button>
         )}
       </div>
     </div>

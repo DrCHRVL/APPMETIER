@@ -1253,7 +1253,7 @@ export function AdminAttachePanel() {
       <div className="space-y-3 p-2">
         <div className="flex items-center gap-2">
           <Scale className="h-5 w-5 text-[#2B5746]" />
-          <h3 className="text-base font-semibold text-gray-900">Attaché de justice (IA)</h3>
+          <h3 className="text-base font-semibold text-gray-900">Attaché de justice</h3>
         </div>
         {enTete}
         {notice && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800">{notice}</div>}

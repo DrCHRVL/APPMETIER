@@ -254,8 +254,8 @@ export const MultiSideBar = ({
             style={currentView === 'assistant' ? { boxShadow: 'inset 3px 0 0 rgba(255,255,255,0.85)' } : {}}
             onClick={() => onViewChange('assistant')}
             title={assistantInjoignable
-              ? 'Assistant de justice — service attaché injoignable (voir Paramètres → Attaché IA)'
-              : 'Ce que votre attaché IA a préparé — visible de vous seul'}
+              ? 'Assistant de justice — service attaché injoignable (voir Paramètres → Attaché)'
+              : 'Ce que votre attaché a préparé — visible de vous seul'}
           >
             {isOpen
               ? <span className="truncate">Assistant de justice</span>

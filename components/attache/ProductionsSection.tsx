@@ -520,7 +520,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
             <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11.5px] leading-snug text-amber-900">
               Service attaché injoignable — <b>lecture seule</b>. Vos actes sont là et s&apos;ouvrent
               normalement ; validation, édition et retouche IA reprendront dès que le service
-              répondra (diagnostic : Paramètres → Attaché IA).
+              répondra (diagnostic : Paramètres → Attaché).
             </p>
           )}
           {vue === 'chantier' && (

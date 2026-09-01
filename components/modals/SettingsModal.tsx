@@ -88,7 +88,7 @@ const TABS: TabDef[] = [
   { id: 'admin_tag_history', label: 'Historique tags',  icon: ClipboardList, section: 'admin', isAdmin: true },
   { id: 'admin_natinf',      label: 'Référentiel NATINF', icon: Gavel,       section: 'admin', isAdmin: true },
   { id: 'admin_update',      label: 'Mise à jour',      icon: Upload,        section: 'admin', isAdmin: true },
-  { id: 'admin_attache',     label: 'Attaché IA',       icon: Scale,         section: 'admin', isAdmin: true },
+  { id: 'admin_attache',     label: 'Attaché',          icon: Scale,         section: 'admin', isAdmin: true },
 ];
 
 const SECTION_LABELS: Record<TabSection, string> = {

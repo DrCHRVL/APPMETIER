@@ -260,7 +260,7 @@ export const Header = ({
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p>Attaché de justice (IA)</p>
+                  <p>Attaché de justice</p>
                 </TooltipContent>
               </TooltipRoot>
             </TooltipProvider>
