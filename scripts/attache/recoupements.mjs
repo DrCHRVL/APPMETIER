@@ -29,7 +29,7 @@ import { encryptJson, decryptJson } from './crypto.mjs'
 import { texteDocumentIntegral } from './dossier.mjs'
 import { allInstructionDossiers } from './instru.mjs'
 import { buildCorpus, docTextKey } from '../../lib/recoupements/corpusCore.mjs'
-import { detecterRecoupements } from '../../lib/recoupements/moteurCore.mjs'
+import { LIBELLE_KIND, LIBELLE_ORIGINE, detecterRecoupements } from '../../lib/recoupements/moteurCore.mjs'
 
 /** Coffre de sortie — clé globale, lisible de tous les utilisateurs. */
 const COFFRE = 'recoupements'
@@ -187,5 +187,75 @@ export function dernierResultat(keys) {
     return { calculeAt: r.calculeAt, dureeMs: r.dureeMs, perimetre: r.perimetre, signaux: (r.signaux || []).length }
   } catch {
     return null
+  }
+}
+
+/**
+ * SIGNAUX DE LA VEILLE, servis à l'IA (outil `recoupements_lire`).
+ *
+ * Le chantier hebdomadaire calcule déjà — sans un jeton — les valeurs
+ * partagées entre dossiers, pièces comprises. Ses signaux dormaient dans un
+ * coffre que seule l'application lisait : cette lecture les met à portée de
+ * l'attaché, filtrés et écrêtés pour tenir dans une conversation. Un signal
+ * reste un SIGNALEMENT : à vérifier dans les pièces citées avant tout
+ * proposer_lien.
+ */
+export function lireSignaux(keys, { numero, nature, inedits, limite = 30, offset = 0 } = {}) {
+  const envelope = readVault(attacheTj(), COFFRE)
+  if (!envelope) {
+    return {
+      erreur: 'Aucun chantier de recoupements n\'a encore tourné (nuit du samedi au dimanche, ou « Lancer maintenant » dans la vue d\'ensemble).',
+    }
+  }
+  let r
+  try {
+    r = decryptJson(keys.global, envelope)
+  } catch {
+    return { erreur: 'Coffre des recoupements illisible avec les clés remises.' }
+  }
+
+  const borneNum = String(numero || '').trim().toLowerCase()
+  const toucheDossier = (s) => !borneNum || (s.occurrences || []).some((o) =>
+    String(o.dossier?.numero || '').toLowerCase().includes(borneNum)
+    || String(o.dossier?.label || '').toLowerCase().includes(borneNum))
+
+  let signaux = (r.signaux || [])
+  if (nature) signaux = signaux.filter((s) => s.kind === nature)
+  if (inedits) signaux = signaux.filter((s) => s.pontInedit)
+  if (borneNum) signaux = signaux.filter(toucheDossier)
+
+  const total = signaux.length
+  const page = signaux.slice(offset, offset + Math.min(Math.max(1, limite), 100)).map((s) => {
+    const parDossier = new Map()
+    for (const o of s.occurrences || []) {
+      const cle = o.dossier?.key || o.dossier?.numero || '?'
+      if (!parDossier.has(cle)) parDossier.set(cle, [])
+      const liste = parDossier.get(cle)
+      if (liste.length >= 2) continue // 2 occurrences par dossier suffisent à citer
+      liste.push({
+        dossier: o.dossier?.numero || o.dossier?.label,
+        ou: LIBELLE_ORIGINE[o.origine] || o.origine,
+        detail: o.detail,
+        valeur: o.valeurBrute,
+        extrait: o.extrait ? String(o.extrait).slice(0, 200) : undefined,
+      })
+    }
+    return {
+      nature: LIBELLE_KIND[s.kind] || s.kind,
+      valeur: s.valeur,
+      score: s.score,
+      pontInedit: s.pontInedit || undefined,
+      dossiers: [...parDossier.keys()],
+      occurrences: [...parDossier.values()].flat(),
+    }
+  })
+
+  return {
+    calculeAt: r.calculeAt,
+    perimetre: r.perimetre,
+    total,
+    offset,
+    signaux: page,
+    note: 'Signaux triés du plus solide au plus faible par le chantier. « pontInedit » = les dossiers du signal ne partagent AUCUN mis en cause déclaré : le rapprochement que rien ne montrait encore. Vérifier chaque signal dans les pièces citées (lire_document) avant d\'en conclure quoi que ce soit.',
   }
 }

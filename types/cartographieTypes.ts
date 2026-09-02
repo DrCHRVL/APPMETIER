@@ -5,6 +5,11 @@
 // alourdir l'utilitaire de calcul, et exposable côté UI sans dépendance
 // au moteur de graphe.
 
+import {
+  DEFAULT_CARTO_TEMPORAL as DEFAULT_CARTO_TEMPORAL_CORE,
+  DEFAULT_CARTO_WEIGHTS as DEFAULT_CARTO_WEIGHTS_CORE,
+} from '@/lib/carto/scoreCore.mjs';
+
 /**
  * Pondérations utilisées par la formule de score MEC. Chaque champ est
  * exprimé en points bruts ; la formule additionne les contributions puis
@@ -181,27 +186,17 @@ export const DEFAULT_CARTO_LAYOUT: CartographieLayoutConfig = {
   linkDistance: 180,
 };
 
-/** Valeurs par défaut, alignées sur la formule MVP historique. */
+/** Valeurs par défaut, alignées sur la formule MVP historique. Les VALEURS
+ *  vivent dans le module PARTAGÉ lib/carto/scoreCore.mjs (une seule source :
+ *  le service attaché applique les mêmes défauts) ; ici on fixe le typage. */
 export const DEFAULT_CARTO_WEIGHTS: CartographieScoreWeights = {
-  dossier: 2,
-  contentieux: 3,
-  chefDefault: 0.3,
-  lienRenseignement: 0,
-  lienRenseignementInfractionCoef: 0.8,
-  lienMecPropagationCoef: 0.3,
-  lienMecPropagationHops: 2,
-  dossierPropagationCoef: 0.2,
+  ...DEFAULT_CARTO_WEIGHTS_CORE,
 };
 
 /** Valeurs par défaut de la pondération temporelle. Activée d'office : sans
  *  elle, un réseau démantelé il y a dix ans continue de dominer le Top. */
 export const DEFAULT_CARTO_TEMPORAL: CartographieTemporalConfig = {
-  enabled: true,
-  freshYears: 2,
-  staleYears: 10,
-  dormantMultiplier: 0.5,
-  continuityBonus: 0.3,
-  continuityYears: 4,
+  ...DEFAULT_CARTO_TEMPORAL_CORE,
 };
 
 export const DEFAULT_CARTO_CONFIG: CartographieModuleConfig = {

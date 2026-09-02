@@ -65,11 +65,9 @@ export type MecRoleId = 'lieutenant' | 'chef_reseau';
 
 /** Bonus de points FIXE apporté par chaque rôle, ajouté après la formule et
  *  le facteur temporel — comme le bonus manuel : un arbitrage humain ne se
- *  fait pas rogner par l'ancienneté. */
-export const MEC_ROLE_POINTS: Record<MecRoleId, number> = {
-  lieutenant: 15,
-  chef_reseau: 30,
-};
+ *  fait pas rogner par l'ancienneté. Valeurs dans le module PARTAGÉ
+ *  lib/carto/scoreCore.mjs — le service attaché applique les mêmes. */
+export const MEC_ROLE_POINTS: Record<MecRoleId, number> = MEC_ROLE_POINTS_CORE;
 
 export interface MecNode {
   type: 'mec';
@@ -336,43 +334,30 @@ export function sameMecPersonTokens(ta: string[], tb: string[], opts?: { allowSu
 // plusieurs contentieux distincts pèse plus qu'être ME plusieurs fois
 // sur le même dossier). Les pondérations sont éditables par l'utilisateur
 // depuis Paramètres > Module Cartographie.
+//
+// Le CALCUL lui-même (poids direct, score brut, facteur temporel,
+// contamination latente, années d'activité) vit dans le module PARTAGÉ
+// lib/carto/scoreCore.mjs : le service attaché applique EXACTEMENT la même
+// formule pour servir l'importance des personnes à l'IA. Ici, on ne fait
+// qu'ajouter le typage — même motif que nomsCore ci-dessus.
+
+import {
+  MEC_ROLE_POINTS as MEC_ROLE_POINTS_CORE,
+  computeDirectWeight as computeDirectWeightCore,
+  computeRawScore as computeRawScoreCore,
+  computeTemporalFactor as computeTemporalFactorCore,
+  enqueteActivityYears as enqueteActivityYearsCore,
+  parseApproxYears as parseApproxYearsCore,
+  propagateLatentScore as propagateLatentScoreCore,
+  yearOfDate as yearOfDateCore,
+} from '@/lib/carto/scoreCore.mjs';
 
 const RECENT_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
-
-// Amplitude maximale (en années) retenue pour un seul dossier. Garde-fou
-// contre une date aberrante ("1998" saisi pour 2018) qui gonflerait
-// artificiellement le bonus de continuité.
-const MAX_DOSSIER_SPAN_YEARS = 25;
-// Bornes de plausibilité d'une année judiciaire.
-const MIN_PLAUSIBLE_YEAR = 1950;
 
 /** Année d'une date ISO (ou d'un texte contenant une année). undefined si
  *  rien d'exploitable ou si l'année sort des bornes de plausibilité. */
 function yearOfDate(value: string | undefined | null): number | undefined {
-  if (!value) return undefined;
-  const parsed = Date.parse(value);
-  let year: number;
-  if (!Number.isNaN(parsed)) {
-    year = new Date(parsed).getFullYear();
-  } else {
-    // Formats non ISO ("31/12/2019", "décembre 2019") : on récupère la
-    // première année à 4 chiffres.
-    const m = /(19|20|21)\d{2}/.exec(value);
-    if (!m) return undefined;
-    year = parseInt(m[0], 10);
-  }
-  if (!Number.isFinite(year) || year < MIN_PLAUSIBLE_YEAR || year > 2200) return undefined;
-  return year;
-}
-
-/** Intervalle d'années [start..end] borné, sous forme de liste. */
-function yearRange(start: number, end: number): number[] {
-  const from = Math.min(start, end);
-  const to = Math.max(start, end);
-  const clampedFrom = Math.max(from, to - MAX_DOSSIER_SPAN_YEARS);
-  const out: number[] = [];
-  for (let y = clampedFrom; y <= to; y++) out.push(y);
-  return out;
+  return yearOfDateCore(value);
 }
 
 /**
@@ -383,30 +368,8 @@ function yearRange(start: number, end: number): number[] {
  * À défaut de toute date judiciaire, on retombe sur la date de création.
  */
 function enqueteActivityYears(enquete: Enquete, nowYear: number): number[] {
-  const marks: number[] = [];
-  const push = (v: string | undefined) => {
-    const y = yearOfDate(v);
-    if (y !== undefined) marks.push(y);
-  };
-  push(enquete.dateDebut);
-  push(enquete.dateOP);
-  for (const phase of enquete.opPhases || []) {
-    push(phase.dateDebut);
-    push(phase.dateFin);
-  }
-  push(enquete.dateAudience);
-  if (marks.length === 0) push(enquete.dateCreation);
-  if (marks.length === 0) return [];
-  // Une audience programmée l'an prochain ne rend pas le dossier « futur » :
-  // on borne au millésime courant.
-  const end = Math.min(nowYear, Math.max(...marks));
-  const start = Math.min(Math.min(...marks), end);
-  return yearRange(start, end);
+  return enqueteActivityYearsCore(enquete, nowYear);
 }
-
-// Séparateurs qui expriment une PÉRIODE entre deux millésimes ("2018-2020",
-// "2016 à 2019", "de 2015 au 2017").
-const RANGE_SEPARATOR = /^[\s,]*(?:-|–|—|\/|à|a|au|jusqu['’]?\s*à|>)[\s,]*$/i;
 
 /**
  * Extrait les années d'un champ « date approximative » saisi librement sur un
@@ -414,28 +377,7 @@ const RANGE_SEPARATOR = /^[\s,]*(?:-|–|—|\/|à|a|au|jusqu['’]?\s*à|>)[\s,
  * Les millésimes séparés par un tiret (ou « à ») sont développés en période.
  */
 export function parseApproxYears(text: string | undefined, nowYear: number): number[] {
-  if (!text) return [];
-  const re = /(19|20|21)\d{2}/g;
-  const found: Array<{ year: number; start: number; end: number }> = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    found.push({ year: parseInt(m[0], 10), start: m.index, end: m.index + m[0].length });
-  }
-  if (found.length === 0) return [];
-  const years = new Set<number>();
-  for (let i = 0; i < found.length; i++) {
-    const cur = found[i];
-    if (cur.year >= MIN_PLAUSIBLE_YEAR) years.add(Math.min(cur.year, nowYear));
-    const next = found[i + 1];
-    if (!next) continue;
-    const between = text.slice(cur.end, next.start);
-    if (next.year > cur.year && RANGE_SEPARATOR.test(between)) {
-      for (const y of yearRange(cur.year, Math.min(next.year, nowYear))) {
-        if (y >= MIN_PLAUSIBLE_YEAR) years.add(y);
-      }
-    }
-  }
-  return [...years].sort((a, b) => a - b);
+  return parseApproxYearsCore(text, nowYear);
 }
 
 /**
@@ -456,23 +398,7 @@ export function computeTemporalFactor(
   temporal: CartographieTemporalConfig,
   nowYear: number,
 ): number {
-  if (!temporal.enabled || years.length === 0) return 1;
-
-  const fresh = Math.max(0, temporal.freshYears);
-  const stale = Math.max(fresh + 1, temporal.staleYears);
-  const dormant = Math.max(0, temporal.dormantMultiplier);
-  const age = Math.max(0, nowYear - years[years.length - 1]);
-
-  let recency: number;
-  if (age <= fresh) recency = 1;
-  else if (age >= stale) recency = dormant;
-  else recency = 1 + ((age - fresh) / (stale - fresh)) * (dormant - 1);
-
-  const plateau = Math.max(1, temporal.continuityYears);
-  const ratio = plateau <= 1 ? 1 : Math.min(1, (years.length - 1) / (plateau - 1));
-  const continuity = 1 + Math.max(0, temporal.continuityBonus) * ratio;
-
-  return recency * continuity;
+  return computeTemporalFactorCore(years, temporal, nowYear);
 }
 
 /**
@@ -493,57 +419,20 @@ function computeDirectWeight(
   mec: Omit<MecNode, 'score' | 'rawScore' | 'type'>,
   weights: CartographieScoreWeights,
 ): number {
-  // Le nombre de MISES EN EXAMEN ne pèse plus : on s'en tient à la mise en
-  // cause au sens large. Le compteur reste tenu et affiché, à titre indicatif.
-  return (
-    mec.dossierIds.length * weights.dossier +
-    mec.contentieuxIds.length * weights.contentieux +
-    mec.nbChefs * weights.chefDefault +
-    mec.infractionWeight
-  );
+  return computeDirectWeightCore(mec, weights);
 }
 
 function computeRawScore(
   mec: Omit<MecNode, 'score' | 'rawScore' | 'type'>,
   weights: CartographieScoreWeights,
 ): number {
-  const raw =
-    computeDirectWeight(mec, weights) +
-    mec.nbLiensRenseignement * weights.lienRenseignement;
-  // La contamination latente s'ajoute APRÈS le facteur temporel : elle est
-  // déjà pondérée à la source (par l'ancienneté du voisin qui l'émet), la
-  // repasser par l'ancienneté du receveur la pénaliserait deux fois — et un
-  // individu sans dossier n'a de toute façon aucune date à lui.
-  return raw * mec.temporalFactor + mec.propagatedWeight;
+  return computeRawScoreCore(mec, weights);
 }
 
 /**
- * CONTAMINATION LATENTE — diffuse le poids des MEC dans leur entourage.
- *
- * Motif : peser quelque chose parce qu'on gravite autour d'une figure lourde,
- * quelle que soit la façon dont ce voisinage est établi. Deux routes, chacune
- * avec son coefficient de transmission :
- *
- *  1. LIEN DE RENSEIGNEMENT personne ↔ personne (`lienMecPropagationCoef`) —
- *     le voisinage tracé à la main, quand la procédure n'a pas permis mieux.
- *
- *  2. CO-PRÉSENCE DANS UN DOSSIER (`dossierPropagationCoef`) — le dossier
- *     relaie vers chacun de ses membres le poids du membre le PLUS LOURD des
- *     autres (le chef reçoit donc celui de son meilleur second). Sont membres
- *     aussi bien les mis en cause que les personnes rattachées au dossier par
- *     un lien de renseignement.
- *
- * Pourquoi le plus lourd, et non la somme des autres membres : sommer ferait
- * du score une mesure de la TAILLE des dossiers (trente comparses valant plus
- * qu'un chef), et exploserait sur les grosses procédures. Ce qui compte est
- * la pointure avec qui on figure, pas le nombre de gens autour.
- *
- * Mécanique commune : on remonte, depuis chaque MEC, les chemins d'entourage
- * jusqu'à `hops` sauts ; un voisin atteint à plusieurs chemins ne compte
- * qu'une fois, au MEILLEUR chemin (produit des coefficients le plus fort).
- * La quantité émise est toujours le poids DIRECT du voisin (jamais ce qu'il a
- * lui-même reçu) : la diffusion ne s'auto-amplifie pas, ne boucle pas, et ne
- * dépend pas de l'ordre de calcul.
+ * CONTAMINATION LATENTE — diffuse le poids des MEC dans leur entourage, par
+ * deux routes (lien de renseignement personne ↔ personne, co-présence dans un
+ * dossier). Mécanique et doctrine complètes dans lib/carto/scoreCore.mjs.
  */
 function propagateLatentScore(
   mecById: Map<string, MecNode>,
@@ -551,111 +440,7 @@ function propagateLatentScore(
   mecsByDossier: Map<string, Set<string>>,
   weights: CartographieScoreWeights,
 ): void {
-  const coefLien = weights.lienMecPropagationCoef ?? DEFAULT_CARTO_WEIGHTS.lienMecPropagationCoef;
-  const coefDossier = weights.dossierPropagationCoef ?? DEFAULT_CARTO_WEIGHTS.dossierPropagationCoef;
-  const hops = Math.floor(
-    weights.lienMecPropagationHops ?? DEFAULT_CARTO_WEIGHTS.lienMecPropagationHops,
-  );
-  for (const [id, voisins] of voisinsByMec) {
-    const mec = mecById.get(id);
-    if (mec) mec.nbMecVoisins = voisins.size;
-  }
-  if (hops < 1 || (!(coefLien > 0) && !(coefDossier > 0))) return;
-
-  // Poids émis par chaque MEC, figé AVANT toute diffusion.
-  const emis = new Map<string, number>();
-  for (const [id, mec] of mecById) {
-    const direct = computeDirectWeight(mec, weights) * mec.temporalFactor;
-    if (direct > 0) emis.set(id, direct);
-  }
-  if (emis.size === 0) return;
-
-  // Arêtes d'entourage, orientées « qui reçoit ← qui émet ». Un même émetteur
-  // peut apparaître par les deux routes (co-dossier ET lien) ou par plusieurs
-  // dossiers : la relaxation ne retiendra que son meilleur coefficient, il
-  // n'est donc jamais compté deux fois.
-  type Source = { from: string; coef: number; via: 'lien' | 'dossier' };
-  const sourcesByMec = new Map<string, Source[]>();
-  const addSource = (to: string, source: Source) => {
-    const list = sourcesByMec.get(to);
-    if (list) list.push(source);
-    else sourcesByMec.set(to, [source]);
-  };
-
-  if (coefLien > 0) {
-    for (const [id, voisins] of voisinsByMec) {
-      for (const v of voisins) addSource(id, { from: v, coef: coefLien, via: 'lien' });
-    }
-  }
-
-  if (coefDossier > 0) {
-    for (const membres of mecsByDossier.values()) {
-      if (membres.size < 2) continue;
-      // Les deux plus lourds du dossier suffisent : tout le monde reçoit du
-      // premier, sauf le premier lui-même qui reçoit du second.
-      let premier: string | undefined;
-      let second: string | undefined;
-      for (const m of membres) {
-        const poids = emis.get(m) ?? 0;
-        if (poids <= 0) continue;
-        if (premier === undefined || poids > (emis.get(premier) ?? 0)) {
-          second = premier;
-          premier = m;
-        } else if (second === undefined || poids > (emis.get(second) ?? 0)) {
-          second = m;
-        }
-      }
-      if (premier === undefined) continue;
-      for (const m of membres) {
-        const from = m === premier ? second : premier;
-        if (from === undefined) continue;
-        addSource(m, { from, coef: coefDossier, via: 'dossier' });
-      }
-    }
-  }
-  if (sourcesByMec.size === 0) return;
-
-  for (const [id, cible] of mecById) {
-    if (!sourcesByMec.has(id)) continue;
-
-    // Relaxation par couches : `facteur` retient, pour chaque émetteur atteint,
-    // le meilleur produit de coefficients trouvé jusqu'ici (les coefficients
-    // valant ≤ 1, un chemin plus long ne peut que faire moins bien).
-    const facteur = new Map<string, { coef: number; via: 'lien' | 'dossier' }>();
-    let frontiere: Array<[string, number]> = [[id, 1]];
-    for (let d = 0; d < hops && frontiere.length > 0; d++) {
-      const suivante: Array<[string, number]> = [];
-      for (const [noeud, acquis] of frontiere) {
-        for (const src of sourcesByMec.get(noeud) ?? []) {
-          if (src.from === id) continue;
-          const combine = acquis * src.coef;
-          const connu = facteur.get(src.from);
-          if (connu && connu.coef >= combine) continue;
-          facteur.set(src.from, { coef: combine, via: src.via });
-          suivante.push([src.from, combine]);
-        }
-      }
-      frontiere = suivante;
-    }
-
-    let recu = 0;
-    const contributeurs: NonNullable<MecNode['propagationTop']> = [];
-    for (const [from, { coef, via }] of facteur) {
-      const points = (emis.get(from) ?? 0) * coef;
-      if (points <= 0) continue;
-      recu += points;
-      contributeurs.push({
-        mecId: from,
-        displayName: mecById.get(from)?.displayName ?? from,
-        points,
-        via,
-      });
-    }
-    cible.propagatedWeight = recu;
-    if (contributeurs.length > 0) {
-      cible.propagationTop = contributeurs.sort((a, b) => b.points - a.points).slice(0, 3);
-    }
-  }
+  propagateLatentScoreCore(mecById, voisinsByMec, mecsByDossier, weights);
 }
 
 // ──────────────────────────────────────────────

@@ -50,7 +50,7 @@ Trois règles, dans cet ordre :
 
 | Nature | Exemple | Comment |
 |---|---|---|
-| `personne` | « DOMONT Sherazed » ↔ « sherazed domont » | ordre Nom/Prénom indifférent, coquille tolérée, composé recollé — exactement les règles de la cartographie (`sameMecPerson`) |
+| `personne` | « DOMONT Sherazed » ↔ « sherazed domont » | ordre Nom/Prénom indifférent, coquille tolérée, graphie phonétiquement équivalente étroitement bornée (« Yacine » ↔ « Yassine »), composé recollé — exactement les règles de la cartographie (`sameMecPerson`) |
 | `patronyme` | « MEON Bryan » ↔ « MEON Louan » | même nom de famille, prénoms différents : lien familial possible |
 | `telephone` | « 06.79.55.13.84 » ↔ « +33 6 79 55 13 84 » | ramené à 10 chiffres |
 | `adresse` | « 16 rue Balzac » ↔ « 16 rue balzac appt 7 à AMIENS » | numéro + type de voie + nom, complément coupé |
@@ -79,9 +79,12 @@ institutions, en-têtes) et l'exigence d'un numéro dans les adresses de voie.
 Un signal dont les dossiers ne partagent **aucun** mis en cause est marqué
 « inédit » et remonte en tête : c'est le pont qui n'existait pas encore.
 
-Enfin, la veille ne rend que les **200 signaux les mieux notés** (et au plus
-huit occurrences par signal, dont une par dossier au minimum) : au-delà, une
-liste cesse d'être lisible.
+Enfin, la veille borne sa restitution (2 000 signaux les mieux notés, 40
+occurrences par signal dont au plus 6 par dossier et une par dossier au
+minimum — cf. `DEFAUTS` dans `moteurCore.mjs`) : au-delà, une liste cesse
+d'être lisible. Ces plafonds étaient bien plus bas du temps du calcul dans
+le navigateur ; ils sont ceux d'un affichage raisonnable, plus ceux d'une
+mémoire qui manque.
 
 ## Ce qu'il lit
 
@@ -124,6 +127,7 @@ le compte exact : « 2 700/2 700 pièces lues », ou ce qu'il en reste.
 | Fiche d'enquête / d'instruction | une ligne repliée sous l'en-tête : « N recoupements avec d'autres dossiers ». La déplier vaut « j'ai vu ». |
 | En-tête de l'application | une icône de chaînon, avec une pastille comptant les signaux jamais consultés. **Toujours présente** — pâlie quand il n'y a rien à montrer, mais jamais retirée : c'est le seul chemin vers la vue d'ensemble, donc vers la relance du chantier. |
 | Vue d'ensemble (clic sur l'icône) | tous les signaux, le plus solide d'abord, l'onglet « Écartés », la **date du dernier chantier** et ce qu'il a pu lire. L'administrateur y trouve « Lancer maintenant ». |
+| Attaché IA / connecteur | l'outil **`recoupements_lire`** sert les signaux à l'IA (filtres par dossier, nature, `inedits` ; occurrences écrêtées) — la veille cesse d'être un coffre que seule l'application lisait. Un signal reste un signalement : l'IA vérifie dans les pièces citées avant tout `proposer_lien`. |
 
 L'icône a été un temps masquée quand il n'y avait aucun signal. C'était une
 impasse : sur un fonds neuf, aucun chantier n'ayant tourné, il n'y avait rien à

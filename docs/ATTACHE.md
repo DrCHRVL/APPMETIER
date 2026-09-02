@@ -567,6 +567,21 @@ l'usage).
   pause sur instruction explicite. Le devis déposé depuis une conversation est
   signalé comme tel dans l'atelier. Fini les réponses qui se terminent par une
   réserve d'exhaustivité sans issue : la réserve devient un devis.
+- **Le graphe de la carte, CALCULÉ côté serveur (`carto_analyser`,
+  `carto_chemin`)** : l'IA ne raisonne plus sur des listes — elle reçoit le
+  **score d'importance de la carte** (même formule, mêmes pondérations que
+  l'écran : module partagé `lib/carto/scoreCore.mjs` + coffre
+  `cartographie-config`), décomposé composant par composant (dossiers,
+  chefs, gravité NATINF, facteur temporel, entourage, bonus et rôles du
+  magistrat) ; la **centralité d'intermédiarité** (Brandes — les courtiers
+  par qui passent les chemins, souvent invisibles au degré) ; les
+  **communautés** (Louvain — les cellules telles que la structure les
+  dessine, à confronter aux camps cochés à la main) ; et `carto_chemin`
+  répond à « qu'est-ce qui relie X à Y ? » par les plus courts chemins,
+  chaque saut citant sa provenance (dossier partagé, lien tracé). Zéro
+  jeton, zéro écriture. Il lit aussi les **signaux de la veille des
+  recoupements** (`recoupements_lire` — pièces et OCR compris, filtres par
+  dossier/nature, `inedits` pour les ponts sans aucun mis en cause commun).
 - **Analyse transversale de renseignement (cartographie)** : sur demande
   (« analyse tous les dossiers et trouve les liens cachés ») ou en routine,
   l'attaché balaie le **corpus complet** — toutes les enquêtes (archivées
