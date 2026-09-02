@@ -155,7 +155,7 @@ export async function GET(req: Request) {
         <li>chaque écriture est <b>journalisée</b> dans votre audit (contexte « connecteur »).</li>
       </ul>
       <p>Personne d'autre que vous ne peut accorder ni utiliser cet accès. Révocable à tout moment :
-      Paramètres → Attaché IA → Connecteur Claude web.</p>
+      Paramètres → Attaché → Connecteur Claude web.</p>
       <div class="row">
         <button class="no" id="deny">Refuser</button>
         <button class="ok" id="allow">Autoriser</button>

@@ -411,7 +411,7 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
       <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
         <Library className="h-4 w-4 text-[#2B5746]" />
         <span className="text-sm font-semibold text-gray-800">Base de connaissances</span>
-        <span className="text-[11px] text-gray-400">le cerveau documentaire de l&apos;attaché — markdown, arborescence préservée, classement IA · ★ documents réflexes</span>
+        <span className="text-[11px] text-gray-400">le cerveau documentaire de l&apos;attaché — markdown, arborescence préservée, classement automatique · ★ documents réflexes</span>
         <input ref={fileInput} type="file" multiple className="hidden"
           onChange={(e) => { stage(incomingFromFileList(e.target.files)); e.currentTarget.value = ''; }} />
         <input ref={folderInput} type="file" multiple className="hidden" {...({ webkitdirectory: '' } as Record<string, string>)}

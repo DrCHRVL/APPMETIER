@@ -48,7 +48,7 @@ export function runKey(numero: string, prodId: string): string {
 /** Libellé unique du toast de fin — partagé entre la section et le watcher. */
 export function acteDoneToastMessage(numero: string, titre: string, kind: ActeRunKind): string {
   const verbe = kind === 'retouche' ? 'retouché' : 'réécrit';
-  return `Enquête ${numero} — « ${titre} » ${verbe} par l'IA. Relisez l'acte.`;
+  return `Enquête ${numero} — « ${titre} » ${verbe} par l'attaché. Relisez l'acte.`;
 }
 
 function readStored(): Record<string, ActeRun> {

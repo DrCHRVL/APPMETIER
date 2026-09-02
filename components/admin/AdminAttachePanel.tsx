@@ -1192,14 +1192,14 @@ export function AdminAttachePanel() {
               const ok = await definirIaMasquee(cible);
               setNotice(ok
                 ? (cible
-                  ? 'Fonctionnalités IA masquées — cet onglet reste votre porte de retour.'
-                  : 'Fonctionnalités IA rétablies.')
+                  ? 'Fonctionnalités masquées — cet onglet reste votre porte de retour.'
+                  : 'Fonctionnalités rétablies.')
                 : 'Le serveur a refusé le changement — réessayez.');
             }}
             className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#2B5746] focus:ring-[#2B5746]"
           />
           <span className="text-sm">
-            <span className="font-semibold text-gray-900">Masquer toutes les fonctionnalités IA</span>
+            <span className="font-semibold text-gray-900">Masquer toutes les fonctionnalités</span>
             <span className="mt-0.5 block text-xs leading-relaxed text-gray-500">
               Retire de l&apos;application l&apos;entrée « Assistant de justice », sa page, le raccourci de la
               barre du haut, les actes rédigés des fiches dossier, le chat de dossier, les propositions
@@ -1291,7 +1291,7 @@ export function AdminAttachePanel() {
     <div className="space-y-4 p-2">
       <div className="flex items-center gap-2">
         <Scale className="h-5 w-5 text-[#2B5746]" />
-        <h3 className="text-base font-semibold text-gray-900">Attaché de justice (IA)</h3>
+        <h3 className="text-base font-semibold text-gray-900">Attaché de justice</h3>
         <button onClick={() => { refresh(); loadDiag(); }} className="ml-auto rounded-md p-1.5 text-gray-400 hover:bg-gray-50 hover:text-gray-600" title="Actualiser">
           <RefreshCw className="h-4 w-4" />
         </button>
@@ -1831,7 +1831,7 @@ export function AdminAttachePanel() {
       <div className="rounded-xl border border-gray-200">
         <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
           <Gauge className="h-4 w-4 text-[#2B5746]" />
-          <span className="text-sm font-semibold text-gray-800">Consommation IA</span>
+          <span className="text-sm font-semibold text-gray-800">Consommation</span>
           <span className="text-[11px] text-gray-400">où passent vos jetons — mesuré à chaque run</span>
           <button
             onClick={loadUsage}
@@ -2170,7 +2170,7 @@ export function AdminAttachePanel() {
             <span className="text-[10.5px] text-gray-400">
               Optionnel : tout part tout seul (accumulation, budget dépassé, ou au plus tard sous {appr?.cadenceJours ?? 7} jours dès le
               premier signal) — ce bouton sert seulement à ne pas attendre. La mémoire distillée reste lisible et corrigeable
-              (icône livre du panneau) ; le coût des consolidations apparaît dans « Consommation IA », poste « Apprentissage ».
+              (icône livre du panneau) ; le coût des consolidations apparaît dans « Consommation », poste « Apprentissage ».
             </span>
           </div>
 

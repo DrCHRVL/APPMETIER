@@ -362,7 +362,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
       if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({ error: 'Service indisponible' }));
         finishRun(p.numero, p.id);
-        setNotice(`Demande à l'IA impossible : ${err.error || res.status}`);
+        setNotice(`Demande à l'attaché impossible : ${err.error || res.status}`);
         return false;
       }
       const reader = res.body.getReader();
@@ -404,7 +404,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
       // Connexion interrompue CÔTÉ CLIENT (navigation, réseau) : le run peut
       // très bien se terminer côté service. On NE clôt PAS le run — le watcher
       // global prendra le relais et signalera la fin.
-      setNotice('Demande à l\'IA impossible — connexion interrompue.');
+      setNotice('Demande à l\'attaché impossible — connexion interrompue.');
       return false;
     } finally {
       setChatBusy(null);
@@ -434,7 +434,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
     ].join('\n');
     if (await runActeChat(p, message, 'retouche')) {
       setAiInput((m) => ({ ...m, [p.id]: '' }));
-      setNotice(`« ${p.titre} » retouché par l'IA — relisez la nouvelle version.`);
+      setNotice(`« ${p.titre} » retouché par l'attaché — relisez la nouvelle version.`);
     }
   }, [aiInput, chatBusy, runActeChat]);
 
@@ -479,7 +479,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
     );
     if (await runActeChat(p, lignes.join('\n'), mode === 'mail' ? 'redo-mail' : 'redo-instruction')) {
       if (mode === 'instruction') setRedoInput((m) => ({ ...m, [p.id]: '' }));
-      setNotice(`« ${p.titre} » recommencé par l'IA — relisez la nouvelle version.`);
+      setNotice(`« ${p.titre} » recommencé par l'attaché — relisez la nouvelle version.`);
     }
   }, [chatBusy, redoInput, runActeChat]);
 
@@ -519,7 +519,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
           {degrade && (
             <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11.5px] leading-snug text-amber-900">
               Service attaché injoignable — <b>lecture seule</b>. Vos actes sont là et s&apos;ouvrent
-              normalement ; validation, édition et retouche IA reprendront dès que le service
+              normalement ; validation, édition et retouche reprendront dès que le service
               répondra (diagnostic : Paramètres → Attaché).
             </p>
           )}
@@ -561,7 +561,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
                       {p.traite && !p.refuse && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-[#2B5746]">Validé</span>}
                       {/* Indicateur DURABLE « modification en cours » : reste visible même acte replié et après rechargement, jusqu'à ce que le watcher détecte la fin. */}
                       {isRunning(p.id) && (
-                        <span className="inline-flex items-center gap-1 rounded bg-[#2B5746]/10 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-[#2B5746]" title="L'IA retouche cet acte — le travail continue en arrière-plan, vous serez prévenu à la fin.">
+                        <span className="inline-flex items-center gap-1 rounded bg-[#2B5746]/10 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-[#2B5746]" title="L'attaché retouche cet acte — le travail continue en arrière-plan, vous serez prévenu à la fin.">
                           <Loader2 className="h-2.5 w-2.5 animate-spin" />En cours
                         </span>
                       )}
@@ -701,7 +701,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
                               className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-[#2B5746] px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40"
                               title="L'attaché relit l'acte, applique votre demande en suivant la trame et la skill, puis réécrit l'acte — retouche ciblée, sans repartir de zéro"
                             >
-                              {runKindOf(p.id) === 'retouche' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}Demander à l'IA
+                              {runKindOf(p.id) === 'retouche' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}Demander à l'attaché
                             </button>
                           </div>
                         </div>

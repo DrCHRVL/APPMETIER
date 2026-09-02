@@ -653,7 +653,7 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
               {onEnrichRequest && (
                 <button
                   onClick={() => onEnrichRequest(mec)}
-                  title="Demander à l'attaché IA de rechercher cette personne dans les dossiers et pièces, puis de PROPOSER un enrichissement de la fiche (✓/✗ — vos notes ne sont jamais modifiées ni effacées)"
+                  title="Demander à l'attaché de rechercher cette personne dans les dossiers et pièces, puis de PROPOSER un enrichissement de la fiche (✓/✗ — vos notes ne sont jamais modifiées ni effacées)"
                   className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
                 >
                   <Sparkles className="h-3 w-3" />
