@@ -283,7 +283,7 @@ export function MoniteurActivite({ isAdmin = false }: { isAdmin?: boolean }) {
                         <div className="font-medium tabular-nums">{attache.memoire.rssMB} Mo</div>
                       </div>
                       <div className="rounded-lg bg-gray-50 p-2">
-                        <div className="text-[11px] text-gray-500">Runs IA en cours</div>
+                        <div className="text-[11px] text-gray-500">Runs en cours</div>
                         <div className="font-medium tabular-nums">{attache.runsEnCours}{attache.chantierActif ? ' · chantier actif' : ''}</div>
                       </div>
                     </div>

@@ -541,13 +541,13 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
         <div className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[11.5px] text-amber-800">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
           <span>
-            {!keyringOk && 'Le trousseau n\'a pas été remis : Paramètres → Attaché IA → « Remettre les clés ». '}
+            {!keyringOk && 'Le trousseau n\'a pas été remis : Paramètres → Attaché → « Remettre les clés ». '}
             {!claudeOk && (
               <>
                 {status?.claude?.auth?.raison
                   ? `Claude Code n'est plus connecté : ${status.claude.auth.raison}. `
                   : 'Claude Code n\'est pas authentifié sur le serveur. '}
-                Paramètres → Attaché IA → « Connexion Claude Code » pour coller un nouveau jeton.
+                Paramètres → Attaché → « Connexion Claude Code » pour coller un nouveau jeton.
               </>
             )}
           </span>
@@ -783,7 +783,7 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
           />
           <div className="border-t border-gray-100 px-4 py-1.5 text-[10.5px] text-gray-400">
             {memoryText.length.toLocaleString('fr-FR')} caractères — relus à chaque intervention. L'attaché la
-            consolide périodiquement (leçons de vos corrections distillées, budget strict) : Paramètres → Attaché IA → Apprentissage.
+            consolide périodiquement (leçons de vos corrections distillées, budget strict) : Paramètres → Attaché → Apprentissage.
           </div>
           <div className="flex justify-end gap-2 border-t border-gray-200 p-3">
             <button onClick={() => setShowMemory(false)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">Annuler</button>

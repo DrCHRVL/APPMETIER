@@ -64,7 +64,7 @@ export const AssistantJusticePage = ({ onOpenDossier, serviceInjoignable }: {
               Vos actes rédigés, propositions et conversations sont intacts sur le serveur : c'est le
               service qui ne répond pas (conteneur arrêté, redémarrage en cours, ou machine saturée).
               L'application se raccroche toute seule dès qu'il répond de nouveau.
-              Le détail du diagnostic est dans <b>Paramètres → Attaché IA</b>.
+              Le détail du diagnostic est dans <b>Paramètres → Attaché</b>.
             </p>
           </div>
         </div>
