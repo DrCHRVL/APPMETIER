@@ -82,12 +82,12 @@ export const AnalyseDocumentsModal = ({
   const analyzeDocs = useCallback(async (docs: ScannedDocument[]): Promise<AnalysisResult> => {
     const useAI = engineRef.current === 'ia' && aiAvailableRef.current;
     if (useAI) {
-      setProgress(`Analyse IA de ${docs.length} document(s) — lecture des actes et de la chaîne légale…`);
+      setProgress(`Analyse assistée de ${docs.length} document(s) — lecture des actes et de la chaîne légale…`);
       try {
         return await ServerDocumentScanner.analyzeExternalDocumentsAI(enquete, docs);
       } catch (error) {
-        console.warn('Analyse IA indisponible, repli sur le moteur classique:', error);
-        showToast('Analyse IA indisponible — repli sur l\'analyse classique', 'warning');
+        console.warn('Analyse assistée indisponible, repli sur le moteur classique:', error);
+        showToast('Analyse assistée indisponible — repli sur l\'analyse classique', 'warning');
         setProgress(`Analyse classique de ${docs.length} document(s)…`);
       }
     }
@@ -103,7 +103,7 @@ export const AnalyseDocumentsModal = ({
     if (!precomputedDocs || precomputedDocs.length === 0) {
       setScanError(
         'Aucune pièce à analyser ici : téléversez les PDF dans une zone de la section '
-        + 'Documents de l\'enquête, puis cliquez « Analyser (IA) » dans la bannière qui apparaît.'
+        + 'Documents de l\'enquête, puis cliquez « Analyser » dans la bannière qui apparaît.'
       );
       return;
     }
@@ -269,7 +269,7 @@ export const AnalyseDocumentsModal = ({
             Analyse automatique des documents
             {aiAvailable && engine === 'ia' && (
               <Badge className="ml-1 bg-violet-100 text-violet-700 border border-violet-200 gap-1 text-xs">
-                <Sparkles className="h-3 w-3" /> IA
+                <Sparkles className="h-3 w-3" />
               </Badge>
             )}
           </DialogTitle>
@@ -280,7 +280,7 @@ export const AnalyseDocumentsModal = ({
           <div className="flex items-center justify-between rounded-lg border border-violet-200/70 bg-violet-50/50 px-3 py-2">
             <div className="flex items-center gap-2 text-xs text-violet-800">
               <Sparkles className="h-3.5 w-3.5 text-violet-600" />
-              <span className="font-medium">Analyse assistée par l&apos;IA</span>
+              <span className="font-medium">Analyse assistée</span>
               <span className="text-violet-500/80 hidden sm:inline">— lecture fine des actes et de la chaîne légale, réservée à l&apos;administrateur</span>
             </div>
             <div className="flex items-center gap-1 rounded-md bg-white border border-violet-200 p-0.5">
@@ -291,7 +291,7 @@ export const AnalyseDocumentsModal = ({
                   engine === 'ia' ? 'bg-violet-600 text-white' : 'text-violet-700 hover:bg-violet-50'
                 }`}
               >
-                <Sparkles className="h-3 w-3" /> IA
+                <Sparkles className="h-3 w-3" /> Assistée
               </button>
               <button
                 type="button"
@@ -299,7 +299,7 @@ export const AnalyseDocumentsModal = ({
                 className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
                   engine === 'regex' ? 'bg-gray-700 text-white' : 'text-gray-600 hover:bg-gray-50'
                 }`}
-                title="Analyse par règles (heuristiques), sans IA"
+                title="Analyse par règles (heuristiques), sans assistance"
               >
                 <Cpu className="h-3 w-3" /> Classique
               </button>
@@ -323,7 +323,7 @@ export const AnalyseDocumentsModal = ({
                     <li>Proposer la création automatique des actes (après votre validation)</li>
                     {aiAvailable && engine === 'ia' && (
                       <li className="text-violet-700">
-                        <strong>Mode IA</strong> : lecture fine des ordonnances (formats atypiques, OCR bruité) et
+                        <strong>Mode assisté</strong> : lecture fine des ordonnances (formats atypiques, OCR bruité) et
                         évaluation de la chaîne légale par le modèle Claude de l&apos;attaché.
                       </li>
                     )}
@@ -331,7 +331,7 @@ export const AnalyseDocumentsModal = ({
                   <p className="text-xs mt-2">
                     {precomputedDocs && precomputedDocs.length > 0
                       ? `${precomputedDocs.length} pièce(s) prête(s) à analyser (converties au téléversement).`
-                      : 'Téléversez d\'abord les PDF dans une zone de la section Documents — la bannière « Analyser (IA) » lance alors l\'analyse.'}
+                      : 'Téléversez d\'abord les PDF dans une zone de la section Documents — la bannière « Analyser » lance alors l\'analyse.'}
                   </p>
                 </div>
               </div>
@@ -389,7 +389,7 @@ export const AnalyseDocumentsModal = ({
                 result.analyzedBy === 'ia' ? 'text-violet-600' : 'text-gray-400'
               }`}>
                 {result.analyzedBy === 'ia'
-                  ? <><Sparkles className="h-3 w-3" /> Analysé par l&apos;IA</>
+                  ? <><Sparkles className="h-3 w-3" /> Analyse assistée</>
                   : <><Cpu className="h-3 w-3" /> Analyse classique</>}
               </span>
             </div>
@@ -531,7 +531,7 @@ export const AnalyseDocumentsModal = ({
                           {acte.motif && (
                             <div className="flex items-start gap-1.5 rounded bg-violet-50 border border-violet-100 p-2">
                               <Sparkles className="h-3 w-3 text-violet-500 mt-0.5 flex-shrink-0" />
-                              <p className="text-violet-800"><span className="font-medium">Analyse IA :</span> {acte.motif}</p>
+                              <p className="text-violet-800"><span className="font-medium">Analyse assistée :</span> {acte.motif}</p>
                             </div>
                           )}
                           <p><span className="font-medium">Fichier :</span> {acte.source.fileName}</p>
@@ -674,7 +674,7 @@ export const AnalyseDocumentsModal = ({
                           {acte.motif && (
                             <div className="flex items-start gap-1.5 rounded bg-violet-50 border border-violet-100 p-2">
                               <Sparkles className="h-3 w-3 text-violet-500 mt-0.5 flex-shrink-0" />
-                              <p className="text-violet-800"><span className="font-medium">Analyse IA :</span> {acte.motif}</p>
+                              <p className="text-violet-800"><span className="font-medium">Analyse assistée :</span> {acte.motif}</p>
                             </div>
                           )}
                           <p><span className="font-medium">Fichier :</span> {acte.source.fileName}</p>
@@ -732,7 +732,7 @@ export const AnalyseDocumentsModal = ({
                   {result.alertes.length} document(s) manquant(s) dans la chaîne légale
                   {result.analyzedBy === 'ia' && (
                     <Badge className="ml-1 bg-violet-100 text-violet-700 border border-violet-200 gap-1 text-[10px] px-1.5 py-0">
-                      <Sparkles className="h-2.5 w-2.5" /> IA
+                      <Sparkles className="h-2.5 w-2.5" />
                     </Badge>
                   )}
                 </button>

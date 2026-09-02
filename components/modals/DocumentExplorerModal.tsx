@@ -314,7 +314,7 @@ export const DocumentExplorerModal = ({ isOpen, onClose, enquete, onUpdate }: Do
                     <button type="button" className="min-w-0 flex-1 truncate text-left hover:underline" title={doc.originalName || doc.rel} onClick={() => ouvrir(doc.rel)}>
                       {filter.trim() ? doc.rel : basename(doc.rel)}
                     </button>
-                    {aTexte(doc.rel) && <span className="rounded bg-emerald-100 px-1 text-[10px] font-medium text-emerald-700" title="Copie texte disponible pour l'IA">T</span>}
+                    {aTexte(doc.rel) && <span className="rounded bg-emerald-100 px-1 text-[10px] font-medium text-emerald-700" title="Copie texte disponible pour l'attaché">T</span>}
                     {doc.sha && (shaCounts.get(doc.sha) || 0) > 1 && (
                       <span className="rounded bg-orange-100 px-1 text-[10px] font-medium text-orange-700" title="Contenu strictement identique à une autre pièce du dossier (empreinte sha256 égale)">≡</span>
                     )}

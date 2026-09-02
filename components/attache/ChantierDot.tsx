@@ -13,6 +13,7 @@
  * n'atteint les autres utilisateurs.
  */
 import { useEffect, useRef, useState } from 'react';
+import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 
 const POLL_MS = 120_000;
 
@@ -50,7 +51,9 @@ export function useChantierActif(numero?: string): boolean {
 
 /** Le point lui-même — à poser dans un parent positionné (relative/fixed/absolute). */
 export function ChantierDot({ numero, className }: { numero?: string; className?: string }) {
+  const iaMasquee = useIaMasquee();
   const actif = useChantierActif(numero);
+  if (iaMasquee) return null;
   if (!actif) return null;
   return (
     <span

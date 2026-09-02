@@ -1100,6 +1100,20 @@ const server = http.createServer(async (req, res) => {
   try {
     if (route === 'GET /status') {
       const master = loadMasterKey()
+      // Sonde de présence de l'app (`?bref=1`) : répondre TOUT DE SUITE, sans
+      // lancer `claude --version` ni lire la boîte. C'est cette réponse qui
+      // décide de l'affichage du module côté navigateur — elle ne doit jamais
+      // dépendre d'un binaire à réveiller pendant qu'un run occupe la machine.
+      if (url.searchParams.get('bref') === '1') {
+        return json(res, 200, {
+          enabled: true,
+          bref: true,
+          tj: attacheTj(),
+          contentieux: attacheContentieux(),
+          masterKey: Boolean(master),
+          runsEnCours: running,
+        })
+      }
       const keys = master ? loadKeyring() : null
       const cli = await checkClaudeCli()
       const mail = mailConfig()

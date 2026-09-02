@@ -38,6 +38,7 @@ import { downloadActePptx, estPresentable } from '@/lib/web/pptxExport';
 import { downloadActeXlsx, contientTableaux } from '@/lib/web/xlsxExport';
 import { useToast } from '@/contexts/ToastContext';
 import { useActeRunsStore, runKey, acteDoneToastMessage } from '@/stores/useActeRunsStore';
+import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 import { messageProductionActe, useEnquetesStore } from '@/stores/useEnquetesStore';
 import type { ActeMeta } from '@/types/interfaces';
 
@@ -103,7 +104,13 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
    *  (ex. « chantier:<id> » — les fiches et la synthèse d'un chantier). */
   filtreSource?: string;
 }) {
+  // Interrupteur « fonctionnalités IA » : coché, les actes rédigés disparaissent
+  // des fiches dossier comme le reste de l'attaché.
+  const iaMasquee = useIaMasquee();
   const [available, setAvailable] = useState(false);
+  // Service attaché endormi : la liste vient du disque (repli de lecture de la
+  // route) — on affiche les actes, mais rien ne peut être modifié.
+  const [degrade, setDegrade] = useState(false);
   const [items, setItems] = useState<Production[]>([]);
   const [open, setOpen] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -150,7 +157,8 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
       const res = await fetch('/api/attache/productions?numero=' + encodeURIComponent(numero));
       if (!res.ok) { setAvailable(false); return; }
       setAvailable(true);
-      const { productions } = await res.json();
+      const { productions, degrade: enPanne } = await res.json();
+      setDegrade(Boolean(enPanne));
       const out: Production[] = [];
       for (const p of (productions || []) as Array<{ id: string; envelope: unknown }>) {
         const rec = await eapi().attache_decrypt(p.envelope);
@@ -354,7 +362,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
       if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({ error: 'Service indisponible' }));
         finishRun(p.numero, p.id);
-        setNotice(`Demande à l'IA impossible : ${err.error || res.status}`);
+        setNotice(`Demande à l'attaché impossible : ${err.error || res.status}`);
         return false;
       }
       const reader = res.body.getReader();
@@ -396,7 +404,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
       // Connexion interrompue CÔTÉ CLIENT (navigation, réseau) : le run peut
       // très bien se terminer côté service. On NE clôt PAS le run — le watcher
       // global prendra le relais et signalera la fin.
-      setNotice('Demande à l\'IA impossible — connexion interrompue.');
+      setNotice('Demande à l\'attaché impossible — connexion interrompue.');
       return false;
     } finally {
       setChatBusy(null);
@@ -426,7 +434,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
     ].join('\n');
     if (await runActeChat(p, message, 'retouche')) {
       setAiInput((m) => ({ ...m, [p.id]: '' }));
-      setNotice(`« ${p.titre} » retouché par l'IA — relisez la nouvelle version.`);
+      setNotice(`« ${p.titre} » retouché par l'attaché — relisez la nouvelle version.`);
     }
   }, [aiInput, chatBusy, runActeChat]);
 
@@ -471,10 +479,11 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
     );
     if (await runActeChat(p, lignes.join('\n'), mode === 'mail' ? 'redo-mail' : 'redo-instruction')) {
       if (mode === 'instruction') setRedoInput((m) => ({ ...m, [p.id]: '' }));
-      setNotice(`« ${p.titre} » recommencé par l'IA — relisez la nouvelle version.`);
+      setNotice(`« ${p.titre} » recommencé par l'attaché — relisez la nouvelle version.`);
     }
   }, [chatBusy, redoInput, runActeChat]);
 
+  if (iaMasquee) return null;
   if (!available) return null;
   if (masquerSiVide && items.length === 0) return null;
 
@@ -507,6 +516,13 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
       {open && (
         <div className="border-t border-gray-100 px-4 py-3">
           {notice && <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11.5px] text-emerald-800">{notice}</div>}
+          {degrade && (
+            <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11.5px] leading-snug text-amber-900">
+              Service attaché injoignable — <b>lecture seule</b>. Vos actes sont là et s&apos;ouvrent
+              normalement ; validation, édition et retouche reprendront dès que le service
+              répondra (diagnostic : Paramètres → Attaché).
+            </p>
+          )}
           {vue === 'chantier' && (
             <p className="mb-2 rounded-lg border border-indigo-200 bg-indigo-50/50 px-3 py-1.5 text-[11px] leading-snug text-indigo-900">
               Fiches et synthèses sorties des chantiers d&apos;analyse profonde. Ce ne sont pas des
@@ -545,7 +561,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
                       {p.traite && !p.refuse && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-[#2B5746]">Validé</span>}
                       {/* Indicateur DURABLE « modification en cours » : reste visible même acte replié et après rechargement, jusqu'à ce que le watcher détecte la fin. */}
                       {isRunning(p.id) && (
-                        <span className="inline-flex items-center gap-1 rounded bg-[#2B5746]/10 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-[#2B5746]" title="L'IA retouche cet acte — le travail continue en arrière-plan, vous serez prévenu à la fin.">
+                        <span className="inline-flex items-center gap-1 rounded bg-[#2B5746]/10 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-[#2B5746]" title="L'attaché retouche cet acte — le travail continue en arrière-plan, vous serez prévenu à la fin.">
                           <Loader2 className="h-2.5 w-2.5 animate-spin" />En cours
                         </span>
                       )}
@@ -685,7 +701,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
                               className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-[#2B5746] px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40"
                               title="L'attaché relit l'acte, applique votre demande en suivant la trame et la skill, puis réécrit l'acte — retouche ciblée, sans repartir de zéro"
                             >
-                              {runKindOf(p.id) === 'retouche' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}Demander à l'IA
+                              {runKindOf(p.id) === 'retouche' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}Demander à l'attaché
                             </button>
                           </div>
                         </div>

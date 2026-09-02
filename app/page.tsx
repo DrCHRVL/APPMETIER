@@ -32,6 +32,7 @@ import { InstructionResultatsProvider } from '@/contexts/InstructionResultatsCon
 import { useInstructionResultatsStore, buildInstructionResultatKey } from '@/stores/useInstructionResultatsStore';
 import type { ResultatAudience } from '@/types/audienceTypes';
 import { ActeRunsWatcher } from '@/components/attache/ActeRunsWatcher';
+import { useIaVisibiliteStore } from '@/stores/useIaVisibiliteStore';
 import type { EnquetePreliminaireOption } from '@/components/instruction/LierEnquetePreliminaireModal';
 import { UserProvider, useUser } from '@/contexts/UserContext';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
@@ -208,6 +209,14 @@ function AppContent() {
   const [settingsContentieuxId, setSettingsContentieuxId] = useState<ContentieuxId | null>(null);
   // Attaché de justice IA (admin uniquement, activé côté serveur)
   const [attacheAvailable, setAttacheAvailable] = useState(false);
+  // Service attaché momentanément hors d'état : le module reste affiché, mais
+  // dit pourquoi il est vide (voir la sonde plus bas).
+  const [attacheInjoignable, setAttacheInjoignable] = useState(false);
+  // Interrupteur « fonctionnalités IA » (Paramètres → Attaché IA) : coché, tout
+  // ce qui relève de l'attaché disparaît de l'application — sauf l'onglet de
+  // paramètres qui le porte.
+  const iaMasquee = useIaVisibiliteStore((s) => s.masque);
+  const chargerIaVisibilite = useIaVisibiliteStore((s) => s.charger);
   const [showAttache, setShowAttache] = useState(false);
   // Le journal « pendant votre absence » peut demander l'ouverture du panneau
   // attaché pour répondre aux décisions à trancher.
@@ -233,8 +242,9 @@ function AppContent() {
   const handleViewChange = async (view: string, contentieuxId?: ContentieuxId) => {
     // Le JLD est verrouillé sur le tableau de bord : toute autre vue est ignorée.
     if (isJLDUser && view !== 'dashboard') return;
-    // L'assistant de justice (attaché IA) est réservé à l'administrateur.
-    if (view === 'assistant' && !isAdmin()) return;
+    // L'assistant de justice (attaché IA) est réservé à l'administrateur, et
+    // n'existe plus dès que l'interrupteur des fonctionnalités IA est coché.
+    if (view === 'assistant' && (!isAdmin() || iaMasquee)) return;
     // Vérifier que l'utilisateur a accès au contentieux demandé
     if (contentieuxId && !accessibleContentieux.some(c => c.id === contentieuxId)) {
       return;
@@ -559,14 +569,56 @@ function AppContent() {
     });
   }, []);
 
+  // Drapeau de visibilité des fonctionnalités IA : lu au serveur (il vaut pour
+  // tous les appareils du magistrat), une fois la session ouverte.
+  useEffect(() => {
+    if (isAuthenticated && isAdmin()) chargerIaVisibilite();
+  }, [isAuthenticated, isAdmin, chargerIaVisibilite]);
+
   // Attaché de justice IA : disponible seulement si le serveur l'active pour
   // CE TJ et CE compte (la route répond 404 à tout non-admin — invisible).
+  //
+  // La sonde distingue DEUX échecs que l'on confondait, et c'est tout le sujet :
+  //   • 404 → la fonctionnalité n'existe pas pour ce compte (non-admin, autre
+  //     TJ que le TJ confié, SIRAL_ATTACHE_URL vide). Le module reste invisible,
+  //     comme prévu ;
+  //   • 401 / 500 / 503 → la garde admin est PASSÉE : le module existe bien pour
+  //     ce magistrat, c'est le service qui est momentanément hors d'état
+  //     (conteneur arrêté, secret de pont dépareillé, machine saturée). On garde
+  //     alors l'entrée de menu, la page et l'onglet de paramètres — avec leur
+  //     écran de diagnostic — au lieu de faire disparaître l'assistant en
+  //     silence, et on resonde toutes les 60 s pour se raccrocher tout seul.
+  // Une exception réseau (app injoignable) ne révèle rien : simple nouvelle
+  // tentative, sans rien afficher.
   useEffect(() => {
-    if (!isAuthenticated || !isAdmin()) { setAttacheAvailable(false); return; }
-    fetch('/api/attache/status')
-      .then((r) => setAttacheAvailable(r.ok))
-      .catch(() => setAttacheAvailable(false));
+    if (!isAuthenticated || !isAdmin()) { setAttacheAvailable(false); setAttacheInjoignable(false); return; }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const sonder = async () => {
+      let etat: 'ok' | 'absent' | 'injoignable' | 'inconnu' = 'inconnu';
+      try {
+        const r = await fetch('/api/attache/status?sonde=1');
+        etat = r.ok ? 'ok' : r.status === 404 ? 'absent' : 'injoignable';
+      } catch { etat = 'inconnu'; }
+      if (cancelled) return;
+      if (etat === 'ok') { setAttacheAvailable(true); setAttacheInjoignable(false); return; }
+      if (etat === 'absent') { setAttacheAvailable(false); setAttacheInjoignable(false); return; }
+      if (etat === 'injoignable') { setAttacheAvailable(true); setAttacheInjoignable(true); }
+      timer = setTimeout(sonder, 60_000);
+    };
+    sonder();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [isAuthenticated, isAdmin]);
+
+  // Ce qui commande TOUTE présence de l'attaché à l'écran : service annoncé,
+  // administrateur, et interrupteur non coché.
+  const iaVisible = attacheAvailable && isAdmin() && !iaMasquee;
+
+  // Interrupteur coché alors qu'on lisait la page de l'assistant : on retombe
+  // sur le tableau de bord plutôt que de laisser une zone vide.
+  useEffect(() => {
+    if (iaMasquee && currentView === 'assistant') setCurrentView('dashboard');
+  }, [iaMasquee, currentView]);
 
   // Démarrage des services temps réel (heartbeat, événements, audit)
   useEffect(() => {
@@ -1677,7 +1729,7 @@ function AppContent() {
       mindmap: hasModule('mindmap'),
     },
     hasOverboard: hasOverboard(),
-    showAssistant: attacheAvailable && isAdmin(),
+    showAssistant: iaVisible,
     knownPersons: knownPersons.persons,
     dossiersExNihilo,
   });
@@ -1863,7 +1915,8 @@ return (
           enqueteCounts={sidebarEnqueteCounts}
           instructionCount={sidebarInstructionCount}
           crossSearchResults={crossSearchResults}
-          showAssistant={attacheAvailable && isAdmin()}
+          showAssistant={iaVisible}
+          assistantInjoignable={attacheInjoignable}
         />
       </div>
       {mobileNavOpen && (
@@ -1883,7 +1936,8 @@ return (
               enqueteCounts={sidebarEnqueteCounts}
               instructionCount={sidebarInstructionCount}
               crossSearchResults={crossSearchResults}
-                  showAssistant={attacheAvailable && isAdmin()}
+              showAssistant={iaVisible}
+              assistantInjoignable={attacheInjoignable}
             />
           </div>
         </div>
@@ -1916,7 +1970,7 @@ return (
             onShowUpdate={() => setShowUpdateModal(true)}
             isUpdating={isUpdating}
             minimal={isJLDUser}
-            onShowAttache={attacheAvailable && isAdmin() ? () => setShowAttache(true) : undefined}
+            onShowAttache={iaVisible ? () => setShowAttache(true) : undefined}
             globalSearch={!isJLDUser ? {
               api: globalSearchApi,
               contentieuxDefs: accessibleContentieux,
@@ -1996,8 +2050,8 @@ return (
           )}
 
           {/* Assistant de justice (attaché IA) — page dédiée, admin uniquement */}
-          {baseView === 'assistant' && isAdmin() && (
-            <AssistantJusticePage onOpenDossier={handleOpenDossierByNumero} />
+          {baseView === 'assistant' && iaVisible && (
+            <AssistantJusticePage onOpenDossier={handleOpenDossierByNumero} serviceInjoignable={attacheInjoignable} />
           )}
 
           {baseView === 'enquetes' && (
@@ -2287,7 +2341,7 @@ return (
           onTransferEnquete={handleTransferEnquete}
           isSharedEnquete={isSharedEnquete(selectedEnquete.id)}
           attacheOpen={showAttache}
-          attacheAvailable={attacheAvailable && isAdmin()}
+          attacheAvailable={iaVisible}
           recoupements={recoupementsDuDossier}
         />
       )}
@@ -2612,11 +2666,14 @@ return (
       <ShareInvitationModal />
 
       {/* Attaché de justice IA — panneau latéral (admin uniquement) */}
-      {attacheAvailable && isAdmin() && (
+      {iaVisible && (
         <AttachePanel open={showAttache} onClose={() => setShowAttache(false)} />
       )}
 
-      {/* 🆕 Modal Paramètres multi-onglets */}
+      {/* 🆕 Modal Paramètres multi-onglets.
+          L'onglet « Attaché IA » y est TOUJOURS offert à l'administrateur —
+          même service éteint, même interrupteur coché : c'est l'écran qui dit
+          pourquoi l'assistant n'apparaît pas, et le seul d'où le rallumer. */}
       <SettingsModal
         isOpen={showSettingsModal}
         onClose={() => {
@@ -2664,7 +2721,7 @@ return (
           setUpdateAvailable(hasUpdate);
           setUpdateCommits(commits);
         }} />}
-        adminAttacheContent={attacheAvailable ? <AdminAttachePanel /> : undefined}
+        adminAttacheContent={isAdmin() ? <AdminAttachePanel /> : undefined}
         aProposContent={<AboutContent />}
         monProfilContent={<MyProfileContent />}
       />

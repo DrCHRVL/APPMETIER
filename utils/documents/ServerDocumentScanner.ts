@@ -297,14 +297,14 @@ export class ServerDocumentScanner {
 
     if (!res.ok) {
       const msg = await res.json().catch(() => null);
-      throw new Error(msg?.error || `Service d'analyse IA indisponible (${res.status})`);
+      throw new Error(msg?.error || `Service d'analyse indisponible (${res.status})`);
     }
     const data = await res.json().catch(() => null) as {
       ok?: boolean; actes?: unknown[]; chaineLegale?: unknown[]; resume?: string; error?: string;
       incoherences?: unknown[]; crSuggere?: string | null;
     } | null;
     if (!data || data.ok === false) {
-      throw new Error(data?.error || 'Analyse IA échouée');
+      throw new Error(data?.error || 'Analyse échouée');
     }
 
     const result: AnalysisResult = {
@@ -443,7 +443,7 @@ export class ServerDocumentScanner {
         ? String(a.dureeInitiale).replace(/[^\d]/g, '') || undefined
         : undefined;
       if (!dateAutorisationInitiale) {
-        warnings.push('Date de l\'autorisation initiale non identifiée par l\'IA — chaînage à vérifier.');
+        warnings.push('Date de l\'autorisation initiale non identifiée automatiquement — chaînage à vérifier.');
       }
     }
 

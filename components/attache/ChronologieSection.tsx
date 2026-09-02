@@ -13,6 +13,7 @@
  * (L'architecture NPP / cotes relève du module instruction, pas d'ici.)
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 import {
   History, RefreshCw, Loader2, ChevronDown, ChevronUp,
   FileText, MapPin, Gavel, AlertCircle, BookOpen, Landmark,
@@ -48,6 +49,7 @@ const TYPE_STYLE: Record<string, { icon: React.ElementType; color: string; label
 };
 
 export function ChronologieSection({ numero }: { numero: string }) {
+  const iaMasquee = useIaMasquee();
   const [chrono, setChrono] = useState<Chrono | null>(null);
   const [available, setAvailable] = useState(false);
   const [open, setOpen] = useState(false);
@@ -69,6 +71,7 @@ export function ChronologieSection({ numero }: { numero: string }) {
 
   useEffect(() => { load(); }, [load]);
 
+  if (iaMasquee) return null;
   if (!available) return null;
 
   const entries = (chrono?.entries || []).filter((e) => e.source !== 'npp');

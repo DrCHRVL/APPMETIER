@@ -1056,6 +1056,88 @@ Claude web dépose un **chantier d'analyse profonde** (`chantier_proposer`),
 exécuté par le serveur, plutôt que de tout lire dans sa conversation. Guide complet :
 **[CONNECTEUR-CLAUDE-WEB.md](CONNECTEUR-CLAUDE-WEB.md)**.
 
+## « Je n'ai plus d'assistant de justice »
+
+Tout le module — entrée de menu, page, onglet **Paramètres → Attaché IA**,
+raccourci, actes rédigés — est commandé par une seule sonde : `GET
+/api/attache/status?sonde=1`. Ce qu'elle répond décide de ce que voit le
+magistrat.
+
+| Réponse | Sens | Ce que fait l'app |
+|---|---|---|
+| `200` | service vivant | module complet |
+| `404` | fonctionnalité absente **pour ce compte** : non-admin, `SIRAL_ATTACHE_URL` vide, ou TJ actif ≠ `SIRAL_ATTACHE_TJ` | module invisible (voulu — l'attaché n'existe pour personne d'autre) |
+| `401` | secret de pont dépareillé entre l'app et le service | module VISIBLE, marqué injoignable |
+| `503` | conteneur `attache` arrêté, en redémarrage, ou saturé | module VISIBLE, marqué injoignable |
+
+La distinction `404` / reste est le point important : la garde admin est passée
+avant tout code ≠ 404, donc le module existe bel et bien pour ce magistrat — il
+reste affiché, avec son écran de diagnostic, et la sonde se relance toutes les
+60 s pour se raccrocher seule. Les **actes rédigés**, eux, se lisent alors
+directement depuis le volume partagé (`attache/productions/`) : ils restent
+consultables en lecture seule ; validation, édition et retouche IA attendent le
+retour du service.
+
+Sur le serveur, dans l'ordre :
+
+```bash
+docker compose ps attache                 # tourne-t-il ?
+docker compose logs --tail=50 attache     # redémarre-t-il en boucle ?
+docker compose up -d attache
+```
+
+Trois causes reviennent : le conteneur arrêté (ou en boucle de redémarrage après
+une mise à jour), un `SIRAL_SECRET` changé d'un côté seulement — app et service
+en dérivent le même secret de pont, ils doivent donc redémarrer ENSEMBLE — et le
+TJ actif qui n'est pas le TJ confié (l'attaché n'existe que sur
+`SIRAL_ATTACHE_TJ` : basculer de tribunal le fait disparaître, sans erreur).
+
+La sonde est délibérément **brève** (`?bref=1` côté service) : elle ne lance ni
+`claude --version` ni lecture de boîte, et n'attend que 8 s. Un service occupé
+par un run de nuit ne doit jamais faire disparaître l'assistant par simple
+lenteur.
+
+### Le diagnostic, dans l'application
+
+**Paramètres → Attaché IA** est désormais TOUJOURS offert à l'administrateur —
+service éteint, mauvais tribunal, fonctionnalité désactivée, peu importe. C'est
+l'écran qui répond à « pourquoi je ne le vois plus » : il coche ou barre les
+quatre conditions, une à une, avec la valeur en cause.
+
+```
+✅ Fonctionnalité activée sur le serveur
+❌ Tribunal actif = tribunal confié — vous êtes sur amiens, l'attaché n'existe que sur default
+✅ Secret de pont app ↔ service
+❌ Service attaché joignable — réponse 503 : Service attaché injoignable
+```
+
+Il s'appuie sur `GET /api/attache/diagnostic`, rendu à une session
+**administrateur** seulement ; tout autre appelant reçoit le 404 d'une route
+inexistante — l'attaché reste indevinable des autres comptes.
+
+## Masquer toutes les fonctionnalités IA
+
+Même écran, en tête : un interrupteur **« Masquer toutes les fonctionnalités
+IA »**. Coché, l'application redevient exactement celle d'avant l'attaché :
+
+| Disparaît | Reste |
+|---|---|
+| entrée de menu « Assistant de justice » et sa page | l'onglet Paramètres → Attaché IA |
+| raccourci de la barre du haut, panneau latéral, pastille de chantier | le service, qui poursuit son travail de fond |
+| « Actes rédigés » des fiches dossier et hors dossier | les actes eux-mêmes, intacts sur le serveur |
+| chat de dossier et chat carto | |
+| propositions de renseignement, barre de propositions, chronologie | |
+| « Détecter les camps (attaché) » et « Enrichir (attaché) » de la cartographie | |
+
+L'onglet des paramètres ne se masque jamais : c'est de là que l'on décoche. Le
+drapeau est tenu par l'**app** (`ia-visibilite.json` dans l'espace du TJ actif,
+`GET`/`PUT /api/attache/visibilite`, administrateur seul) : il se règle service
+éteint, et il vaut sur tous les appareils du magistrat — le `localStorage` n'en
+est qu'un cache de premier rendu, pour que rien ne clignote au chargement.
+
+Masquer n'est pas révoquer : le service continue de tourner, de lire et
+d'écrire. Pour l'arrêter vraiment, voir la révocation ci-dessous.
+
 ## Révocation & réversibilité
 
 | Geste | Effet |
@@ -1063,6 +1145,7 @@ exécuté par le serveur, plutôt que de tout lire dans sa conversation. Guide c
 | Paramètres → Attaché IA → **Révoquer** | l'attaché ne déchiffre plus rien, immédiatement |
 | Changer `SIRAL_ATTACHE_MASTER_KEY` | trousseau illisible = révoqué de fait |
 | Vider `SIRAL_ATTACHE_URL` | fonctionnalité totalement absente de l'app |
+| Paramètres → Attaché IA → **Masquer toutes les fonctionnalités IA** | l'attaché disparaît de l'interface, mais continue de travailler (affichage seul) |
 | Annuler une écriture | Sauvegardes → versions du coffre (chaque écriture archive la précédente) |
 | Voir tout ce qu'il a fait | Paramètres → Attaché IA → **Journal d'audit** |
 

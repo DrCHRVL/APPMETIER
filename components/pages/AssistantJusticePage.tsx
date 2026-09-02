@@ -19,7 +19,7 @@
  * comptes (voir MultiSideBar) et la vue est gardée dans app/page.tsx. Défense en
  * profondeur : chaque widget se masque déjà de lui-même si /api/attache/* ≠ 200.
  */
-import { Scale } from 'lucide-react';
+import { Scale, AlertTriangle } from 'lucide-react';
 import { AbsenceJournal } from '@/components/attache/AbsenceJournal';
 import { InboxWidget } from '@/components/attache/InboxWidget';
 import { ProductionsSection } from '@/components/attache/ProductionsSection';
@@ -30,7 +30,11 @@ import { ChantiersSection } from '@/components/attache/ChantiersSection';
  * rechargement en boucle du bandeau, qui compare `kinds` par valeur). */
 const A_VALIDER_KINDS = ['dossier', 'dossier_carto', 'mec_carto', 'lien'] as const;
 
-export const AssistantJusticePage = ({ onOpenDossier }: { onOpenDossier?: (numero: string) => void }) => {
+export const AssistantJusticePage = ({ onOpenDossier, serviceInjoignable }: {
+  onOpenDossier?: (numero: string) => void;
+  /** Le service attaché ne répond plus : la page reste, mais dit pourquoi elle est vide. */
+  serviceInjoignable?: boolean;
+}) => {
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
   return (
@@ -45,6 +49,26 @@ export const AssistantJusticePage = ({ onOpenDossier }: { onOpenDossier?: (numer
           <p className="mt-0.5 text-sm text-gray-500 capitalize">{today}</p>
         </div>
       </div>
+
+      {/* Service attaché hors d'état : chaque widget ci-dessous se masque de
+          lui-même quand /api/attache/* ne répond pas. Sans cette bannière, la
+          page paraissait simplement vidée de son contenu — voire, avant que la
+          sonde ne distingue 404 et 503, l'assistant disparaissait entièrement de
+          l'application (menu, page, paramètres, actes rédigés). */}
+      {serviceInjoignable && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+          <div className="text-sm text-amber-900">
+            <p className="font-semibold">Service attaché injoignable — rien ne peut être affiché.</p>
+            <p className="mt-1 text-amber-800">
+              Vos actes rédigés, propositions et conversations sont intacts sur le serveur : c'est le
+              service qui ne répond pas (conteneur arrêté, redémarrage en cours, ou machine saturée).
+              L'application se raccroche toute seule dès qu'il répond de nouveau.
+              Le détail du diagnostic est dans <b>Paramètres → Attaché</b>.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Propositions en attente de validation — liens de renseignement,
           personnes et dossiers ex nihilo issus d'une analyse transversale, et

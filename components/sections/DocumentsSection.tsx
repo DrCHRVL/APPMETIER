@@ -147,7 +147,7 @@ const DOCUMENT_ZONES: DocumentZone[] = [
     category: 'dml',
     title: 'DML',
     icon: <FileText className="h-5 w-5" />,
-    description: 'Demandes de mise en liberté — l\'attaché IA s\'appuie sur les anciennes pour actualiser',
+    description: 'Demandes de mise en liberté — l\'attaché s\'appuie sur les anciennes pour actualiser',
     color: 'border-rose-300 bg-rose-50 hover:bg-rose-100'
   }
 ];
@@ -1383,7 +1383,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                 />
               </div>
               <p className="text-[10.5px] text-blue-700/70">
-                Gardez cet onglet ouvert. Chaque pièce est convertie en texte au passage{estAdmin ? <> pour l&apos;IA</> : null}.
+                Gardez cet onglet ouvert. Chaque pièce est convertie en texte au passage{estAdmin ? <> pour l&apos;attaché</> : null}.
                 Un versement interrompu se reprend en re-déposant le même dossier — aucun doublon.
               </p>
             </div>
@@ -1397,7 +1397,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                 <p className="min-w-0 flex-1">
                   <span className="font-semibold">{uploadReport.zone}</span> : {uploadReport.ok} pièce(s) versée(s)
                   {uploadReport.dejaLa > 0 && <> · {uploadReport.dejaLa} déjà présente(s), sautée(s)</>}
-                  {uploadReport.md > 0 && <> · {uploadReport.md} copie(s) texte{estAdmin ? <> pour l&apos;IA</> : null}</>}
+                  {uploadReport.md > 0 && <> · {uploadReport.md} copie(s) texte{estAdmin ? <> pour l&apos;attaché</> : null}</>}
                   {uploadReport.nonPrisEnCharge > 0 && <> · {uploadReport.nonPrisEnCharge} format(s) non pris en charge</>}
                   {uploadReport.interrompu && (
                     <span className="font-medium text-amber-700"> · interrompu — re-déposez le même dossier pour terminer (reprise sans doublon)</span>
@@ -1444,7 +1444,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
               <Search className="h-4 w-4 text-violet-600 flex-shrink-0" />
               <p className="min-w-0 flex-1 text-xs text-violet-900">
                 <span className="font-semibold">{analyseSuggestion.length} pièce(s) téléversée(s)</span>{' '}
-                prête(s) pour l&apos;analyse IA : détection des actes, contrôle du numéro de procédure et des NATINF, CR de réception.
+                prête(s) pour l&apos;analyse assistée : détection des actes, contrôle du numéro de procédure et des NATINF, CR de réception.
               </p>
               <Button
                 size="sm"
@@ -1452,7 +1452,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                 onClick={() => { setAutoAnalyseDocs(analyseSuggestion); setAnalyseSuggestion(null); setShowAnalyseModal(true); }}
               >
                 <Search className="h-3 w-3" />
-                Analyser (IA)
+                Analyser
               </Button>
               <Button
                 size="sm" variant="ghost"
@@ -1578,7 +1578,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                             type="button"
                             onClick={(e) => { e.stopPropagation(); folderInputRefs.current[zone.category]?.click(); }}
                             className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10.5px] font-medium text-gray-600 hover:bg-gray-100"
-                            title={`Téléverser un DOSSIER entier — sous-pochettes comprises, organisation préservée${estAdmin ? ", copies markdown pour l'IA" : ''}`}
+                            title={`Téléverser un DOSSIER entier — sous-pochettes comprises, organisation préservée${estAdmin ? ", copies markdown pour l'attaché" : ''}`}
                           >
                             <FolderOpen className="h-3 w-3" />Dossier
                           </button>
@@ -1701,7 +1701,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           <div className="text-xs text-gray-500 space-y-1">
             <p><strong>Formats supportés :</strong> PDF, DOC, DOCX, ODT, TXT, Images, HTML, MSG</p>
             <p><strong>Organisation :</strong> Classement automatique dans des dossiers par catégorie</p>
-            <p><strong>Dossiers entiers :</strong> Déposez une ou plusieurs arborescences complètes (sous-pochettes préservées, texte converti au passage{estAdmin ? <> pour l&apos;IA</> : null}). La zone s&apos;affiche alors en arborescence repliable, pochette par pochette. Limite : 50 Mo par pièce — au-delà, le texte intégral est versé à la place. Un versement interrompu se reprend en re-déposant le même dossier, sans doublon.</p>
+            <p><strong>Dossiers entiers :</strong> Déposez une ou plusieurs arborescences complètes (sous-pochettes préservées, texte converti au passage{estAdmin ? <> pour l&apos;attaché</> : null}). La zone s&apos;affiche alors en arborescence repliable, pochette par pochette. Limite : 50 Mo par pièce — au-delà, le texte intégral est versé à la place. Un versement interrompu se reprend en re-déposant le même dossier, sans doublon.</p>
             {enquete.cheminExterne && (
               <p><strong>Sauvegarde double :</strong> Documents sauvegardés en interne + copie externe</p>
             )}

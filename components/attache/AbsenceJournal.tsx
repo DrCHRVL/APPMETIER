@@ -23,6 +23,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Sparkles, RefreshCw, ChevronDown, ChevronUp, FileText, ArrowRight, X, Undo2 } from 'lucide-react';
 import { ProductionPopup } from './ProductionPopup';
+import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
 const eapi = () => (window as unknown as { siralBridge: Record<string, AnyFn> }).siralBridge;
@@ -143,6 +144,7 @@ async function hashKey(raw: string): Promise<string> {
 const resumeIsLong = (s?: string) => !!s && (s.length > 110 || s.includes('\n'));
 
 export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: string) => void }) {
+  const iaMasquee = useIaMasquee();
   const [available, setAvailable] = useState(false);
   const [cards, setCards] = useState<Card[]>([]);
   const [qStatuses, setQStatuses] = useState<Record<string, { status: string }>>({});
@@ -416,6 +418,7 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
     return () => clearTimeout(t);
   }, [available, collapsed, newestTs, pushSeen]);
 
+  if (iaMasquee) return null;
   if (!available) return null;
   if (journal.length === 0 && decisions === 0 && !lastBulk) return null;
 

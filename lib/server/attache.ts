@@ -12,6 +12,7 @@ import path from 'path'
 import crypto from 'crypto'
 import { jsonResponse, requireTjSession } from './auth'
 import { tjDataDir, withFileLock, ensureDir, atomicWrite, readJson, DEFAULT_TJ_ID, readLogTailLines } from './store'
+import { normNumero } from '@/utils/numeroDossier'
 
 export function attacheEnabled(): boolean {
   return Boolean(process.env.SIRAL_ATTACHE_URL)
@@ -51,7 +52,10 @@ export function requireAttacheAdmin(req: Request) {
 /** Relaie une requête JSON vers le service attaché. */
 export async function attacheFetch(pathname: string, init?: { method?: string, body?: unknown, timeoutMs?: number }): Promise<Response> {
   const secret = bridgeSecret()
-  if (!secret) return jsonResponse({ error: 'Service attaché non configuré (secret absent)' }, { status: 503 })
+  // `injoignable` distingue « service momentanément absent » de « fonctionnalité
+  // désactivée » (404). Le navigateur s'en sert pour GARDER le module visible et
+  // afficher le diagnostic, au lieu de faire disparaître l'assistant en silence.
+  if (!secret) return jsonResponse({ error: 'Service attaché non configuré (secret absent)', injoignable: true }, { status: 503 })
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), init?.timeoutMs ?? 30_000)
   try {
@@ -67,10 +71,81 @@ export async function attacheFetch(pathname: string, init?: { method?: string, b
     })
     return res
   } catch {
-    return jsonResponse({ error: 'Service attaché injoignable' }, { status: 503 })
+    return jsonResponse({ error: 'Service attaché injoignable', injoignable: true }, { status: 503 })
   } finally {
     clearTimeout(timer)
   }
+}
+
+/** Le pont app ↔ service est-il configurable (secret partagé présent) ? */
+export function attacheBridgeConfigured(): boolean {
+  return Boolean(bridgeSecret())
+}
+
+// ── Interrupteur « fonctionnalités IA » (par tribunal, tenu par l'app) ──
+// Le magistrat peut TOUT masquer d'un geste : menu, page, raccourci, actes
+// rédigés, chat de dossier, boutons attaché de la cartographie. Seul l'onglet
+// « Attaché IA » des paramètres survit — sans lui, l'interrupteur ne pourrait
+// plus être rendu, donc jamais rouvert.
+//
+// Le drapeau appartient à l'APP, pas au service : il vit dans l'espace du TJ
+// ACTIF (et non du TJ confié) et s'écrit sans la moindre clé. Il se règle donc
+// même service éteint, et il suit le magistrat d'un appareil à l'autre.
+
+function visibiliteFile(tj: string): string {
+  return tjDataDir(tj, 'ia-visibilite.json')
+}
+
+/** Vrai = toutes les fonctionnalités IA sont masquées sur ce tribunal. */
+export function readIaMasquee(tj: string): boolean {
+  return readJson<{ masque?: boolean }>(visibiliteFile(tj), {}).masque === true
+}
+
+export async function writeIaMasquee(tj: string, masque: boolean, par: string): Promise<void> {
+  await withFileLock('ia-visibilite-' + tj, async () => {
+    atomicWrite(visibiliteFile(tj), JSON.stringify({ masque, at: new Date().toISOString(), par }, null, 2))
+  })
+}
+
+// ── Diagnostic de présence (administrateur connecté uniquement) ──
+// Quand /api/attache/status répond 404, c'est volontairement muet : ni le
+// motif, ni même l'existence de la fonctionnalité ne doivent transparaître.
+// Muet, l'admin n'avait pourtant AUCUN moyen de savoir laquelle des trois
+// conditions manquait — d'où des disparitions inexplicables. Ce diagnostic
+// nomme la condition en défaut ; il n'est rendu qu'à une session admin, tout
+// autre appelant recevant le même 404 qu'une route inexistante.
+
+export interface AttacheDiagnostic {
+  actif: boolean
+  tjActif: string
+  tjConfie: string
+  tjConcorde: boolean
+  secretPont: boolean
+  service: { joignable: boolean, code?: number, motif?: string } | null
+  masque: boolean
+}
+
+export async function attacheDiagnostic(session: { r: string, tj: string }): Promise<AttacheDiagnostic> {
+  const actif = attacheEnabled()
+  const tjConfie = attacheTjId()
+  const base: AttacheDiagnostic = {
+    actif,
+    tjActif: session.tj,
+    tjConfie,
+    tjConcorde: session.tj === tjConfie,
+    secretPont: attacheBridgeConfigured(),
+    service: null,
+    masque: readIaMasquee(session.tj),
+  }
+  if (!actif || !base.secretPont) return base
+  const res = await attacheFetch('/status?bref=1', { timeoutMs: 8_000 })
+  if (res.ok) {
+    base.service = { joignable: true }
+  } else {
+    const detail = await res.json().catch(() => ({} as { error?: string }))
+    base.service = { joignable: false, code: res.status, motif: detail?.error }
+  }
+  return base
 }
 
 // ── Lectures disque (enveloppes chiffrées, déchiffrées par le navigateur admin) ──
@@ -94,6 +169,60 @@ export function readEncryptedLog(file: 'feed.jsonl' | 'audit.jsonl' | 'outbox.js
 }
 
 export interface AttacheEnvelope { v: number, encrypted: true, iv: string, ct: string, savedAt?: string, savedBy?: string }
+
+// ── Repli de LECTURE des actes rédigés (service endormi) ──
+// Les productions vivent sur le volume partagé `siral-data`, que l'app monte
+// elle aussi : quand le service ne répond pas, elle sait donc encore LISTER les
+// enveloppes — le navigateur les déchiffre comme d'habitude. Sans ce repli, un
+// conteneur attaché arrêté effaçait « Actes rédigés » de toutes les fiches
+// dossier, ce qui se lit comme une perte de travail alors que rien n'est perdu.
+// Écriture, validation et retouche IA restent, elles, refusées : elles passent
+// par le service, seul détenteur de la clé-maître.
+
+/** Clé de répertoire de stockage d'un dossier — miroir de docServerKey (service). */
+function docDirKey(numero: string): string {
+  const cleaned = String(numero)
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._@-]/g, '_')
+  const safe = /^[a-zA-Z0-9]/.test(cleaned) ? cleaned : 'e_' + cleaned
+  return safe.slice(0, 121)
+}
+
+export function readProductionEnvelopes(numero: string): Array<{ id: string, envelope: AttacheEnvelope }> {
+  const root = attacheDir('productions')
+  if (!numero || !fs.existsSync(root)) return []
+  const exact = docDirKey(numero)
+  const wanted = normNumero(numero)
+  // Pseudo-dossiers (« _hors-dossier ») : jamais de rapprochement de variantes.
+  // Sinon : le répertoire exact, plus les écritures VARIANTES dont la clé se
+  // réduit au même numéro. Sans trousseau, l'app s'en tient à cette égalité
+  // normalisée — exactement ce que fait le service privé de clés, pour que deux
+  // dossiers voisins (« …GRIVESNES » / « …GRIVESNES 2 ») ne se mélangent jamais.
+  let dirs: string[] = [exact]
+  if (!numero.startsWith('_')) {
+    try {
+      dirs = fs.readdirSync(root).filter((d) => !d.startsWith('.') && (d === exact || normNumero(d) === wanted))
+    } catch { return [] }
+  }
+  const out: Array<{ id: string, envelope: AttacheEnvelope }> = []
+  const seen = new Set<string>()
+  for (const d of dirs) {
+    const dir = path.join(root, d)
+    let entries: string[]
+    try {
+      if (!fs.statSync(dir).isDirectory()) continue
+      entries = fs.readdirSync(dir)
+    } catch { continue }
+    for (const f of entries) {
+      if (!f.endsWith('.json') || f.startsWith('.')) continue
+      const id = f.slice(0, -'.json'.length)
+      if (seen.has(id)) continue
+      const envelope = readJson<AttacheEnvelope | null>(path.join(dir, f), null)
+      if (envelope) { seen.add(id); out.push({ id, envelope }) }
+    }
+  }
+  return out
+}
 
 // ── Statuts des questions posées par l'attaché (répondu / ignoré) ──
 // Fichier en clair MAIS indexé par des ids opaques (qid aléatoires) : aucun

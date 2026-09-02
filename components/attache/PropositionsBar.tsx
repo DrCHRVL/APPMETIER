@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Check, X, UserPlus, Gavel, FileText, Loader2, ChevronDown, ChevronUp, Sparkles, AlertTriangle } from 'lucide-react';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
+import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 
 interface Proposition {
   id: string;
@@ -40,6 +41,7 @@ const TYPE_META = {
 } as const;
 
 export function PropositionsBar({ numero, reloadToken = 0 }: { numero: string; reloadToken?: number }) {
+  const iaMasquee = useIaMasquee();
   const [props, setProps] = useState<Proposition[]>([]);
   const [available, setAvailable] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -96,6 +98,7 @@ export function PropositionsBar({ numero, reloadToken = 0 }: { numero: string; r
     }
   }, []);
 
+  if (iaMasquee) return null;
   if (!available || props.length === 0) return null;
 
   return (
