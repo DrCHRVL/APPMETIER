@@ -42,6 +42,8 @@ import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { lireRegistre, recouperRegistres } from './attache/registre.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
 import { analyserReseau, listerLiens, listerFiches, lireDocumentExNihilo, cartoHistoire, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
+import { analyseAvancee, cheminEntre } from './attache/cartoGraphe.mjs'
+import { lireSignaux } from './attache/recoupements.mjs'
 import { saveProduction, listProductions, readProduction, deleteProduction, diffProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
 import { appendMemory, rewriteMemory, memoryStats, MEMORY_BUDGET } from './attache/memory.mjs'
 import { recordLearningSignal, pendingSignals, learningState, learningMetrics, metricsSummary } from './attache/apprentissage.mjs'
@@ -386,6 +388,21 @@ const TOOLS = [
       },
     },
     handler: async (a) => recouperRegistres(keys, { numero: a.numero, entite: a.entite }),
+  },
+  {
+    name: 'recoupements_lire',
+    description: 'SIGNAUX DE LA VEILLE DES RECOUPEMENTS — le chantier hebdomadaire (calcul pur, zéro jeton) qui relit le fonds ENTIER, texte intégral des pièces et OCR compris, et note les valeurs partagées entre dossiers : même personne, même patronyme (lien familial possible), même téléphone, même adresse, même plaque, même compte/pseudo, même IBAN, même IMEI. Complète registre_recouper (qui n\'extrait que 4 types d\'entités) : ici s\'ajoutent les personnes lues DANS les pièces, les patronymes, les pseudos de réseaux sociaux et les IMEI. `inedits:true` = seulement les signaux dont les dossiers ne partagent AUCUN mis en cause déclaré — les accroches que rien ne montrait. Filtres : `numero` (un dossier), `nature` (personne | patronyme | telephone | adresse | plaque | compte | iban | imei). Un signal est un SIGNALEMENT à vérifier dans les pièces citées avant tout proposer_lien.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string', description: 'Limiter aux signaux touchant ce dossier (numéro ou fragment du libellé).' },
+        nature: { type: 'string', description: 'Une nature de signal : personne, patronyme, telephone, adresse, plaque, compte, iban, imei.' },
+        inedits: { type: 'boolean', description: 'Seulement les ponts inédits (dossiers sans aucun mis en cause commun).' },
+        limite: { type: 'number', description: 'Signaux par page (défaut 30, max 100).' },
+        offset: { type: 'number', description: 'Pagination.' },
+      },
+    },
+    handler: async (a) => lireSignaux(keys, { numero: a.numero, nature: a.nature, inedits: Boolean(a.inedits), limite: a.limite, offset: a.offset }),
   },
   {
     name: 'verifier_completude',
@@ -1394,9 +1411,26 @@ const TOOLS = [
   },
   {
     name: 'carto_analyser',
-    description: 'Analyse le réseau (cartographie) : figures centrales, « ponts » (personnes présentes dans plusieurs dossiers, qui relient des affaires), co-occurrences, nombre de liens de renseignement déjà tracés. Pour aider à voir les connexions et améliorer la visibilité. Interpréter : centralité, cloisonnements, liens manquants à tracer.',
+    description: 'ANALYSE CALCULÉE du réseau (cartographie) — les métriques sont calculées, pas à deviner depuis des listes : IMPORTANCE par personne (le score de la carte : dossiers, chefs, gravité NATINF, facteur temporel, contamination de l\'entourage, bonus/rôles du magistrat — décomposé, donc explicable), INTERMÉDIAIRES (centralité d\'intermédiarité de Brandes : par qui passent les chemins — une intermédiarité forte avec peu de dossiers signale un courtier discret, souvent plus intéressant que les figures visibles), COMMUNAUTÉS (Louvain : les cellules telles que la structure les dessine — à confronter aux camps cochés à la main, un écart est une information), plus les comptages historiques (figures centrales par nb de dossiers, ponts entre affaires, co-occurrences, liens tracés). Pour « qu\'est-ce qui relie X à Y ? », utiliser carto_chemin. Les rapprochements par entité (téléphone, adresse…) restent dans registre_recouper et recoupements_lire.',
     inputSchema: { type: 'object', properties: { archives: { type: 'boolean', description: 'Inclure les dossiers archivés' } } },
-    handler: async (a) => { const r = analyserReseau(keys, { includeArchived: Boolean(a?.archives) }); delete r._liensExistantsKeys; return r },
+    handler: async (a) => {
+      const r = analyserReseau(keys, { includeArchived: Boolean(a?.archives) })
+      delete r._liensExistantsKeys
+      return { ...r, ...analyseAvancee(keys, { includeArchived: Boolean(a?.archives) }) }
+    },
+  },
+  {
+    name: 'carto_chemin',
+    description: 'QU\'EST-CE QUI RELIE X À Y ? Plus courts chemins entre deux personnes sur le graphe (co-présence en dossier + liens de renseignement, enquêtes archivées comprises), chaque saut CITE sa provenance (dossier partagé, lien tracé et son motif) — donc vérifiable pièce par pièce. Jusqu\'à 3 chemins de longueur minimale. Si les deux personnes ne sont pas reliées par le graphe, le dit explicitement — un pont par ENTITÉ (même téléphone, même adresse) peut exister quand même : registre_recouper / recoupements_lire. Zéro coût modèle.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        de: { type: 'string', description: 'Première personne (nom, tel qu\'il apparaît dans un dossier ou sur la carte)' },
+        vers: { type: 'string', description: 'Seconde personne' },
+      },
+      required: ['de', 'vers'],
+    },
+    handler: async (a) => cheminEntre(keys, { de: a.de, vers: a.vers }),
   },
   {
     name: 'carto_rapprochements',
@@ -1760,7 +1794,7 @@ const INSTRUCTIONS_CONNECTEUR = [
   '  3. Deux chiffres voisins qui diffèrent ne sont pas une incohérence : chaque carte porte sa `regle`, la lire avant de conclure ou de signaler un écart au magistrat.',
   '  4. Pour VOIR ce qu\'il voit : stats_graphique, avec `graphiques` (plusieurs d\'un coup) et `annee`. Décrire les dynamiques d\'après l\'image, mais donner les nombres d\'après les données jointes.',
   'GROS STOCK ET ARCHIVES : lister_dossiers est paginé et filtrable — portee:"archives" (les archivés SEULS), portee:"toutes", `filtre` (numéro, objet, mis en cause), offset/limit ; la réponse dit ce qui reste et à quel offset reprendre. Une population de dossiers n\'est jamais hors de portée : déroule les pages.',
-  'ANALYSE PROFONDE : une demande qui suppose de LIRE des centaines ou des milliers de pièces (dépouiller un dossier entier, chercher une adresse ou une ligne dans les pièces de tous les dossiers, préparer un règlement, croiser des affaires) ne se traite pas dans la conversation. Cherche d\'abord avec les outils GRATUITS et exhaustifs — registre_recouper (entités partagées entre dossiers, `entite` pour une valeur précise), registre_lire, pieces_chercher — puis, si la lecture de masse reste nécessaire, dépose un CHANTIER : chantiers_etat (ce qui existe déjà) puis chantier_proposer. Il naît en DEVIS chiffré (pièces, lots, jetons, heures, nuits) dans la bande « Analyses profondes » de l\'app ; le magistrat valide d\'un clic et le serveur travaille la nuit, par lots, avec reprise automatique. Ne conclus jamais sur une réserve d\'exhaustivité sans proposer le devis qui la lèvera.',
+  'ANALYSE PROFONDE : une demande qui suppose de LIRE des centaines ou des milliers de pièces (dépouiller un dossier entier, chercher une adresse ou une ligne dans les pièces de tous les dossiers, préparer un règlement, croiser des affaires) ne se traite pas dans la conversation. Cherche d\'abord avec les outils GRATUITS et exhaustifs — registre_recouper (entités partagées entre dossiers, `entite` pour une valeur précise), recoupements_lire (signaux de la veille hebdomadaire, pièces et OCR compris, `inedits:true` pour les ponts que rien ne montrait), carto_analyser (importance, intermédiaires, communautés CALCULÉS) et carto_chemin (ce qui relie X à Y, sourcé), registre_lire, pieces_chercher — puis, si la lecture de masse reste nécessaire, dépose un CHANTIER : chantiers_etat (ce qui existe déjà) puis chantier_proposer. Il naît en DEVIS chiffré (pièces, lots, jetons, heures, nuits) dans la bande « Analyses profondes » de l\'app ; le magistrat valide d\'un clic et le serveur travaille la nuit, par lots, avec reprise automatique. Ne conclus jamais sur une réserve d\'exhaustivité sans proposer le devis qui la lèvera.',
   'Écritures (actes, CR, à-faire, NATINF, dossiers…) : réservées aux instructions explicites du magistrat — en cas de doute, demande-lui dans la conversation avant d\'écrire. Chaque écriture est versionnée (réversible) et journalisée dans son audit ; les données partagées sont signées de son nom, jamais « IA ».',
   'Livrables et actes rédigés se remettent DANS SIRAL : produire_document (atelier « Actes rédigés ») ou remettre_livrable (fil « pendant votre absence »).',
 ].join('\n')

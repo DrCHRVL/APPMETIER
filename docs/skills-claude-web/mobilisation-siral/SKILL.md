@@ -217,6 +217,10 @@ avec un **état de reprise**.
    `registre_recouper` (entités partagées entre dossiers : téléphones,
    plaques, IBAN, **adresses**, personnes, avec les pièces des deux côtés ;
    `entite` pour chercher UNE valeur dans tous les registres),
+   `recoupements_lire` (les signaux de la **veille hebdomadaire**, pièces et
+   OCR compris — `inedits:true` pour les ponts que rien ne montrait),
+   `carto_analyser` (importance, intermédiaires, communautés **calculés**) et
+   `carto_chemin` (ce qui relie X à Y, chaque saut sourcé),
    `registre_lire`, `pieces_chercher` ; (b) si la lecture de masse reste
    nécessaire, `chantiers_etat` (ne redemande pas ce qui tourne déjà) puis
    `chantier_proposer` — type `dossier` (chaque pièce lue une seule fois →
