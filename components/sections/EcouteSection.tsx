@@ -419,8 +419,8 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
           const hasHistoryEntries = ecoute.prolongationsHistory && ecoute.prolongationsHistory.length > 0;
           const isHistoryExpanded = expandedHistoryIds.includes(ecoute.id);
           const nbProlongations = ecoute.prolongationsHistory?.length ?? 0;
-          const maxP = ecoute.maxProlongations ?? 1;
-          const prolongLimitAtteinte = maxP >= 0 && nbProlongations >= maxP;
+          const maxP = ecoute.maxProlongations;
+          const prolongLimitAtteinte = maxP !== undefined && maxP >= 0 && nbProlongations >= maxP;
           const statutBadge = getStatutBadgeProps(ecoute.statut);
 
           return (
@@ -622,8 +622,8 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
                 const hasHistoryEntries = ecoute.prolongationsHistory && ecoute.prolongationsHistory.length > 0;
                 const isHistoryExpanded = expandedHistoryIds.includes(ecoute.id);
                 const nbProlongationsT = ecoute.prolongationsHistory?.length ?? 0;
-                const maxPT = ecoute.maxProlongations ?? 1;
-                const prolongLimitAtteinteT = maxPT >= 0 && nbProlongationsT >= maxPT;
+                const maxPT = ecoute.maxProlongations;
+                const prolongLimitAtteinteT = maxPT !== undefined && maxPT >= 0 && nbProlongationsT >= maxPT;
                 
                 return (
                 <div key={ecoute.id} className="bg-gray-50 p-3 rounded border border-gray-200">
