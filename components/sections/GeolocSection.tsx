@@ -544,8 +544,8 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
                 const hasHistoryEntries = geoloc.prolongationsHistory && geoloc.prolongationsHistory.length > 0;
                 const isHistoryExpanded = expandedHistoryIds.includes(geoloc.id);
                 const nbProlongationsT = geoloc.prolongationsHistory?.length ?? 0;
-                const maxPT = geoloc.maxProlongations ?? 1;
-                const prolongLimitAtteinteT = maxPT >= 0 && nbProlongationsT >= maxPT;
+                const maxPT = geoloc.maxProlongations;
+                const prolongLimitAtteinteT = maxPT !== undefined && maxPT >= 0 && nbProlongationsT >= maxPT;
 
                 return (
                 <div key={geoloc.id} className="bg-gray-50 p-3 rounded border border-gray-200">
