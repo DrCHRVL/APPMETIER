@@ -556,7 +556,11 @@ async function runActualiserDescription(numero, trigger = 'auto') {
       // « minimum de jetons ».
       model: economicalModel(agentConfig()),
       effort: 'low',
-      maxTurns: 8,
+      // 8 était trop juste : lire_dossier + registre_lire + actualiser_description
+      // laissent à peine de marge pour la cohérence des mis en cause (étape 5,
+      // recouper_personnes + proposer_mec par nom relevé) sans retomber en
+      // error_max_turns — cf. scripts/attache/dossier.mjs:324.
+      maxTurns: 12,
       timeoutMs: 8 * 60 * 1000,
     })
     const proposees = Math.max(0, countPropositionsMec(keys, num) - avantMec)
