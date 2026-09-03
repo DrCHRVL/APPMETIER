@@ -502,6 +502,31 @@ const DESC_QUIET_MS = Math.max(60_000, Number(process.env.SIRAL_ATTACHE_DESC_QUI
 // Anti-rafale : jamais deux actualisations du MÊME dossier trop rapprochées.
 const DESC_MIN_INTERVAL_MS = Math.max(0, Number(process.env.SIRAL_ATTACHE_DESC_MIN_INTERVAL_MIN || 20) * 60 * 1000)
 
+// Dossier trop volumineux pour un run court (même économe, même via le
+// registre) : au lieu de tenter une lecture rapide vouée à l'échec ou trop
+// superficielle, l'actualisation bascule sur un CHANTIER — le dépouillement
+// complet, en lots, cantonné à la nuit par défaut — et le dit CLAIREMENT au
+// magistrat plutôt que de le laisser recliquer sur « Actualiser » sans rien
+// comprendre. Seuil sur les pièces SERVEUR déposées (hors jumeaux MD/, même
+// compte que dossierSyntheseSignals — coût nul).
+const bounded = (v, min, max, dflt) => {
+  const n = Math.floor(Number(v))
+  return Number.isFinite(n) && n >= min && n <= max ? n : dflt
+}
+const DESC_CHANTIER_SEUIL = bounded(process.env.SIRAL_ATTACHE_DESC_CHANTIER_SEUIL, 10, 1000, 100)
+
+/** Le chantier de dépouillement (existant ou tout juste créé) dit en clair au magistrat. */
+function chantierMessage(ch, { pieces, cree }) {
+  if (cree) {
+    const h = ch.estimation?.heures
+    return `Dossier volumineux (${pieces} pièces) : l'actualisation rapide laisse place à un chantier de dépouillement complet — ${ch.estimation?.lots ?? '?'} lot(s), ~${ch.estimation?.nuits ?? '?'} nuit(s)${h ? ` (~${h} h)` : ''}. Le devis attend votre validation dans Assistant de justice → Chantiers.`
+  }
+  if (ch.etat === 'devis') {
+    return `Dossier volumineux — un chantier de dépouillement est déjà en attente de votre validation (devis du ${String(ch.creeLe || '').slice(0, 10)}). Validez-le dans Assistant de justice → Chantiers pour que la description en profite.`
+  }
+  return `Dossier volumineux — un chantier de dépouillement est déjà en cours (${ch.piecesFaites}/${ch.totalPieces} pièces). La description se mettra à jour une fois le dépouillement avancé.`
+}
+
 function descriptionState() {
   const st = readState()
   return st.descriptions && typeof st.descriptions === 'object' ? st.descriptions : {}
@@ -530,6 +555,20 @@ function mecPrompt(keys, numero) {
   })
 }
 
+// Recale le point de référence sur l'état COURANT (la signature exclut la
+// description, donc rien de ce qu'on vient de faire — écriture ou bascule en
+// chantier — ne l'a fait bouger) : l'auto ne se redéclenche pas immédiatement,
+// l'anti-rafale part de maintenant. Un changement ULTÉRIEUR (nouvelle pièce,
+// nouveau CR) rebasculera normalement.
+async function recalerDescriptionState(keys, num) {
+  try {
+    const sig = dossierSyntheseSignals(keys).find((d) => d.numero === num)?.signature
+    const descs = descriptionState()
+    descs[num] = { sig: sig ?? descs[num]?.sig ?? '', lastRefreshedAt: new Date().toISOString(), pendingSig: null, pendingSince: null }
+    await writeState({ descriptions: descs })
+  } catch { /* recalage best-effort */ }
+}
+
 let descriptionRunning = false
 async function runActualiserDescription(numero, trigger = 'auto') {
   const num = String(numero || '').trim()
@@ -541,6 +580,35 @@ async function runActualiserDescription(numero, trigger = 'auto') {
   if (!keys) return { ok: false, error: 'trousseau non remis' }
   descriptionRunning = true
   try {
+    // Dossier volumineux : basculer en chantier PLUTÔT que de tenter (et
+    // souvent rater) une lecture rapide — voir DESC_CHANTIER_SEUIL ci-dessus.
+    const signal = dossierSyntheseSignals(keys).find((d) => d.numero === num)
+    if ((signal?.docs || 0) >= DESC_CHANTIER_SEUIL) {
+      const existant = listChantiers(keys).find((c) => c.type === 'dossier' && String(c.numero) === num && c.etat !== 'termine')
+      if (existant) {
+        console.log(`[attache] description « ${num} » (${trigger}) : chantier ${existant.id} déjà « ${existant.etat} », pas de run`)
+        await recalerDescriptionState(keys, num)
+        return { ok: true, chantier: existant, message: chantierMessage(existant, { pieces: signal.docs, cree: false }) }
+      }
+      try {
+        const ch = await createChantier(keys, {
+          type: 'dossier',
+          numero: num,
+          consigne: 'Dépouillement complet — bascule automatique depuis l\'actualisation de la description (dossier volumineux).',
+          nuitSeulement: true,
+          origine: 'attache',
+        })
+        console.log(`[attache] description « ${num} » (${trigger}) : basculée en chantier ${ch.id} (${ch.estimation?.pieces} pièces, ${ch.estimation?.lots} lots)`)
+        await audit(keys, 'description_chantier', { numero: num, trigger, chantierId: ch.id, pieces: ch.estimation?.pieces, lots: ch.estimation?.lots })
+        await recalerDescriptionState(keys, num)
+        return { ok: true, chantier: ch, message: chantierMessage(ch, { pieces: signal.docs, cree: true }) }
+      } catch (e) {
+        // Cas attendu le plus courant : toutes les pièces sont déjà couvertes
+        // par les fiches d'un chantier précédent — rien de neuf à basculer, la
+        // lecture rapide (registre) suffit. On journalise et on poursuit.
+        console.log(`[attache] description « ${num} » (${trigger}) : bascule chantier écartée (${e?.message || e}) — lecture rapide`)
+      }
+    }
     console.log(`[attache] actualisation description « ${num} » (${trigger})`)
     // Le run tient AUSSI la section « Mis en cause » en cohérence : la partie
     // MIS EN CAUSE de la description ne parle que des personnes enregistrées,
@@ -556,20 +624,16 @@ async function runActualiserDescription(numero, trigger = 'auto') {
       // « minimum de jetons ».
       model: economicalModel(agentConfig()),
       effort: 'low',
-      maxTurns: 8,
+      // 8 était trop juste : lire_dossier + registre_lire + actualiser_description
+      // laissent à peine de marge pour la cohérence des mis en cause (étape 5,
+      // recouper_personnes + proposer_mec par nom relevé) sans retomber en
+      // error_max_turns — cf. scripts/attache/dossier.mjs:324.
+      maxTurns: 12,
       timeoutMs: 8 * 60 * 1000,
     })
     const proposees = Math.max(0, countPropositionsMec(keys, num) - avantMec)
     await audit(keys, 'description_actualisee', { numero: num, trigger, ok: result.ok, proposees, convId: result.convId, erreur: result.error })
-    // Recale le point de référence sur l'état COURANT (la signature exclut la
-    // description, donc l'écriture ne l'a pas fait bouger) : l'auto ne se
-    // redéclenche pas immédiatement, l'anti-rafale part de maintenant.
-    try {
-      const sig = dossierSyntheseSignals(keys).find((d) => d.numero === num)?.signature
-      const descs = descriptionState()
-      descs[num] = { sig: sig ?? descs[num]?.sig ?? '', lastRefreshedAt: new Date().toISOString(), pendingSig: null, pendingSince: null }
-      await writeState({ descriptions: descs })
-    } catch { /* recalage best-effort */ }
+    await recalerDescriptionState(keys, num)
     return { ok: result.ok, proposees, convId: result.convId, error: result.error }
   } finally {
     descriptionRunning = false
