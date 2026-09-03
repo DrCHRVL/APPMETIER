@@ -207,6 +207,13 @@ const EnqueteDetailModalImpl = ({
       if (res.status === 202 || data.running) {
         showToast('Une actualisation est déjà en cours — réessayez dans un instant.', 'info');
         setDescriptionRefreshStatus('idle');
+      } else if (res.ok && data.ok && data.chantier) {
+        // Dossier trop volumineux pour un run court : basculé sur un chantier
+        // de dépouillement (nuit, par lots) — pas d'échec, mais rien n'est
+        // actualisé tout de suite. On le dit franchement, sans laisser croire
+        // à un succès ni à une panne (l'icône revient au repos, pas à l'échec).
+        showToast(data.message || 'Dossier volumineux — actualisation basculée en chantier de dépouillement.', 'warning');
+        setDescriptionRefreshStatus('idle');
       } else if (res.ok && data.ok) {
         await useEnquetesStore.getState().syncAndRefresh().catch(() => {});
         // La même passe tient la section « Mis en cause » en cohérence : tout

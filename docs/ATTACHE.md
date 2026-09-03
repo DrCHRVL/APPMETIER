@@ -499,10 +499,18 @@ l'usage).
   date des CR, des documents, des actes — coût nul, aucun jeton) ; dès qu'un
   dossier a bougé, il attend une courte période de calme (les ajouts en rafale
   sont fusionnés) puis lance **un run COURT et ÉCONOME** (modèle rapide, effort
-  faible, ≤ 8 tours) — **un seul dossier par relève**, lentement, pour un
+  faible, ≤ 12 tours) — **un seul dossier par relève**, lentement, pour un
   minimum de jetons. Il est **différé** si le forfait sature (gouverneur), et
   la consommation apparaît sous le poste **« Descriptions »** de « Consommation
-  IA ». La description suit un **format en deux parties, en prise de notes**
+  IA ». **Dossier volumineux** (≥ `SIRAL_ATTACHE_DESC_CHANTIER_SEUIL`, 100
+  pièces déposées par défaut) : un run court n'y suffit pas — l'actualisation
+  bascule alors sur un **CHANTIER** de dépouillement complet (pièce par pièce,
+  en lots, cantonné à la nuit par défaut) plutôt que de tenter une lecture
+  rapide vouée à l'échec ou trop superficielle. Le devis (pièces, lots, nuits
+  estimées) est déposé **en attente de validation** — rien ne se lance sans le
+  magistrat — et **dit franchement** ce qui se passe (icône et message de
+  retour), pour ne pas laisser cliquer sur « Actualiser » sans comprendre
+  pourquoi rien ne bouge. La description suit un **format en deux parties, en prise de notes**
   (rédigé à ~80 %, mots inutiles et verbes de liaison retirés, mais clair) :
   - **SYNTHÈSE** — la vision globale des faits, qui **s'enrichit et se
     reformule** à chaque passage (qualification, mode opératoire, lieux,
@@ -525,8 +533,9 @@ l'usage).
   - **actualisation de la description** : la même passe fait le travail, et le
     message de retour dit combien de mis en cause ont été proposés.
   Les deux runs sont **courts et économes** (modèle rapide, effort faible,
-  ≤ 8 tours) et apparaissent sous le poste **« Mis en cause (détection) »** de
-  « Consommation IA ». Le **dédoublonnage** est vérifié au dépôt :
+  ≤ 8 tours pour l'icône *Mis en cause*, ≤ 12 pour l'actualisation de la
+  description) et apparaissent sous le poste **« Mis en cause (détection) »**
+  de « Consommation IA ». Le **dédoublonnage** est vérifié au dépôt :
   - nom **déjà** aux mis en cause du dossier (ou déjà proposé) ⇒ **rien n'est
     déposé** ;
   - nom **très proche** — orthographe voisine (« LAACHIRA Medhi » /

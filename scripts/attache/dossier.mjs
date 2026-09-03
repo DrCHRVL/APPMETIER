@@ -1647,7 +1647,10 @@ export function dossierSyntheseSignals(keys) {
         sdocsCount, lastSdoc,
         actes,
       ].join('|')
-      return { numero: String(e.numero), signature }
+      // `docs` : pièces serveur déposées (hors jumeaux MD/) — sert au seuil qui
+      // bascule l'actualisation de la description sur un chantier (cf.
+      // attache-service.mjs, runActualiserDescription) sans nouvel appel.
+      return { numero: String(e.numero), signature, docs: sdocsCount }
     })
 }
 
