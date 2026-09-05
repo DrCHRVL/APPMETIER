@@ -331,13 +331,13 @@ export class DataMergeService {
         dateDesarchivage: mergedDateDesarchivage,
         // Union des sous-éléments par ID (on ne perd rien, les suppressions intentionnelles sont respectées)
         comptesRendus: this.unionById(
-          local.comptesRendus.filter(cr => !deletedCRs.has(cr.id)),
-          server.comptesRendus.filter(cr => !deletedCRs.has(cr.id)),
+          (local.comptesRendus || []).filter(cr => !deletedCRs.has(cr.id)),
+          (server.comptesRendus || []).filter(cr => !deletedCRs.has(cr.id)),
           localIsNewer
         ),
         misEnCause: this.unionById(
-          local.misEnCause.filter(m => !deletedMECs.has(m.id)),
-          server.misEnCause.filter(m => !deletedMECs.has(m.id)),
+          (local.misEnCause || []).filter(m => !deletedMECs.has(m.id)),
+          (server.misEnCause || []).filter(m => !deletedMECs.has(m.id)),
           localIsNewer
         ),
         actes: this.unionById(

@@ -381,7 +381,13 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
         const allAlerts = await SiralBridge.getData<Alert[]>(currentAlertsKey, []);
 
         let snoozeUntil: Date;
-        if (typeof daysOrDate === 'string' && daysOrDate.includes('T')) {
+        // Une chaîne NON numérique est une date (ISO complète « …T… » ou simple
+        // « YYYY-MM-DD » du sélecteur de date). Auparavant seuls les « …T… »
+        // étaient reconnus : « 2024-01-15 » tombait dans le parseInt → 2024 jours
+        // de report (~5 ans). Number('2024-01-15') = NaN ⇒ traité en date.
+        // (Même correctif que AlertManager.snoozeAlert, jamais propagé ici alors
+        // que c'est ce hook que la cloche appelle réellement.)
+        if (typeof daysOrDate === 'string' && isNaN(Number(daysOrDate))) {
           snoozeUntil = new Date(daysOrDate);
         } else {
           const days = typeof daysOrDate === 'string' ? parseInt(daysOrDate, 10) : daysOrDate;

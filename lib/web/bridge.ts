@@ -76,7 +76,12 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       failedPulls.delete(name)
       return payload
     } catch (e) {
-      if (e instanceof NetworkError) failedPulls.add(name)
+      // Toute lecture qui échoue marque le coffre, pas seulement les erreurs
+      // réseau : une enveloppe illisible ou indéchiffrable (fichier serveur
+      // corrompu, écriture interrompue) est sinon confondue avec un « serveur
+      // vide », et vaultPush l'écraserait par une fusion locale. Marqué ici,
+      // vaultPush refuse d'écrire tant qu'une relecture n'a pas confirmé l'état.
+      failedPulls.add(name)
       throw e
     }
   }

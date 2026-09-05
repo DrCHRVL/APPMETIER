@@ -40,6 +40,13 @@ export const useAIR = () => {
   // ou à l'application d'un résultat de synchronisation.
   const pushDirtyRef = useRef(false);
 
+  // Valeurs courantes pour la sauvegarde finale au démontage : l'effet de
+  // nettoyage ne doit pas figer le closure d'un rendu particulier.
+  const mesuresRef = useRef(mesures);
+  const isLoadingRef = useRef(isLoading);
+  useEffect(() => { mesuresRef.current = mesures; }, [mesures]);
+  useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
+
   // Charger les données (au démarrage + à chaque changement d'utilisateur)
   const loadMesures = useCallback(async () => {
     const key = storageKeyRef.current;
@@ -115,6 +122,10 @@ export const useAIR = () => {
       } catch (error) {
         console.error('Erreur lors de la sauvegarde des mesures AIR:', error);
         showToast('Erreur lors de la sauvegarde', 'error');
+      } finally {
+        // Plus d'écriture en attente : la sentinelle ne doit plus déclencher
+        // de flush au démontage (cf. effet de sauvegarde finale ci-dessous).
+        saveTimeoutRef.current = undefined;
       }
     }, 1000); // 1 seconde de debounce
 
@@ -124,6 +135,25 @@ export const useAIR = () => {
       }
     };
   }, [mesures, isLoading, showToast]);
+
+  // Sauvegarde finale au démontage : si un enregistrement débouncé est encore
+  // en attente (l'utilisateur a modifié une mesure puis quitté la vue dans la
+  // seconde qui suit), on le flushe pour ne pas perdre la dernière édition —
+  // même garde-fou que useInstructions.
+  useEffect(() => {
+    return () => {
+      if (!saveTimeoutRef.current) return;
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = undefined;
+      const key = storageKeyRef.current;
+      if (!key || isLoadingRef.current) return;
+      const shouldPush = pushDirtyRef.current;
+      pushDirtyRef.current = false;
+      SiralBridge.setData(key, mesuresRef.current)
+        .then(() => { if (shouldPush) airSyncService.schedulePush(); })
+        .catch(e => console.error('useAIR: sauvegarde finale échouée', e));
+    };
+  }, []);
 
   // Fonctions utilitaires inspirées de l'ancien hook
   const normalizeInfraction = useCallback((infraction: string): string => {

@@ -63,6 +63,8 @@ export const useTags = (): UseTagsReturn => {
   // Permet d'éviter un push inutile quand `setTags` provient d'une
   // hydratation (init + event sync) plutôt que d'une édition utilisateur.
   const lastPersistedRef = useRef<string>('');
+  // Dernier snapshot à écrire, pour la sauvegarde finale au démontage.
+  const pendingTagsRef = useRef<TagDefinition[] | null>(null);
 
   // Utilitaires
   const createTagId = useCallback((value: string, category: TagCategory) => {
@@ -288,6 +290,8 @@ export const useTags = (): UseTagsReturn => {
     // inutile de réécrire localement ni de repousser au serveur.
     if (serialized === lastPersistedRef.current) return;
 
+    // Écriture en attente : mémorisée pour un flush éventuel au démontage.
+    pendingTagsRef.current = tagsToSave;
     saveTimeoutRef.current = setTimeout(async () => {
       try {
         await SiralBridge.setData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, tagsToSave);
@@ -298,6 +302,8 @@ export const useTags = (): UseTagsReturn => {
         tagSyncService.schedulePush();
       } catch (error) {
         console.error('Error saving tags:', error);
+      } finally {
+        pendingTagsRef.current = null;
       }
     }, 500);
   }, []);
@@ -307,13 +313,30 @@ export const useTags = (): UseTagsReturn => {
     if (!isLoading) {
       debouncedSave(tags);
     }
-    
+
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
     };
   }, [tags, isLoading, debouncedSave]);
+
+  // Sauvegarde finale au démontage : un tag créé/renommé juste avant de quitter
+  // la vue (dans les 500 ms du debounce) serait sinon perdu localement et jamais
+  // poussé. Si une écriture est encore en attente, on la flushe.
+  useEffect(() => {
+    return () => {
+      const pending = pendingTagsRef.current;
+      if (!pending) return;
+      pendingTagsRef.current = null;
+      SiralBridge.setData(APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS, pending)
+        .then(() => {
+          lastPersistedRef.current = JSON.stringify(pending);
+          tagSyncService.schedulePush();
+        })
+        .catch(e => console.error('useTags: sauvegarde finale échouée', e));
+    };
+  }, []);
 
   // Sélecteurs — tri alphabétique (localeCompare FR, insensible à la casse/accents)
   const getTagsByCategoryMemo = useCallback((category: TagCategory) => {
