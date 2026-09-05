@@ -39,9 +39,18 @@ import { calculatePeriodeDPEnd, calculateDMLEcheance } from '@/utils/instruction
  * Générateur d'identifiants monotone. On évite `Date.now()` dans une boucle
  * serrée (collisions possibles) : un compteur incrémental garantit l'unicité
  * au sein d'un même import.
+ *
+ * Deux générateurs créés dans la même milliseconde (deux imports rapprochés)
+ * partageaient sinon la même séquence 1, 2, 3… : leurs id entraient en
+ * collision si les entités étaient ensuite fusionnées dans une même enquête.
+ * On mémorise donc une base de processus strictement croissante, dont chaque
+ * nouveau générateur repart au-dessus.
  */
+let lastImportSeed = 0;
+const IMPORT_SEED_GAP = 1_000_000; // > nombre d'id raisonnable pour un import
 export const makeIdGen = (): (() => number) => {
-  let seed = Date.now();
+  let seed = Math.max(Date.now(), lastImportSeed + IMPORT_SEED_GAP);
+  lastImportSeed = seed;
   return () => ++seed;
 };
 

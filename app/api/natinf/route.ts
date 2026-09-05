@@ -187,9 +187,17 @@ export async function POST(req: Request) {
     if (entries.length > 60000) {
       return jsonResponse({ error: 'Référentiel trop volumineux' }, { status: 413 })
     }
-    const first = entries[0]
-    if (!first || typeof first.code !== 'string' || typeof first.libelle !== 'string') {
-      return jsonResponse({ error: 'Format d’entrée NATINF invalide' }, { status: 400 })
+    // Valider TOUTES les entrées, pas seulement la première : un référentiel
+    // dont la 1re ligne est bien formée mais dont une ligne suivante est
+    // malformée serait sinon publié tel quel et servi à tous les clients.
+    const badIndex = entries.findIndex(
+      (e) => !e || typeof e.code !== 'string' || typeof e.libelle !== 'string'
+    )
+    if (badIndex !== -1) {
+      return jsonResponse(
+        { error: `Format d’entrée NATINF invalide (ligne ${badIndex + 1})` },
+        { status: 400 }
+      )
     }
     const record: PublishedReferential = {
       version: Date.now(),

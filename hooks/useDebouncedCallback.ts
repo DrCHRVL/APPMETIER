@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useMemo } from 'react';
 import debounce from 'lodash/debounce';
 
 /**
@@ -17,9 +17,14 @@ export function useDebouncedCallback<T extends (...args: any[]) => any>(
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
 
-  const debouncedFn = useRef(
-    debounce((...args: any[]) => callbackRef.current(...args), delay)
-  ).current;
+  // Recréé uniquement quand `delay` change : un délai constant (cas courant)
+  // conserve la même instance d'un rendu à l'autre, mais un délai dynamique
+  // n'est plus figé sur sa valeur initiale. L'ancienne instance est flushée
+  // par le nettoyage d'effet ci-dessous lorsqu'elle est remplacée.
+  const debouncedFn = useMemo(
+    () => debounce((...args: any[]) => callbackRef.current(...args), delay),
+    [delay]
+  );
 
   useEffect(() => {
     return () => {

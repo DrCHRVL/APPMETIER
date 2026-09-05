@@ -26,6 +26,12 @@ let dbPromise: Promise<IDBDatabase> | null = null
 function openDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise
   dbPromise = new Promise((resolve, reject) => {
+    // IndexedDB peut être absent (navigation privée durcie, contextes non
+    // navigateur) : échouer clairement plutôt que sur un ReferenceError opaque.
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB indisponible dans cet environnement'))
+      return
+    }
     const req = indexedDB.open(dbName, DB_VERSION)
     req.onupgradeneeded = () => {
       const db = req.result
@@ -37,6 +43,9 @@ function openDb(): Promise<IDBDatabase> {
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
+    // Un autre onglet tient encore l'ancienne version : sans ce handler, la
+    // montée de version reste bloquée et la promesse ne se résout jamais.
+    req.onblocked = () => reject(new Error('IndexedDB bloqué : fermez les autres onglets SIRAL'))
   })
   return dbPromise
 }
