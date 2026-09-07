@@ -14,6 +14,7 @@ import type { ContentieuxDefinition } from '@/types/userTypes';
 import type { MecRole } from '@/stores/useCartographieOverlayStore';
 import { MEC_ROLE_POINTS, type DossierNode, type MecNode, type MindmapGraph } from '@/utils/mindmapGraph';
 import { CAMP_COLOR_PRESETS } from './campColors';
+import { useEditableDraft } from './useEditableDraft';
 
 interface MindmapSidePanelProps {
   mec: MecNode;
@@ -84,20 +85,21 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
 
   // Édition locale du boost : on n'écrit dans le store qu'au commit
   // (Enregistrer / clavier Entrée) pour éviter de relancer le layout à
-  // chaque frappe.
-  const [boostDraft, setBoostDraft] = useState(mec.manualBonus);
-  const [reasonDraft, setReasonDraft] = useState(mec.manualBonusReason || '');
-  useEffect(() => {
-    setBoostDraft(mec.manualBonus);
-    setReasonDraft(mec.manualBonusReason || '');
-  }, [mec.id, mec.manualBonus, mec.manualBonusReason]);
-  const boostDirty = boostDraft !== mec.manualBonus
-    || (reasonDraft || '') !== (mec.manualBonusReason || '');
+  // chaque frappe. Le brouillon survit aux reconstructions du graphe
+  // (cf. useEditableDraft) : sans ça, la sync effaçait la saisie en cours.
+  const [boostDraft, setBoostDraft, boostValueDirty] = useEditableDraft(mec.id, mec.manualBonus);
+  const [reasonDraft, setReasonDraft, reasonDirty] = useEditableDraft(mec.id, mec.manualBonusReason || '');
+  const boostDirty = boostValueDirty || reasonDirty;
 
   const commitBoost = () => {
     if (!onSetScoreBoost) return;
     const clamped = Math.max(BOOST_MIN, Math.min(BOOST_MAX, Math.round(boostDraft)));
-    onSetScoreBoost(mec.id, clamped, reasonDraft.trim() || undefined);
+    const reason = reasonDraft.trim();
+    onSetScoreBoost(mec.id, clamped, reason || undefined);
+    // On aligne le brouillon sur ce qui vient d'être enregistré (valeur bornée,
+    // justification élaguée) : le bouton retombe bien à « rien à enregistrer ».
+    setBoostDraft(clamped);
+    setReasonDraft(reason);
   };
   const resetBoost = () => {
     if (!onSetScoreBoost) return;
@@ -113,16 +115,14 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
   };
 
   // ── Notes & surnoms (fiche manuelle, éditée depuis le panneau) ──
-  const [notesDraft, setNotesDraft] = useState(mec.manualNotes || '');
-  const [aliasDraft, setAliasDraft] = useState<string[]>(mec.manualAlias || []);
+  // Mêmes brouillons résistants que le boost : `mec.manualAlias` est un
+  // tableau reconstruit à chaque rendu du graphe, s'y fier par référence
+  // faisait disparaître notes et surnoms en cours de frappe.
+  const [notesDraft, setNotesDraft, notesDirty] = useEditableDraft(mec.id, mec.manualNotes || '');
+  const [aliasDraft, setAliasDraft, aliasDirty] = useEditableDraft<string[]>(mec.id, mec.manualAlias || []);
   const [aliasInput, setAliasInput] = useState('');
-  useEffect(() => {
-    setNotesDraft(mec.manualNotes || '');
-    setAliasDraft(mec.manualAlias || []);
-    setAliasInput('');
-  }, [mec.id, mec.manualNotes, mec.manualAlias]);
-  const ficheDirty = (notesDraft || '') !== (mec.manualNotes || '')
-    || JSON.stringify(aliasDraft) !== JSON.stringify(mec.manualAlias || []);
+  useEffect(() => { setAliasInput(''); }, [mec.id]);
+  const ficheDirty = notesDirty || aliasDirty;
   const addAlias = () => {
     const v = aliasInput.trim();
     if (v && !aliasDraft.includes(v)) setAliasDraft(prev => [...prev, v]);
@@ -130,7 +130,9 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
   };
   const commitFiche = () => {
     if (!onSaveFiche) return;
-    onSaveFiche(mec, { notes: notesDraft.trim() || undefined, alias: aliasDraft });
+    const notes = notesDraft.trim();
+    onSaveFiche(mec, { notes: notes || undefined, alias: aliasDraft });
+    setNotesDraft(notes);
   };
 
   // ── Nom (renommage propagé) ──

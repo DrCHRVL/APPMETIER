@@ -228,11 +228,22 @@ export const AdminCartographyPanel: React.FC = () => {
   }, [config.natinfWeights, ownEnquetes, getByCode]);
 
   // Tampon d'édition local : permet la saisie libre tout en gardant les
-  // champs synchronisés sur la config persistée. On le vide à chaque
-  // changement de `config` (commit, reset…) pour que les inputs reflètent
-  // toujours l'état réel.
+  // champs synchronisés sur la config persistée. Chaque champ est relâché
+  // (retour à la valeur persistée) une fois SA saisie validée au blur, ou
+  // lors d'une réinitialisation.
+  //
+  // ATTENTION : ne PAS vider ce tampon sur un simple changement de `config`.
+  // La config est synchronisée entre postes en continu ; le faire effaçait
+  // le champ en cours de frappe dès qu'une sync passait.
   const [draft, setDraft] = React.useState<Record<string, string>>({});
-  React.useEffect(() => { setDraft({}); }, [config]);
+  const clearDraft = React.useCallback((key: string) => {
+    setDraft(d => {
+      if (!(key in d)) return d;
+      const next = { ...d };
+      delete next[key];
+      return next;
+    });
+  }, []);
 
   // Une sauvegarde peut être refusée si la config n'a pas pu être relue
   // (data.json momentanément illisible) : dans ce cas le manager lève une
@@ -248,52 +259,63 @@ export const AdminCartographyPanel: React.FC = () => {
     }
   };
 
+  // Chaque handler est appelé au blur du champ : on enregistre puis on relâche
+  // le tampon de CE champ (il réaffiche alors la valeur persistée). Une saisie
+  // invalide est simplement abandonnée, le champ retrouve sa valeur réelle.
   const handleWeightChange = async (key: keyof CartographieScoreWeights, value: string) => {
     const n = parseFloat(value);
-    if (Number.isNaN(n)) return;
+    if (Number.isNaN(n)) { clearDraft(`w:${key}`); return; }
     await guardSave(() => updateWeights({ [key]: n } as Partial<CartographieScoreWeights>));
+    clearDraft(`w:${key}`);
   };
 
   const handleCategoryWeightChange = async (code: string, value: string) => {
     const n = parseFloat(value);
     await guardSave(() => setCategoryWeight(code, Number.isFinite(n) ? n : 0));
+    clearDraft(`c:${code}`);
   };
 
   const handleNatinfWeightChange = async (code: string, value: string) => {
     const n = parseFloat(value);
     await guardSave(() => setNatinfWeight(code, Number.isFinite(n) ? n : 0));
+    clearDraft(`n:${code}`);
   };
 
   const handleTemporalChange = async (key: TemporalFieldDef['key'], value: string) => {
     const n = parseFloat(value);
-    if (!Number.isFinite(n)) return;
+    if (!Number.isFinite(n)) { clearDraft(`t:${key}`); return; }
     const def = TEMPORAL_FIELDS.find(f => f.key === key)!;
     const clamped = Math.max(def.min, Math.min(def.max ?? Number.MAX_SAFE_INTEGER, n));
     await guardSave(() => updateTemporal({ [key]: clamped } as Partial<CartographieTemporalConfig>));
+    clearDraft(`t:${key}`);
   };
 
   const handleTemporalReset = async () => {
     await guardSave(() => updateTemporal({ ...DEFAULT_CARTO_TEMPORAL, enabled: config.temporal.enabled }));
+    setDraft({});
     showToast('Pondération temporelle réinitialisée', 'success');
   };
 
   const handleLayoutChange = async (key: keyof CartographieLayoutConfig, value: string) => {
     const n = parseFloat(value);
-    if (!Number.isFinite(n)) return;
+    if (!Number.isFinite(n)) { clearDraft(`l:${key}`); return; }
     // On borne pour éviter une carte injouable (chevauchement ou dispersion
     // extrême) même si l'utilisateur saisit une valeur aberrante.
     const clamped = Math.max(0, Math.min(4000, n));
     await guardSave(() => updateLayout({ [key]: clamped } as Partial<CartographieLayoutConfig>));
+    clearDraft(`l:${key}`);
   };
 
   const handleLayoutReset = async () => {
     await guardSave(() => updateLayout({ ...DEFAULT_CARTO_LAYOUT }));
+    setDraft({});
     showToast('Espacement réinitialisé', 'success');
   };
 
   const handleReset = async () => {
     if (!window.confirm('Réinitialiser toutes les pondérations aux valeurs par défaut ?')) return;
     const ok = await reset();
+    setDraft({});
     if (ok) showToast('Pondérations réinitialisées', 'success');
   };
 

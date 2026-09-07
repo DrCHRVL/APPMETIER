@@ -121,6 +121,8 @@ export class CartographieContributionsSyncService {
   private localEntry: CartoContributorEntry | null = null;
   private serverVersion = 0;
   private dirty = false;
+  /** Signature des contributions distantes déjà publiées dans le store. */
+  private lastRemoteSignature: string | null = null;
 
   private pushTimer: ReturnType<typeof setTimeout> | null = null;
   private periodicTimer: ReturnType<typeof setInterval> | null = null;
@@ -242,13 +244,22 @@ export class CartographieContributionsSyncService {
       }
 
       // Met à jour l'état mémoire : sources distantes (hors la mienne, déjà locale).
-      const remote: EnqueteWithContext[] = [];
-      for (const c of merged) {
-        if (c.windowsUsername === myUser) continue;
-        for (const s of c.enquetes || []) remote.push(contributionToSource(s));
-        for (const s of c.instructions || []) remote.push(contributionToSource(s));
+      // On ne republie le tableau QUE s'il a réellement changé : ces objets sont
+      // reconstruits à chaque cycle, et une nouvelle référence identique suffisait
+      // à faire reconstruire tout le graphe de la carte (et donc à réinitialiser
+      // les champs de saisie ouverts) une fois par minute, pour rien.
+      const remoteContributors = merged.filter(c => c.windowsUsername !== myUser);
+      const remoteSignature = this.contributorsSignature(remoteContributors);
+      if (!useCartographieContributionsStore.getState().loaded
+        || remoteSignature !== this.lastRemoteSignature) {
+        const remote: EnqueteWithContext[] = [];
+        for (const c of remoteContributors) {
+          for (const s of c.enquetes || []) remote.push(contributionToSource(s));
+          for (const s of c.instructions || []) remote.push(contributionToSource(s));
+        }
+        this.lastRemoteSignature = remoteSignature;
+        useCartographieContributionsStore.getState().setRemoteSources(remote);
       }
-      useCartographieContributionsStore.getState().setRemoteSources(remote);
 
       // Push si nécessaire : mutation locale, fichier absent, ou élagage effectué.
       const needsPush =
@@ -270,15 +281,18 @@ export class CartographieContributionsSyncService {
     }
   }
 
+  /** Signature (auteur, updatedAt) d'une liste de contributions — ordre indifférent. */
+  private contributorsSignature(list: CartoContributorEntry[]): string {
+    return list
+      .map(c => `${c.windowsUsername}:${c.updatedAt || 0}`)
+      .sort()
+      .join('|');
+  }
+
   /** Compare deux listes de contributions par (auteur, updatedAt) — ordre indifférent. */
   private contributorsEqual(a: CartoContributorEntry[], b: CartoContributorEntry[]): boolean {
     if (a.length !== b.length) return false;
-    const key = (list: CartoContributorEntry[]) =>
-      list
-        .map(c => `${c.windowsUsername}:${c.updatedAt || 0}`)
-        .sort()
-        .join('|');
-    return key(a) === key(b);
+    return this.contributorsSignature(a) === this.contributorsSignature(b);
   }
 
   private async pullServer(): Promise<CartographieContributionsSyncFile | null> {
