@@ -44,6 +44,7 @@ import {
 import type { GraphEdge, GraphNode } from '@/utils/mindmapGraph';
 import type { CartographieLayoutConfig } from '@/types/cartographieTypes';
 import { applyOrbitalLayout, detectGalaxies, hullSatRelax, layoutGalaxyCenters, nodeSatRelax } from './galaxies';
+import { dominantCampByDossier } from './campColors';
 
 export interface PositionedNode {
   id: string;
@@ -86,6 +87,20 @@ const ORPHAN_RECALL_STRENGTH = 0.01;
 // restent visibles. Appliquée uniquement hors mode remous.
 const SERVICE_GRAVITY_STRENGTH = 0.12;
 
+// RESPIRATION DES SYSTÈMES (intra-galactique) — deux dossiers d'une même
+// galaxie ne se voient, dans la simu, qu'à hauteur de leur boîte : leurs
+// anneaux de planètes s'interpénètrent donc librement, ce qui produit
+// l'empilement illisible au cœur des grosses galaxies. On ajoute une
+// répulsion douce dossier↔dossier dont la distance cible tient compte du
+// nombre de planètes de chaque système. Volontairement faible (elle cède
+// devant les liens) : la carte s'aère, elle ne se réorganise pas.
+/** Halo (px) ajouté au rayon d'un dossier, par planète en orbite. */
+const SYSTEM_HALO_PER_PLANET = 11;
+/** Plafond du halo : au-delà, un gros système repousserait toute sa galaxie. */
+const SYSTEM_HALO_MAX = 170;
+/** Intensité de la répulsion (fraction du recouvrement corrigée par tick). */
+const SYSTEM_REPEL_STRENGTH = 0.5;
+
 // Cache localStorage : positions de nœuds + signature de galaxie. v7 marque
 // (v6) le halo de masse, puis (v7) le rayon orbital tenant compte de la
 // taille réelle des dossiers (boîte large), l'attraction inter-galactique
@@ -99,7 +114,11 @@ const SERVICE_GRAVITY_STRENGTH = 0.12;
 //       indépendants hors de sa zone d'orbite, hull-SAT au plein halo du
 //       plus gros des deux) — recalcul propre pour que l'espacement
 //       s'applique sans recompactage manuel.
-const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v10';
+// v11 : respiration des systèmes (deux dossiers d'une même galaxie se
+//       repoussent à hauteur de leurs anneaux de planètes → le centre des
+//       grosses galaxies cesse de s'empiler) + répulsion de camp sur les
+//       planètes étrangères au camp dominant de leur dossier.
+const POSITIONS_STORAGE_KEY = 'mindmap.layout.positions.v11';
 // Cache séparé pour les centres de galaxies (clé = anchorId). v4 = attraction
 // renseignement + hull-SAT élargi → les centres bougent, on invalide.
 // v5 = halo de masse renforcé (cf. positions v10).
@@ -109,7 +128,7 @@ const GALAXY_CENTERS_STORAGE_KEY = 'mindmap.layout.galaxies.v5';
 // anciens angles cachés étaient valides mais on relance proprement.
 // v5 : masques par anneau (géométriques sur les dossiers voisins) →
 //      anciens angles potentiellement masqués, recalcul propre.
-const ORBITAL_ANGLES_STORAGE_KEY = 'mindmap.layout.orbits.v5';
+const ORBITAL_ANGLES_STORAGE_KEY = 'mindmap.layout.orbits.v6';
 // Borne dure des coordonnées finales (filet de sécurité NaN/explosion).
 const POSITION_CLAMP = 15_000;
 // Seuil de bascule remous / warm full.
@@ -497,6 +516,55 @@ export function useForceLayout(
     }));
 
     // ─────────────────────────────────────────────────────────────
+    // 6 bis. Respiration des systèmes : répulsion douce dossier↔dossier
+    //        à hauteur de leurs anneaux de planètes (même galaxie
+    //        uniquement — l'espacement inter-galactique est déjà traité
+    //        au macro). C'est ce qui décompacte le cœur des grosses
+    //        galaxies sans toucher au reste de la carte.
+    // ─────────────────────────────────────────────────────────────
+    const planetCountByDossier = new Map<string, number>();
+    for (const n of nodes) {
+      if (n.type !== 'mec' || n.dossierIds.length !== 1) continue;
+      const did = n.dossierIds[0];
+      planetCountByDossier.set(did, (planetCountByDossier.get(did) ?? 0) + 1);
+    }
+    type SimBody = SimNode & { x?: number; y?: number; vx?: number; vy?: number };
+    const simNodeById = new Map<string, SimBody>();
+    for (const sn of simNodes as SimBody[]) simNodeById.set(sn.id, sn);
+    const stars: Array<{ body: SimBody; r: number; galaxy: number }> = [];
+    for (const n of nodes) {
+      if (n.type !== 'dossier') continue;
+      const body = simNodeById.get(n.id);
+      const galaxy = galaxyIdxByNodeId.get(n.id);
+      if (!body || galaxy === undefined) continue;
+      const halo = Math.min(SYSTEM_HALO_MAX, (planetCountByDossier.get(n.id) ?? 0) * SYSTEM_HALO_PER_PLANET);
+      stars.push({ body, r: getCollisionRadius(n) + halo, galaxy });
+    }
+    const systemBreathForce = (alpha: number): void => {
+      for (let i = 0; i < stars.length; i++) {
+        const a = stars[i];
+        for (let j = i + 1; j < stars.length; j++) {
+          const b = stars[j];
+          if (a.galaxy !== b.galaxy) continue;
+          const dx = (b.body.x ?? 0) - (a.body.x ?? 0);
+          const dy = (b.body.y ?? 0) - (a.body.y ?? 0);
+          const d = Math.hypot(dx, dy);
+          const min = a.r + b.r;
+          if (d >= min || d < 0.001) continue;
+          // Correction partagée à parts égales, amortie par alpha : la
+          // force s'éteint avec le refroidissement de la simu.
+          const push = ((min - d) / d) * alpha * SYSTEM_REPEL_STRENGTH * 0.5;
+          const px = dx * push;
+          const py = dy * push;
+          a.body.vx = (a.body.vx ?? 0) - px;
+          a.body.vy = (a.body.vy ?? 0) - py;
+          b.body.vx = (b.body.vx ?? 0) + px;
+          b.body.vy = (b.body.vy ?? 0) + py;
+        }
+      }
+    };
+
+    // ─────────────────────────────────────────────────────────────
     // 7. Cible de gravité pour chaque nœud = centre de sa galaxie
     // ─────────────────────────────────────────────────────────────
     const targetByNodeId = new Map<string, { x: number; y: number }>();
@@ -546,7 +614,8 @@ export function useForceLayout(
         'galaxyY',
         forceY<SimNode>(d => targetByNodeId.get(d.id)?.y ?? 0)
           .strength(d => (targetByNodeId.has(d.id) ? GALAXY_GRAVITY_STRENGTH : ORPHAN_RECALL_STRENGTH)),
-      );
+      )
+      .force('systemBreath', systemBreathForce);
 
     sim.stop();
     for (let i = 0; i < iterations; i++) sim.tick();
@@ -589,6 +658,11 @@ export function useForceLayout(
     // barycentre du camp au moment du placement orbital : les membres d'un
     // même camp se regroupent du même côté de chaque dossier, SANS déplacer
     // dossiers ni galaxies. Priorité moindre qu'un lien renseignement.
+    // RÉPULSION DE CAMP — l'inverse : une planète étrangère au camp qui
+    // domine son dossier est tournée à l'OPPOSÉ de ce camp (et posée un cran
+    // plus loin, cf. galaxies.ts). Sans ça, elle baigne dans la nappe de
+    // couleur du clan et paraît en faire partie alors qu'elle n'y est pas.
+    const campRepelTargetsByMecId = new Map<string, string[]>();
     const campTargetsByMecId = new Map<string, string[]>();
     {
       const membersByCamp = new Map<string, Array<{ id: string; soloDossier?: string }>>();
@@ -612,6 +686,17 @@ export function useForceLayout(
           if (targets.length > 0) campTargetsByMecId.set(m.id, targets);
         }
       }
+      const dominantCamp = dominantCampByDossier(nodes);
+      for (const n of nodes) {
+        if (n.type !== 'mec' || n.dossierIds.length !== 1) continue;
+        const dom = dominantCamp.get(n.dossierIds[0]);
+        if (!dom || n.campLabel === dom) continue;
+        const targets = (membersByCamp.get(dom) ?? [])
+          .filter(o => o.soloDossier !== n.dossierIds[0])
+          .slice(0, 40)
+          .map(o => o.id);
+        if (targets.length > 0) campRepelTargetsByMecId.set(n.id, targets);
+      }
     }
     const newAngles = applyOrbitalLayout(
       orbitalGalaxies,
@@ -622,6 +707,7 @@ export function useForceLayout(
         collisionRadiusOf: getCollisionRadius,
         renseignementTargetsByMecId,
         campTargetsByMecId,
+        campRepelTargetsByMecId,
       },
     );
     for (const [mecId, ang] of newAngles) orbitalAngleCache.set(mecId, ang);

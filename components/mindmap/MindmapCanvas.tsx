@@ -30,6 +30,7 @@ import type { ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
 import { getCollisionRadius, getDossierBox, getNodeRadius, useForceLayout } from './useForceLayout';
 import { buildInfluenceClusters, buildSubClusters, matchAnnotation, type InfluenceCluster } from './influenceHull';
 import { computeClusterColors } from './clusterColors';
+import { dominantCampByDossier } from './campColors';
 
 // ──────────────────────────────────────────────
 // PROPS
@@ -361,6 +362,11 @@ const CAMP_AURA_BLUR = 22;
  *  pas de traînée de couleur à travers la carte (chaque poche du camp garde
  *  sa propre nappe). */
 const CAMP_AURA_MAX_CAPSULE = 700;
+/** Un dossier dont le camp dominant réunit la majorité des personnes (cf.
+ *  dominantCampByDossier) est peint aux couleurs de ce camp : la nappe
+ *  englobe alors sa boîte. Sans ça, un dossier tenu à 90 % par un clan
+ *  restait blanc au milieu de la couleur du clan. */
+const CAMP_AURA_DOSSIER_PADDING = 24;
 
 type CampAuraData = {
   label: string;
@@ -787,6 +793,12 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     };
     if (byCamp.size === 0) return [] as AuraGeom[];
 
+    // Camp dominant par dossier : la boîte du dossier prend la couleur du
+    // clan qui le tient (même règle que la répulsion de camp côté layout).
+    const dominantCamp = dominantCampByDossier(nodes);
+    const dossierById = new Map<string, DossierNode>();
+    for (const n of nodes) if (n.type === 'dossier') dossierById.set(n.id, n);
+
     const out: AuraGeom[] = [];
     for (const [label, { color, members }] of byCamp) {
       const memberSet = new Set(members.map(m => m.id));
@@ -827,12 +839,53 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
         if (Math.hypot(b.x - a.x, b.y - a.y) > CAMP_AURA_MAX_CAPSULE) continue;
         capsules.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, r: CAMP_AURA_PADDING * 0.7 });
       }
+      // Dossiers dominés par ce camp : un disque sur la boîte + un tube
+      // vers chacun de ses membres → la nappe recouvre le dossier au lieu
+      // de s'arrêter au bord de ses planètes.
+      for (const [did, campLabel] of dominantCamp) {
+        if (campLabel !== label) continue;
+        const dossier = dossierById.get(did);
+        if (!dossier) continue;
+        const dp = positions.get(did);
+        if (!dp) continue;
+        // La tache épouse la BOÎTE du dossier (capsule le long de son grand
+        // axe, inclinaison comprise) et non son cercle de collision : un
+        // disque au rayon de la diagonale déborderait largement et
+        // teindrait les planètes alentour.
+        const box = getDossierBox(dossier);
+        const rot = dossierRotations.get(did) ?? 0;
+        const half = Math.max(0, (box.width - box.height) / 2);
+        const r = box.height / 2 + CAMP_AURA_DOSSIER_PADDING;
+        const ux = Math.cos(rot) * half;
+        const uy = Math.sin(rot) * half;
+        capsules.push({ x1: dp.x - ux, y1: dp.y - uy, x2: dp.x + ux, y2: dp.y + uy, r });
+        // Cercle central : garantit une tache même sur une boîte carrée, et
+        // ancre la bbox (calculée sur les cercles).
+        circles.push({ x: dp.x, y: dp.y, r });
+        for (const m of members) {
+          if (!m.dossierIds.includes(did)) continue;
+          const mp = posById.get(m.id);
+          if (!mp) continue;
+          capsules.push({ x1: dp.x, y1: dp.y, x2: mp.x, y2: mp.y, r: CAMP_AURA_PADDING });
+        }
+      }
+
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (const c of circles) {
         if (c.x - c.r < minX) minX = c.x - c.r;
         if (c.y - c.r < minY) minY = c.y - c.r;
         if (c.x + c.r > maxX) maxX = c.x + c.r;
         if (c.y + c.r > maxY) maxY = c.y + c.r;
+      }
+      // Les capsules dossier dépassent des cercles (grand axe de la boîte) :
+      // on étend la bbox à leurs extrémités, sinon le SVG les rogne.
+      for (const cap of capsules) {
+        for (const [x, y] of [[cap.x1, cap.y1], [cap.x2, cap.y2]] as const) {
+          if (x - cap.r < minX) minX = x - cap.r;
+          if (y - cap.r < minY) minY = y - cap.r;
+          if (x + cap.r > maxX) maxX = x + cap.r;
+          if (y + cap.r > maxY) maxY = y + cap.r;
+        }
       }
       out.push({
         label, color, circles, capsules,
@@ -841,7 +894,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       });
     }
     return out;
-  }, [nodes, edges, positions]);
+  }, [nodes, edges, positions, dossierRotations]);
 
   // Mode ego-network : calcule l'ensemble des nœuds visibles (= ego + voisins
   // jusqu'à `egoDepth`). En dehors du mode, tout est visible.
