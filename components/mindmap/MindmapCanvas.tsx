@@ -5,13 +5,14 @@
 
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Background,
   BaseEdge,
   Controls,
   EdgeLabelRenderer,
   Handle,
+  getSimpleBezierPath,
   Position,
   ReactFlow,
   ReactFlowProvider,
@@ -30,6 +31,7 @@ import type { ClusterAnnotation } from '@/stores/useCartographieOverlayStore';
 import { getCollisionRadius, getDossierBox, getNodeRadius, useForceLayout } from './useForceLayout';
 import { buildInfluenceClusters, buildSubClusters, matchAnnotation, type InfluenceCluster } from './influenceHull';
 import { computeClusterColors } from './clusterColors';
+import { bundleEdges, type BundleInput, type BundlePoint } from './edgeBundling';
 import { dominantCampByDossier } from './campColors';
 
 // ──────────────────────────────────────────────
@@ -43,6 +45,21 @@ const PANE_CLICK_MAX_DRAG = 4;
 /** Opacité d'un lien dont une extrémité est éteinte (mode ego ou
  *  surbrillance d'un camp). Aligné sur l'effacement des bulles (0.18). */
 const DIMMED_EDGE_OPACITY = 0.08;
+
+// EDGE BUNDLING — on ne regroupe QUE les liens des personnes partagées
+// (« comètes » : présentes dans ≥ 2 dossiers). Ce sont eux qui traversent la
+// carte dans tous les sens. Les rayons planète→étoile restent des segments
+// droits : leur rôle est de dire à quel dossier appartient quelqu'un, une
+// courbe qui les regrouperait brouillerait précisément cette lecture.
+/** Longueur minimale (px) d'un lien comète pour entrer dans un faisceau. */
+const BUNDLE_MIN_LENGTH = 150;
+/** Au-delà, on renonce au bundling : le coût O(E²) ne vaut plus le gain. */
+const BUNDLE_MAX_EDGES = 900;
+/** Réglages passés à FDEB. Seuil abaissé (0.5 au lieu des 0.6 du papier) et
+ *  pas augmenté : sur nos cartes, les valeurs d'origine donnaient un effet à
+ *  peine perceptible. Au-delà (0.4 / 0.3), les traits partent en larges
+ *  détours et on ne lit plus quel point rejoint quel point. */
+const BUNDLE_OPTIONS = { compatibilityThreshold: 0.5, stepSize: 0.2, iterations: 90 };
 
 interface MindmapCanvasProps {
   nodes: GraphNode[];
@@ -541,38 +558,75 @@ export function computeRensDetour(
   return { cx: mx + nx * side * bulge, cy: my + ny * side * bulge };
 }
 
-type RensDetourEdgeData = {
-  cx: number;
-  cy: number;
+type RensEdgeData = {
+  /** Point de contrôle du contournement, si le tracé direct était bloqué. */
+  cx?: number;
+  cy?: number;
   label?: string;
-  highlighted?: boolean;
 } & Record<string, unknown>;
 
-/** Edge custom : bezier quadratique passant par le point de contrôle de
- *  contournement, avec le libellé posé au sommet de la courbe (là où le
- *  trait est le plus loin des réseaux traversés). */
-const RensDetourEdge = ({ sourceX, sourceY, targetX, targetY, data, style, markerEnd }: EdgeProps) => {
-  const d = (data || {}) as RensDetourEdgeData;
-  const cx = d.cx ?? (sourceX + targetX) / 2;
-  const cy = d.cy ?? (sourceY + targetY) / 2;
-  const path = `M ${sourceX},${sourceY} Q ${cx},${cy} ${targetX},${targetY}`;
-  // Sommet de la quadratique (t = 0.5).
-  const lx = 0.25 * sourceX + 0.5 * cx + 0.25 * targetX;
-  const ly = 0.25 * sourceY + 0.5 * cy + 0.25 * targetY;
+/** Largeur (px écran) de la bande invisible qui capte le survol autour d'un
+ *  lien renseignement. Assez large pour qu'on l'attrape sans viser au pixel. */
+const RENS_HOVER_HIT_WIDTH = 22;
+
+/** Edge renseignement : trait droit, ou bezier quadratique passant par le
+ *  point de contournement quand le tracé direct traversait un réseau tiers.
+ *
+ *  Le libellé n'est PLUS peint en permanence : sur une carte dense, une
+ *  vingtaine d'étiquettes bleues posées au milieu des traits saturaient la
+ *  vue. Il apparaît au survol du lien, à l'endroit exact du pointeur — on
+ *  interroge le lien qu'on regarde, on ne subit pas les autres. */
+const RensEdge = ({
+  sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, style, markerEnd,
+}: EdgeProps) => {
+  const d = (data || {}) as RensEdgeData;
+  const { screenToFlowPosition } = useReactFlow();
+  const [labelPos, setLabelPos] = useState<{ x: number; y: number } | null>(null);
+  // Hors contournement, on garde la bezier douce d'origine : un lien
+  // renseignement relie deux points quelconques de la carte et doit se
+  // distinguer du maillage de rayons droits.
+  const [bezier] = getSimpleBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const path = d.cx !== undefined && d.cy !== undefined
+    ? `M ${sourceX},${sourceY} Q ${d.cx},${d.cy} ${targetX},${targetY}`
+    : bezier;
+  const track = useCallback((e: React.MouseEvent) => {
+    setLabelPos(screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+  }, [screenToFlowPosition]);
+  const clear = useCallback(() => setLabelPos(null), []);
   return (
     <>
       <BaseEdge path={path} style={style} markerEnd={markerEnd} />
       {d.label && (
+        <path
+          d={path}
+          fill="none"
+          stroke="transparent"
+          strokeWidth={RENS_HOVER_HIT_WIDTH}
+          style={{ pointerEvents: 'stroke', cursor: 'help' }}
+          onMouseEnter={track}
+          onMouseMove={track}
+          onMouseLeave={clear}
+        />
+      )}
+      {d.label && labelPos && (
         <EdgeLabelRenderer>
           <div
             style={{
               position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)`,
+              transform: `translate(-50%, -160%) translate(${labelPos.x}px, ${labelPos.y}px)`,
               pointerEvents: 'none',
+              zIndex: 20,
             }}
-            className="rounded px-1 py-0.5 text-[11px] font-semibold"
           >
-            <span style={{ background: '#eff6ff', color: '#1d4ed8', padding: '2px 4px', borderRadius: 3 }}>
+            <span
+              className="rounded px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap"
+              style={{
+                background: '#eff6ff',
+                color: '#1d4ed8',
+                border: '1px solid #bfdbfe',
+                boxShadow: '0 1px 4px rgba(15,23,42,0.18)',
+              }}
+            >
               {d.label}
             </span>
           </div>
@@ -582,8 +636,63 @@ const RensDetourEdge = ({ sourceX, sourceY, targetX, targetY, data, style, marke
   );
 };
 
+type BundledEdgeData = {
+  /** Points intermédiaires du faisceau, calculés au layout (cf. edgeBundling). */
+  points: BundlePoint[];
+  /** Extrémités au moment du calcul, pour recaler la courbe si le nœud a
+   *  été déplacé à la main depuis. */
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+} & Record<string, unknown>;
+
+/** Polyligne → chemin lissé : chaque point devient le contrôle d'une
+ *  quadratique entre les milieux de ses deux segments. Le tracé passe donc
+ *  *près* des points sans les angles vifs d'une polyligne. */
+function smoothPath(points: Array<{ x: number; y: number }>): string {
+  if (points.length < 3) return `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}`;
+  let d = `M ${points[0].x},${points[0].y}`;
+  for (let i = 1; i < points.length - 1; i++) {
+    const mx = (points[i].x + points[i + 1].x) / 2;
+    const my = (points[i].y + points[i + 1].y) / 2;
+    d += ` Q ${points[i].x},${points[i].y} ${mx},${my}`;
+  }
+  const last = points[points.length - 1];
+  return `${d} L ${last.x},${last.y}`;
+}
+
+/** Edge en faisceau : le chemin vient du bundling, recalé par similitude sur
+ *  les extrémités courantes (un nœud déplacé à la main entraîne sa courbe au
+ *  lieu de s'en détacher). */
+const BundledEdge = ({ sourceX, sourceY, targetX, targetY, data, style, markerEnd }: EdgeProps) => {
+  const path = useMemo(() => {
+    const d = (data || {}) as BundledEdgeData;
+    const pts = d.points || [];
+    if (pts.length === 0) return `M ${sourceX},${sourceY} L ${targetX},${targetY}`;
+    const ox = d.x2 - d.x1;
+    const oy = d.y2 - d.y1;
+    const olen = Math.hypot(ox, oy);
+    if (olen < 1e-6) return `M ${sourceX},${sourceY} L ${targetX},${targetY}`;
+    const nx = targetX - sourceX;
+    const ny = targetY - sourceY;
+    const scale = Math.hypot(nx, ny) / olen;
+    const rot = Math.atan2(ny, nx) - Math.atan2(oy, ox);
+    const cos = Math.cos(rot) * scale;
+    const sin = Math.sin(rot) * scale;
+    const mapped = pts.map(p => {
+      const vx = p.x - d.x1;
+      const vy = p.y - d.y1;
+      return { x: sourceX + vx * cos - vy * sin, y: sourceY + vx * sin + vy * cos };
+    });
+    return smoothPath([{ x: sourceX, y: sourceY }, ...mapped, { x: targetX, y: targetY }]);
+  }, [data, sourceX, sourceY, targetX, targetY]);
+  return <BaseEdge path={path} style={style} markerEnd={markerEnd} />;
+};
+
 const EDGE_TYPES = {
-  rensDetour: RensDetourEdge,
+  rens: RensEdge,
+  bundled: BundledEdge,
 } as const;
 
 // ──────────────────────────────────────────────
@@ -1104,6 +1213,34 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     return out;
   }, [nodes, positions]);
 
+  // Faisceaux : recalculés à chaque changement de positions (le layout est
+  // figé et mis en cache, donc en pratique au recompactage ou à l'ajout d'un
+  // dossier — pas au drag, qui est recalé par similitude côté rendu).
+  const bundledPaths = useMemo(() => {
+    const mecById = new Map<string, MecNode>();
+    for (const n of nodes) if (n.type === 'mec') mecById.set(n.id, n);
+    const candidates: BundleInput[] = [];
+    for (const e of edges) {
+      if (e.kind === 'renseignement') continue;
+      const mec = mecById.get(e.source) || mecById.get(e.target);
+      if (!mec || mec.dossierIds.length < 2) continue; // rayon, pas comète
+      const a = positions.get(e.source);
+      const b = positions.get(e.target);
+      if (!a || !b) continue;
+      if (Math.hypot(b.x - a.x, b.y - a.y) < BUNDLE_MIN_LENGTH) continue;
+      candidates.push({ id: e.id, x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+    }
+    if (candidates.length < 2 || candidates.length > BUNDLE_MAX_EDGES) {
+      return new Map<string, BundledEdgeData>();
+    }
+    const bundled = bundleEdges(candidates, BUNDLE_OPTIONS);
+    const out = new Map<string, BundledEdgeData>();
+    for (const [id, b] of bundled) {
+      out.set(id, { points: b.points, x1: b.x1, y1: b.y1, x2: b.x2, y2: b.y2 });
+    }
+    return out;
+  }, [nodes, edges, positions]);
+
   const rfEdges: Edge[] = useMemo(() => {
     return edges.map(e => {
       const highlighted = focusedId && (e.source === focusedId || e.target === focusedId);
@@ -1133,7 +1270,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       // se coupaient. Seul le lien renseignement garde une courbe — il
       // relie deux points quelconques de la carte et doit se distinguer
       // du maillage de fond.
-      const useCurve = isRens;
+      const bundle = bundledPaths.get(e.id);
       // Un lien dont une extrémité est éteinte (mode ego / surbrillance)
       // s'éteint aussi : sans ça, la toile reste dessinée à pleine force
       // par-dessus des bulles effacées.
@@ -1142,15 +1279,10 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
         id: e.id,
         source: e.source,
         target: e.target,
-        type: detour ? 'rensDetour' : (useCurve ? 'simplebezier' : 'straight'),
-        data: detour
-          ? { cx: detour.cx, cy: detour.cy, label: e.label, highlighted: !!highlighted }
-          : undefined,
-        label: isRens && !detour ? e.label : undefined,
-        labelStyle: isRens && !detour ? { fill: '#1d4ed8', fontSize: 11, fontWeight: 600 } : undefined,
-        labelBgStyle: isRens && !detour ? { fill: '#eff6ff' } : undefined,
-        labelBgPadding: isRens && !detour ? ([4, 2] as [number, number]) : undefined,
-        labelBgBorderRadius: isRens && !detour ? 3 : undefined,
+        type: isRens ? 'rens' : (bundle ? 'bundled' : 'straight'),
+        data: isRens
+          ? { cx: detour?.cx, cy: detour?.cy, label: e.label }
+          : bundle,
         style: isRens
           ? {
               stroke: highlighted ? '#1e40af' : '#3b82f6',
@@ -1187,7 +1319,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
                 },
       };
     });
-  }, [edges, focusedId, positions, detourObstacles, isDimmed]);
+  }, [edges, focusedId, positions, detourObstacles, isDimmed, bundledPaths]);
 
   const handleClick: NodeMouseHandler = useCallback(
     (_, node) => {
