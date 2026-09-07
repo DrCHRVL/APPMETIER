@@ -35,6 +35,7 @@ import { NatinfPicker } from '../natinf/NatinfPicker';
 import { useNatinf } from '@/hooks/useNatinf';
 import { categoryForEntry } from '@/lib/natinf/nataff';
 import { useModalFormInit } from './useEditableDraft';
+import { NotesEditor, normalizeNotesHtml } from './NotesEditor';
 
 /** Nombre de caractères tapés avant de proposer des noms dans les champs de
  *  recherche MEC (aligné sur MecAutocompleteInput). */
@@ -79,7 +80,7 @@ export const AddMecModal: React.FC<AddMecModalProps> = ({ isOpen, onClose, initi
     onSubmit({
       displayName: displayName.trim(),
       alias,
-      notes: notes.trim() || undefined,
+      notes: normalizeNotesHtml(notes) || undefined,
     });
     onClose();
   };
@@ -128,11 +129,13 @@ export const AddMecModal: React.FC<AddMecModalProps> = ({ isOpen, onClose, initi
           </div>
           <div>
             <Label>Notes</Label>
-            <Textarea
+            {/* Même éditeur que la fiche du panneau latéral : les deux écrans
+                modifient le MÊME champ, ils doivent parler le même format. */}
+            <NotesEditor
               value={notes}
-              onChange={e => setNotes(e.target.value)}
+              onChange={setNotes}
               placeholder="Pourquoi tu le surveilles, contexte, liens connus…"
-              rows={4}
+              className="min-h-[140px] max-h-[40vh] text-sm"
             />
           </div>
         </div>
