@@ -40,6 +40,10 @@ import { dominantCampByDossier } from './campColors';
  *  geste sur le fond compte comme un clic et non comme un déplacement. */
 const PANE_CLICK_MAX_DRAG = 4;
 
+/** Opacité d'un lien dont une extrémité est éteinte (mode ego ou
+ *  surbrillance d'un camp). Aligné sur l'effacement des bulles (0.18). */
+const DIMMED_EDGE_OPACITY = 0.08;
+
 interface MindmapCanvasProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
@@ -716,19 +720,6 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
     [nodes, edges],
   );
 
-  // Degré (data edges uniquement) par nœud → utilisé pour décider quelles
-  // arêtes courber : un MEC à plusieurs dossiers gagne des bezier pour
-  // séparer visuellement la "patte d'oie" qu'on aurait en lignes droites.
-  const nodeDegree = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const e of edges) {
-      if (e.kind !== 'data') continue;
-      m.set(e.source, (m.get(e.source) || 0) + 1);
-      m.set(e.target, (m.get(e.target) || 0) + 1);
-    }
-    return m;
-  }, [edges]);
-
   const dossierRotations = useMemo(
     () => computeDossierRotations(nodes, edges, positions),
     [nodes, edges, positions],
@@ -1133,11 +1124,20 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
       }
       const isSuspectEdge = e.kind === 'suspect';
       const isCondamneEdge = e.kind === 'condamne';
-      // Bezier doux dès qu'un des deux endpoints est connecté à plus d'un autre
-      // nœud — sinon trait droit (cas dyade isolée, plus net).
-      // Les liens "renseignement", "suspect" et "condamné" utilisent toujours une courbe.
-      const dMax = Math.max(nodeDegree.get(e.source) || 0, nodeDegree.get(e.target) || 0);
-      const useCurve = isRens || isSuspectEdge || isCondamneEdge || dMax > 1;
+      // RAYONS DROITS — un lien personne↔dossier est un rayon : la personne
+      // est posée sur un anneau autour de son dossier (cf. layout orbital),
+      // donc le trait le plus court est aussi le plus lisible, et deux
+      // rayons d'une même étoile ne se croisent jamais. La bezier de
+      // react-flow, elle, part vers le bas et revient par le haut (handles
+      // centrés) : sur un dossier à 13 personnes, ça faisait 13 esses qui
+      // se coupaient. Seul le lien renseignement garde une courbe — il
+      // relie deux points quelconques de la carte et doit se distinguer
+      // du maillage de fond.
+      const useCurve = isRens;
+      // Un lien dont une extrémité est éteinte (mode ego / surbrillance)
+      // s'éteint aussi : sans ça, la toile reste dessinée à pleine force
+      // par-dessus des bulles effacées.
+      const edgeDimmed = isDimmed(e.source) || isDimmed(e.target);
       return {
         id: e.id,
         source: e.source,
@@ -1156,6 +1156,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
               stroke: highlighted ? '#1e40af' : '#3b82f6',
               strokeWidth: highlighted ? 4 : 3,
               strokeDasharray: '8 5',
+              strokeOpacity: edgeDimmed ? DIMMED_EDGE_OPACITY : (highlighted ? 1 : 0.8),
               strokeLinecap: 'round',
             }
           : isSuspectEdge
@@ -1163,7 +1164,7 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
                 stroke: highlighted ? '#c2410c' : '#f97316',
                 strokeWidth: highlighted ? 3 : 2,
                 strokeDasharray: '5 4',
-                strokeOpacity: highlighted ? 1 : 0.75,
+                strokeOpacity: edgeDimmed ? DIMMED_EDGE_OPACITY : (highlighted ? 1 : 0.75),
                 strokeLinecap: 'round',
               }
             : isCondamneEdge
@@ -1171,18 +1172,22 @@ const MindmapCanvasInner: React.FC<MindmapCanvasProps> = ({
                   stroke: highlighted ? '#047857' : '#10b981',
                   strokeWidth: highlighted ? 3 : 2,
                   strokeDasharray: '5 4',
-                  strokeOpacity: highlighted ? 1 : 0.75,
+                  strokeOpacity: edgeDimmed ? DIMMED_EDGE_OPACITY : (highlighted ? 1 : 0.75),
                   strokeLinecap: 'round',
                 }
               : {
+                  // Maillage de fond : trait fin et discret. Il dit qui
+                  // appartient à quel dossier, il n'a pas à rivaliser avec
+                  // les bulles ni avec les liens renseignement. Reprend
+                  // toute sa force au survol/sélection.
                   stroke: highlighted ? '#f59e0b' : '#64748b',
-                  strokeWidth: highlighted ? 4 : 2.5,
-                  strokeOpacity: highlighted ? 1 : 0.85,
+                  strokeWidth: highlighted ? 4 : 1.8,
+                  strokeOpacity: edgeDimmed ? DIMMED_EDGE_OPACITY : (highlighted ? 1 : 0.55),
                   strokeLinecap: 'round',
                 },
       };
     });
-  }, [edges, focusedId, nodeDegree, positions, detourObstacles]);
+  }, [edges, focusedId, positions, detourObstacles, isDimmed]);
 
   const handleClick: NodeMouseHandler = useCallback(
     (_, node) => {
