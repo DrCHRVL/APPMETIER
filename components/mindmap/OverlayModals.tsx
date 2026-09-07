@@ -34,6 +34,8 @@ import { fileToMarkdown } from '@/lib/web/fileToMarkdown';
 import { NatinfPicker } from '../natinf/NatinfPicker';
 import { useNatinf } from '@/hooks/useNatinf';
 import { categoryForEntry } from '@/lib/natinf/nataff';
+import { useModalFormInit } from './useEditableDraft';
+import { NotesEditor, normalizeNotesHtml } from './NotesEditor';
 
 /** Nombre de caractères tapés avant de proposer des noms dans les champs de
  *  recherche MEC (aligné sur MecAutocompleteInput). */
@@ -60,14 +62,12 @@ export const AddMecModal: React.FC<AddMecModalProps> = ({ isOpen, onClose, initi
   const [alias, setAlias] = useState<string[]>(initial?.alias || []);
   const [notes, setNotes] = useState(initial?.notes || '');
 
-  React.useEffect(() => {
-    if (isOpen) {
-      setDisplayName(initial?.displayName || '');
-      setAlias(initial?.alias || []);
-      setNotes(initial?.notes || '');
-      setAliasInput('');
-    }
-  }, [isOpen, initial]);
+  useModalFormInit(isOpen, initial?.id, () => {
+    setDisplayName(initial?.displayName || '');
+    setAlias(initial?.alias || []);
+    setNotes(initial?.notes || '');
+    setAliasInput('');
+  });
 
   const addAlias = () => {
     const v = aliasInput.trim();
@@ -80,7 +80,7 @@ export const AddMecModal: React.FC<AddMecModalProps> = ({ isOpen, onClose, initi
     onSubmit({
       displayName: displayName.trim(),
       alias,
-      notes: notes.trim() || undefined,
+      notes: normalizeNotesHtml(notes) || undefined,
     });
     onClose();
   };
@@ -129,11 +129,13 @@ export const AddMecModal: React.FC<AddMecModalProps> = ({ isOpen, onClose, initi
           </div>
           <div>
             <Label>Notes</Label>
-            <Textarea
+            {/* Même éditeur que la fiche du panneau latéral : les deux écrans
+                modifient le MÊME champ, ils doivent parler le même format. */}
+            <NotesEditor
               value={notes}
-              onChange={e => setNotes(e.target.value)}
+              onChange={setNotes}
               placeholder="Pourquoi tu le surveilles, contexte, liens connus…"
-              rows={4}
+              className="min-h-[140px] max-h-[40vh] text-sm"
             />
           </div>
         </div>
@@ -202,22 +204,20 @@ export const AddDossierModal: React.FC<AddDossierModalProps> = ({ isOpen, onClos
     setNewNotes('');
   };
 
-  React.useEffect(() => {
-    if (isOpen) {
-      setLabel(initial?.label || '');
-      setDateApprox(initial?.dateApprox || '');
-      setMecIds(initial?.mecIds || []);
-      setNatinfCodes(initial?.natinfCodes || []);
-      setNotes(initial?.notes || '');
-      setSearch('');
-      setDocuments(initial?.documents || []);
-      setDocConverting(false);
-      setDocError(null);
-      setCreateOpen(false);
-      setCreatedLocally([]);
-      resetCreateForm();
-    }
-  }, [isOpen, initial]);
+  useModalFormInit(isOpen, initial?.id, () => {
+    setLabel(initial?.label || '');
+    setDateApprox(initial?.dateApprox || '');
+    setMecIds(initial?.mecIds || []);
+    setNatinfCodes(initial?.natinfCodes || []);
+    setNotes(initial?.notes || '');
+    setSearch('');
+    setDocuments(initial?.documents || []);
+    setDocConverting(false);
+    setDocError(null);
+    setCreateOpen(false);
+    setCreatedLocally([]);
+    resetCreateForm();
+  });
 
   const addNewAlias = () => {
     const v = newAliasInput.trim();
@@ -607,14 +607,12 @@ export const AddLienModal: React.FC<AddLienModalProps> = ({
   const [label, setLabel] = useState(initial?.label || '');
   const [notes, setNotes] = useState(initial?.notes || '');
 
-  React.useEffect(() => {
-    if (isOpen) {
-      setSourceId(initial?.source || defaultSourceId || '');
-      setTargetId(initial?.target || '');
-      setLabel(initial?.label || '');
-      setNotes(initial?.notes || '');
-    }
-  }, [isOpen, initial, defaultSourceId]);
+  useModalFormInit(isOpen, initial?.id, () => {
+    setSourceId(initial?.source || defaultSourceId || '');
+    setTargetId(initial?.target || '');
+    setLabel(initial?.label || '');
+    setNotes(initial?.notes || '');
+  });
 
   const handleSubmit = () => {
     if (!sourceId || !targetId || sourceId === targetId) return;
@@ -796,13 +794,11 @@ export const AddClusterAnnotationModal: React.FC<AddClusterAnnotationModalProps>
   const [notes, setNotes] = useState(initial?.notes || '');
   const [color, setColor] = useState<string>(initial?.color || cluster?.color || CLUSTER_COLOR_PRESETS[0]);
 
-  React.useEffect(() => {
-    if (isOpen) {
-      setLabel(initial?.label || '');
-      setNotes(initial?.notes || '');
-      setColor(initial?.color || cluster?.color || CLUSTER_COLOR_PRESETS[0]);
-    }
-  }, [isOpen, initial, cluster]);
+  useModalFormInit(isOpen, initial?.id, () => {
+    setLabel(initial?.label || '');
+    setNotes(initial?.notes || '');
+    setColor(initial?.color || cluster?.color || CLUSTER_COLOR_PRESETS[0]);
+  });
 
   const handleSubmit = () => {
     const trimmed = label.trim();

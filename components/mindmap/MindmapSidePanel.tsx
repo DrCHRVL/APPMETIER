@@ -14,6 +14,8 @@ import type { ContentieuxDefinition } from '@/types/userTypes';
 import type { MecRole } from '@/stores/useCartographieOverlayStore';
 import { MEC_ROLE_POINTS, type DossierNode, type MecNode, type MindmapGraph } from '@/utils/mindmapGraph';
 import { CAMP_COLOR_PRESETS } from './campColors';
+import { useEditableDraft } from './useEditableDraft';
+import { NotesEditor, normalizeNotesHtml } from './NotesEditor';
 
 interface MindmapSidePanelProps {
   mec: MecNode;
@@ -50,6 +52,8 @@ interface MindmapSidePanelProps {
 
 const BOOST_MIN = -10;
 const BOOST_MAX = 20;
+/** Mémorise l'état replié/déplié de la section Camp entre deux fiches. */
+const CAMP_SECTION_KEY = 'carto_fiche_camp_open';
 
 export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
   mec,
@@ -84,20 +88,21 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
 
   // Édition locale du boost : on n'écrit dans le store qu'au commit
   // (Enregistrer / clavier Entrée) pour éviter de relancer le layout à
-  // chaque frappe.
-  const [boostDraft, setBoostDraft] = useState(mec.manualBonus);
-  const [reasonDraft, setReasonDraft] = useState(mec.manualBonusReason || '');
-  useEffect(() => {
-    setBoostDraft(mec.manualBonus);
-    setReasonDraft(mec.manualBonusReason || '');
-  }, [mec.id, mec.manualBonus, mec.manualBonusReason]);
-  const boostDirty = boostDraft !== mec.manualBonus
-    || (reasonDraft || '') !== (mec.manualBonusReason || '');
+  // chaque frappe. Le brouillon survit aux reconstructions du graphe
+  // (cf. useEditableDraft) : sans ça, la sync effaçait la saisie en cours.
+  const [boostDraft, setBoostDraft, boostValueDirty] = useEditableDraft(mec.id, mec.manualBonus);
+  const [reasonDraft, setReasonDraft, reasonDirty] = useEditableDraft(mec.id, mec.manualBonusReason || '');
+  const boostDirty = boostValueDirty || reasonDirty;
 
   const commitBoost = () => {
     if (!onSetScoreBoost) return;
     const clamped = Math.max(BOOST_MIN, Math.min(BOOST_MAX, Math.round(boostDraft)));
-    onSetScoreBoost(mec.id, clamped, reasonDraft.trim() || undefined);
+    const reason = reasonDraft.trim();
+    onSetScoreBoost(mec.id, clamped, reason || undefined);
+    // On aligne le brouillon sur ce qui vient d'être enregistré (valeur bornée,
+    // justification élaguée) : le bouton retombe bien à « rien à enregistrer ».
+    setBoostDraft(clamped);
+    setReasonDraft(reason);
   };
   const resetBoost = () => {
     if (!onSetScoreBoost) return;
@@ -113,16 +118,14 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
   };
 
   // ── Notes & surnoms (fiche manuelle, éditée depuis le panneau) ──
-  const [notesDraft, setNotesDraft] = useState(mec.manualNotes || '');
-  const [aliasDraft, setAliasDraft] = useState<string[]>(mec.manualAlias || []);
+  // Mêmes brouillons résistants que le boost : `mec.manualAlias` est un
+  // tableau reconstruit à chaque rendu du graphe, s'y fier par référence
+  // faisait disparaître notes et surnoms en cours de frappe.
+  const [notesDraft, setNotesDraft, notesDirty] = useEditableDraft(mec.id, mec.manualNotes || '');
+  const [aliasDraft, setAliasDraft, aliasDirty] = useEditableDraft<string[]>(mec.id, mec.manualAlias || []);
   const [aliasInput, setAliasInput] = useState('');
-  useEffect(() => {
-    setNotesDraft(mec.manualNotes || '');
-    setAliasDraft(mec.manualAlias || []);
-    setAliasInput('');
-  }, [mec.id, mec.manualNotes, mec.manualAlias]);
-  const ficheDirty = (notesDraft || '') !== (mec.manualNotes || '')
-    || JSON.stringify(aliasDraft) !== JSON.stringify(mec.manualAlias || []);
+  useEffect(() => { setAliasInput(''); }, [mec.id]);
+  const ficheDirty = notesDirty || aliasDirty;
   const addAlias = () => {
     const v = aliasInput.trim();
     if (v && !aliasDraft.includes(v)) setAliasDraft(prev => [...prev, v]);
@@ -130,7 +133,11 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
   };
   const commitFiche = () => {
     if (!onSaveFiche) return;
-    onSaveFiche(mec, { notes: notesDraft.trim() || undefined, alias: aliasDraft });
+    // Un contentEditable vidé garde des balises (« <br> ») : on n'enregistre
+    // pas une note sans texte.
+    const notes = normalizeNotesHtml(notesDraft);
+    onSaveFiche(mec, { notes: notes || undefined, alias: aliasDraft });
+    setNotesDraft(notes);
   };
 
   // ── Nom (renommage propagé) ──
@@ -158,6 +165,14 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
   }, [mec.id]);
 
   // ── Camp ──
+  // Section repliable, et le choix se retient d'une fiche à l'autre : replier
+  // à chaque personne pour retrouver ses notes serait vite pénible.
+  const [campOpen, setCampOpen] = useState(() => {
+    try { return window.localStorage.getItem(CAMP_SECTION_KEY) !== '0'; } catch { return true; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(CAMP_SECTION_KEY, campOpen ? '1' : '0'); } catch { /* stockage indisponible */ }
+  }, [campOpen]);
   const [campFormOpen, setCampFormOpen] = useState(false);
   const [campLabelDraft, setCampLabelDraft] = useState('');
   const [campColorDraft, setCampColorDraft] = useState(CAMP_COLOR_PRESETS[0]);
@@ -206,7 +221,7 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
   const coShown = showAllCo ? coMisEnCause : coMisEnCause.slice(0, 8);
 
   return (
-    <div className="absolute top-0 right-0 h-full w-96 bg-white border-l border-slate-200 shadow-xl flex flex-col z-20">
+    <div className="absolute top-0 right-0 h-full w-[27rem] max-w-[45vw] bg-white border-l border-slate-200 shadow-xl flex flex-col z-20">
       {/* Header */}
       <div className="flex items-start justify-between p-4 border-b border-slate-200 bg-slate-50">
         <div className="flex-1 min-w-0">
@@ -559,84 +574,110 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
         </div>
 
         {/* Camp (réseau d'appartenance) : distingue visuellement deux groupes
-            rivaux enchevêtrés dans les mêmes dossiers. */}
+            rivaux enchevêtrés dans les mêmes dossiers. Repliable — la liste des
+            camps existants mange vite la hauteur du panneau ; repliée, elle
+            laisse la place aux notes tout en gardant le camp courant visible. */}
         {onSetCamp && (
-          <div className="px-4 py-3 border-b border-slate-200">
-            <div className="text-xs uppercase tracking-wide text-slate-500 mb-2 flex items-center gap-1.5">
-              <Flag className="h-3.5 w-3.5 text-slate-400" />
-              Camp
+          <div className="border-b border-slate-200">
+            <div className="flex items-center gap-1.5 px-4 py-2.5">
+              <button
+                onClick={() => setCampOpen(o => !o)}
+                className="flex flex-1 min-w-0 items-center gap-1.5 text-left"
+                title={campOpen ? 'Replier les camps' : 'Déplier les camps'}
+              >
+                {campOpen
+                  ? <ChevronDown className="h-4 w-4 text-slate-400 flex-shrink-0" />
+                  : <ChevronRight className="h-4 w-4 text-slate-400 flex-shrink-0" />}
+                <Flag className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                <span className="text-xs uppercase tracking-wide text-slate-500">Camp</span>
+                {!campOpen && mec.campLabel && (
+                  <span
+                    className="ml-1 inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full text-white truncate"
+                    style={{ background: mec.campColor || '#475569' }}
+                  >
+                    {mec.campLabel}
+                  </span>
+                )}
+                {!campOpen && !mec.campLabel && (
+                  <span className="ml-1 text-[10px] text-slate-400 normal-case tracking-normal">non assigné</span>
+                )}
+              </button>
               {mec.campLabel && onRemoveCamp && (
                 <button
                   onClick={() => onRemoveCamp(mec.id)}
-                  className="ml-auto text-[10px] text-slate-500 hover:text-slate-800 underline normal-case tracking-normal"
+                  className="text-[10px] text-slate-500 hover:text-slate-800 underline normal-case tracking-normal flex-shrink-0"
                 >
                   retirer
                 </button>
               )}
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {existingCamps.map(c => {
-                const active = mec.campLabel === c.label;
-                return (
+            {campOpen && (
+              <div className="px-4 pb-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {existingCamps.map(c => {
+                    const active = mec.campLabel === c.label;
+                    return (
+                      <button
+                        key={c.label}
+                        onClick={() => onSetCamp(mec.id, c.label, c.color)}
+                        className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded-full border transition-all ${
+                          active ? 'text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                        style={active
+                          ? { background: c.color, borderColor: c.color }
+                          : { borderColor: c.color }}
+                        title={`${c.count} membre${c.count > 1 ? 's' : ''}`}
+                      >
+                        <span className="h-2 w-2 rounded-full" style={{ background: active ? '#fff' : c.color }} />
+                        {c.label}
+                        <span className={active ? 'text-white/80' : 'text-slate-400'}>{c.count}</span>
+                      </button>
+                    );
+                  })}
                   <button
-                    key={c.label}
-                    onClick={() => onSetCamp(mec.id, c.label, c.color)}
-                    className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded-full border transition-all ${
-                      active ? 'text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
-                    style={active
-                      ? { background: c.color, borderColor: c.color }
-                      : { borderColor: c.color }}
-                    title={`${c.count} membre${c.count > 1 ? 's' : ''}`}
+                    onClick={() => setCampFormOpen(o => !o)}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-full border border-dashed border-slate-300 text-slate-500 hover:text-slate-800 hover:bg-slate-50"
                   >
-                    <span className="h-2 w-2 rounded-full" style={{ background: active ? '#fff' : c.color }} />
-                    {c.label}
-                    <span className={active ? 'text-white/80' : 'text-slate-400'}>{c.count}</span>
-                  </button>
-                );
-              })}
-              <button
-                onClick={() => setCampFormOpen(o => !o)}
-                className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-full border border-dashed border-slate-300 text-slate-500 hover:text-slate-800 hover:bg-slate-50"
-              >
-                <Plus className="h-3 w-3" />
-                nouveau camp
-              </button>
-            </div>
-            {campFormOpen && (
-              <div className="mt-2 border border-slate-200 rounded-md p-2 bg-slate-50/60">
-                <input
-                  type="text"
-                  value={campLabelDraft}
-                  onChange={e => setCampLabelDraft(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') createCamp(); }}
-                  placeholder="ex. Réseau Ben Cherki, Groupe le Corner…"
-                  className="w-full h-8 px-2 text-xs border border-slate-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-slate-300"
-                  autoFocus
-                />
-                <div className="flex items-center gap-1.5 mt-2">
-                  {CAMP_COLOR_PRESETS.map(c => (
-                    <button
-                      key={c}
-                      onClick={() => setCampColorDraft(c)}
-                      className={`h-5 w-5 rounded-full transition-transform ${
-                        campColorDraft === c ? 'ring-2 ring-offset-1 ring-slate-400 scale-110' : 'hover:scale-110'
-                      }`}
-                      style={{ background: c }}
-                    />
-                  ))}
-                  <button
-                    onClick={createCamp}
-                    disabled={!campLabelDraft.trim()}
-                    className={`ml-auto text-[10px] font-semibold px-2 py-1 rounded ${
-                      campLabelDraft.trim()
-                        ? 'bg-slate-900 text-white hover:bg-slate-800'
-                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                    }`}
-                  >
-                    Assigner
+                    <Plus className="h-3 w-3" />
+                    nouveau camp
                   </button>
                 </div>
+              {campFormOpen && (
+                <div className="mt-2 border border-slate-200 rounded-md p-2 bg-slate-50/60">
+                  <input
+                    type="text"
+                    value={campLabelDraft}
+                    onChange={e => setCampLabelDraft(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') createCamp(); }}
+                    placeholder="ex. Réseau Ben Cherki, Groupe le Corner…"
+                    className="w-full h-8 px-2 text-xs border border-slate-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-slate-300"
+                    autoFocus
+                  />
+                  <div className="flex items-center gap-1.5 mt-2">
+                    {CAMP_COLOR_PRESETS.map(c => (
+                      <button
+                        key={c}
+                        onClick={() => setCampColorDraft(c)}
+                        className={`h-5 w-5 rounded-full transition-transform ${
+                          campColorDraft === c ? 'ring-2 ring-offset-1 ring-slate-400 scale-110' : 'hover:scale-110'
+                        }`}
+                        style={{ background: c }}
+                      />
+                    ))}
+                    <button
+                      onClick={createCamp}
+                      disabled={!campLabelDraft.trim()}
+                      className={`ml-auto text-[10px] font-semibold px-2 py-1 rounded ${
+                        campLabelDraft.trim()
+                          ? 'bg-slate-900 text-white hover:bg-slate-800'
+                          : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                      }`}
+                    >
+                      Assigner
+                    </button>
+                  </div>
+                </div>
+              )}
               </div>
             )}
           </div>
@@ -653,11 +694,11 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
               {onEnrichRequest && (
                 <button
                   onClick={() => onEnrichRequest(mec)}
-                  title="Demander à l'attaché de rechercher cette personne dans les dossiers et pièces, puis de PROPOSER un enrichissement de la fiche (✓/✗ — vos notes ne sont jamais modifiées ni effacées)"
-                  className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
+                  title="Enrichir avec l'attaché — recherche cette personne dans les dossiers et pièces, puis PROPOSE un enrichissement de la fiche (✓/✗ — vos notes ne sont jamais modifiées ni effacées)"
+                  aria-label="Enrichir la fiche avec l'attaché"
+                  className="flex-shrink-0 p-1 rounded text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50"
                 >
-                  <Sparkles className="h-3 w-3" />
-                  Enrichir (attaché)
+                  <Sparkles className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
@@ -692,13 +733,16 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
                 ))}
               </div>
             )}
-            <textarea
-              value={notesDraft}
-              onChange={e => setNotesDraft(e.target.value)}
-              placeholder="Contexte, rôle supposé, éléments de renseignement…"
-              rows={3}
-              className="mt-2 w-full px-2 py-1.5 text-xs border border-slate-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-slate-300 resize-y"
-            />
+            {/* Bloc de notes : haut par défaut, défilant à la molette, et
+                redimensionnable par le coin bas-droit si on veut plus encore. */}
+            <div className="mt-2">
+              <NotesEditor
+                value={notesDraft}
+                onChange={setNotesDraft}
+                placeholder="Contexte, rôle supposé, éléments de renseignement…"
+                className="min-h-[240px] max-h-[55vh]"
+              />
+            </div>
             <div className="mt-1.5 flex justify-end">
               <button
                 onClick={commitFiche}
