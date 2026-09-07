@@ -808,6 +808,12 @@ const PLANET_RING_PADDING = 18;
  *  supplémentaire. Au-delà, les planètes "dérivent" visuellement loin de
  *  leur étoile — on préfère empiler plusieurs anneaux concentriques. */
 const MAX_RING_RADIUS = 420;
+/** Rallonge de rayon appliquée à une planète repoussée par le camp dominant
+ *  de son dossier. Calibrée sur l'épaisseur de la nappe de camp (34 px de
+ *  padding + 22 px de flou côté rendu) : la planète se pose juste en dehors
+ *  de la couleur, sur une coquille légèrement au-dessus de son anneau. Elle
+ *  reste dans son système — c'est un décalage, pas une éjection. */
+const CAMP_REPEL_RADIUS_BONUS = 60;
 /** Demi-largeur (rad) du secteur préféré autour de la direction d'un lien
  *  renseignement. Quand une planète a un lien rens, on essaye de la placer
  *  dans cette plage ±15° vers le partenaire pour raccourcir le trait et
@@ -848,6 +854,14 @@ export interface OrbitalLayoutOptions {
    *  galaxies ne bougent pas — seule l'orientation des personnes autour de
    *  LEUR dossier change, au prochain recompactage. */
   campTargetsByMecId?: Map<string, string[]>;
+  /** RÉPULSION DE CAMP (gravité inversée) — pour chaque MEC qui n'appartient
+   *  PAS au camp dominant de son dossier, ids des membres de ce camp
+   *  dominant situés hors du dossier. La planète est alors tournée à
+   *  l'OPPOSÉ de ce barycentre et posée un cran plus loin sur son anneau :
+   *  elle sort de la nappe de couleur du clan au lieu d'être teintée par
+   *  contiguïté. Priorité la plus faible des trois (renseignement > camp >
+   *  répulsion). */
+  campRepelTargetsByMecId?: Map<string, string[]>;
 }
 
 export function applyOrbitalLayout(
@@ -945,6 +959,21 @@ export function applyOrbitalLayout(
           if (!targets || targets.length === 0) continue;
           const ang = angleTowards(targets);
           if (ang !== undefined) preferredAngleByPlanet.set(pid, ang);
+        }
+      }
+      // Répulsion de camp : la planète étrangère au camp dominant de son
+      // dossier vise l'opposé du barycentre de ce camp.
+      const repelledPlanets = new Set<string>();
+      const campRepelTargets = options.campRepelTargetsByMecId;
+      if (campRepelTargets) {
+        for (const pid of planets) {
+          const targets = campRepelTargets.get(pid);
+          if (!targets || targets.length === 0) continue;
+          const ang = angleTowards(targets);
+          if (ang === undefined) continue;
+          repelledPlanets.add(pid);
+          if (preferredAngleByPlanet.has(pid)) continue;
+          preferredAngleByPlanet.set(pid, normalizeAngle(ang + Math.PI));
         }
       }
 
@@ -1129,9 +1158,12 @@ export function applyOrbitalLayout(
         }
 
         for (const { id, angle } of placed) {
+          // Une planète repoussée par le camp dominant se pose un cran plus
+          // loin : elle quitte la nappe de couleur sans quitter son système.
+          const radius = ring.radius + (repelledPlanets.has(id) ? CAMP_REPEL_RADIUS_BONUS : 0);
           positions.set(id, {
-            x: starPos.x + Math.cos(angle) * ring.radius,
-            y: starPos.y + Math.sin(angle) * ring.radius,
+            x: starPos.x + Math.cos(angle) * radius,
+            y: starPos.y + Math.sin(angle) * radius,
           });
           newAngles.set(id, angle);
         }
