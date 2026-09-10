@@ -77,6 +77,18 @@ export async function attacheFetch(pathname: string, init?: { method?: string, b
   }
 }
 
+/**
+ * Réveil du FLUX TENDU de l'attaché : « ce dossier a bougé » (pièce versée,
+ * CR, acte — par n'importe quel utilisateur du TJ confié). Best-effort et
+ * jamais bloquant : un réveil manqué est rattrapé par la relève du service.
+ * Ne porte aucune donnée d'enquête — un numéro ou une clé de dossier (déjà en
+ * clair sur le disque), une raison, un auteur.
+ */
+export function reveilAttache(body: { numeros?: string[], docKey?: string, raison: string, par?: string }): void {
+  if (!attacheEnabled()) return
+  attacheFetch('/reveil', { method: 'POST', body, timeoutMs: 5_000 }).catch(() => {})
+}
+
 /** Le pont app ↔ service est-il configurable (secret partagé présent) ? */
 export function attacheBridgeConfigured(): boolean {
   return Boolean(bridgeSecret())

@@ -25,6 +25,7 @@ import { encryptDocBlob, decryptDocBlob } from './crypto.mjs'
 import { extractPdfText } from './ocr.mjs'
 import { extractOfficeText, isOfficeExt, extractSpreadsheetText, isSpreadsheetExt } from './officeText.mjs'
 import { saveKbEntry, setKbReflexe } from './kb.mjs'
+import { enfiler } from './flux.mjs'
 
 import { enqueteExiste, numeroCanonique } from './dossier.mjs'
 import { instructionExiste } from './instru.mjs'
@@ -194,11 +195,14 @@ export async function rangerDocument(keys, { source, rel, mailId, piece, numero,
     ...(sha ? { sha } : {}),
   })
   if (source !== 'mail' && depotRel) deleteDocBlob(attacheTj(), DEPOT_KEY, depotRel)
+  // Flux tendu : la pièce rangée entre dans la file de l'attaché — fiche,
+  // actes, CR, mis en cause et description suivront d'eux-mêmes.
+  try { enfiler(keys, { numero, raison: 'document (majordome)' }) } catch { /* jamais bloquant */ }
 
   return {
     ok: true, dossier: numero, chemin: finalRel,
     ...(dejaLa ? { doublonExact: dejaLa.rel, noteDoublon: `Ce dossier contient DÉJÀ une pièce au contenu strictement identique : « ${dejaLa.rel} » (empreinte sha256 égale). Rangée quand même — signale-le au magistrat s'il n'attendait pas de copie.` } : {}),
-    note: 'Pièce rangée — lis-la (lire_document) et déclenche tes détections (proposer_mec / proposer_acte / proposer_cr) si elle apporte du neuf.',
+    note: 'Pièce rangée — le flux tendu la fiche et l\'intègre de lui-même (actes proposés, CR si faits nouveaux, mis en cause proposés, description) : ne relance pas ces détections toi-même. Lis-la (lire_document) seulement si TA tâche en cours l\'exige.',
   }
 }
 

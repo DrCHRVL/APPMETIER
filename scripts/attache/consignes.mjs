@@ -56,6 +56,35 @@ export const SOCLES = {
     'Ne signale rien, ne publie rien, ne pose aucune question : cette tâche ne doit laisser aucune carte au magistrat.',
   ].join('\n'),
 
+  flux: [
+    'But : à chaque mouvement du dossier (pièces versées, CR rédigés, actes ajoutés), intégrer le NEUF — sans relire',
+    'l\'ancien — en quatre gestes, dans cet ordre, puis t\'arrêter. Tout le neuf t\'est JOINT plus bas (fiches des pièces,',
+    'CR, actes, candidats mis en cause, résultat de l\'analyse des actes). Ne relis une pièce (lire_document, UNE page,',
+    'sans paginer) que si sa fiche est ambiguë ET déterminante — jamais le dossier entier. Trois lectures au plus.',
+    '1. FAITS NOUVEAUX — compare le neuf à la DESCRIPTION ACTUELLE et à l\'INDEX DES CR : y a-t-il des faits, des',
+    '   infractions, des personnes, des lieux, des véhicules, des lignes ou des événements datés ABSENTS de l\'existant ?',
+    '   Si NON : pas de CR, passe au 2. Si OUI : classer_note UN compte rendu COMPLET, daté du jour, titre',
+    '   « Réception de pièces — <objet en cinq mots> », en prose dense de magistrat (phrases complètes, pas de',
+    '   télégraphique), structuré en cinq rubriques : PIÈCES REÇUES (chemins) · FAITS NOUVEAUX (chaque fait coté par',
+    '   sa pièce) · PERSONNES (rôle de chacune) · QUALIFICATIONS (infractions nouvelles ou confirmées, NATINF) ·',
+    '   SUITES UTILES (actes à envisager, échéances). Un seul CR par passage, jamais un redit de ce que le dossier sait déjà.',
+    '2. QUALIFICATIONS — une infraction nouvelle caractérisée par les pièces et absente des NATINF enregistrés :',
+    '   natinf_chercher puis ajouter_natinfs (source = la pièce).',
+    '3. MIS EN CAUSE — pour chaque CANDIDAT joint (et toute autre personne MISE EN CAUSE que tu relèves dans le neuf)',
+    '   absent des mis en cause enregistrés : recouper_personnes, puis proposer_mec avec un `role` qui DÉCRIT sa place',
+    '   dans le dossier en une ou deux phrases (ce qui lui est reproché, d\'après quelle pièce, son lien avec les autres',
+    '   mis en cause) — jamais un mot vague. Proposition ✓/✗, JAMAIS ajouter_mec. Écarte victimes, témoins, enquêteurs,',
+    '   magistrats, avocats, et les simples alias d\'un mis en cause déjà enregistré. Un candidat signalé « nom voisin »',
+    '   se propose quand même : le magistrat tranche.',
+    '4. DESCRIPTION — si le neuf change la vision globale ou apporte des éléments à charge sur un mis en cause enregistré :',
+    '   actualiser_description, au FORMAT IMPOSÉ (SYNTHÈSE / MIS EN CAUSE, prise de notes, on repart de l\'existant et on',
+    '   le fait progresser). Sinon ne la touche pas.',
+    '5. PROLONGATIONS d\'actes détectées par l\'analyse (jointes) : acter_prolongation sur l\'acte correspondant SEULEMENT',
+    '   si la cible est sans ambiguïté (même ligne, même objet) ; sinon laisse l\'échéancier tel quel et dis-le dans le CR.',
+    'Les actes NOUVEAUX détectés dans les pièces ont déjà été PROPOSÉS par le moteur d\'analyse : ne les repropose pas.',
+    'Rien d\'autre : ne signale rien, ne pose aucune question, ne publie rien. Si rien n\'est neuf, termine sans écrire.',
+  ].join('\n'),
+
   mec: [
     'But : repérer les personnes MISES EN CAUSE qui apparaissent dans les CR, actes et documents du dossier mais ne',
     'figurent PAS encore à sa section « Mis en cause », et les PROPOSER au magistrat (✓/✗). Aucune écriture directe.',
@@ -202,15 +231,22 @@ export const SOCLES = {
 
 export const CATALOGUE = [
   {
+    id: 'flux', groupe: 'Rédaction automatique', label: 'Flux tendu (à chaque mouvement du dossier)',
+    resume: 'Le prompt du passage automatique qui intègre le NEUF : CR complet si faits ou infractions nouveaux, NATINF, mis en cause proposés avec leur rôle, description actualisée.',
+    quand: 'À chaque pièce versée, CR rédigé ou acte ajouté — par vous ou par un collègue — après une courte période de calme. Les fiches des pièces nouvelles, les CR et actes nouveaux et les candidats mis en cause sont joints au prompt.',
+    variables: ['{{dossier}}'],
+    avertissement: 'Ce passage ÉCRIT un CR (classer_note) quand il y a du neuf. Un remplacement qui retire cette règle supprime la rédaction automatique.',
+  },
+  {
     id: 'description', groupe: 'Rédaction automatique', label: 'Description du dossier (« l\'objet »)',
-    resume: 'Le prompt du run court qui tient la description à jour au fil des CR et des pièces versées.',
-    quand: 'À chaque dossier qui bouge (en fond, après une période de calme) et sur l\'icône « Actualiser » de la description.',
+    resume: 'Le prompt du run court qui reprend toute la description depuis le dossier (CR, registre des pièces).',
+    quand: 'Sur l\'icône « Actualiser » de la description. Le fil de l\'eau passe désormais par le flux tendu.',
     variables: ['{{dossier}}'],
   },
   {
     id: 'mec', groupe: 'Rédaction automatique', label: 'Détection des mis en cause',
-    resume: 'Le prompt qui relit le dossier pour PROPOSER (✓/✗) les personnes mises en cause manquantes.',
-    quand: 'Icône « Actualiser » de la section Mis en cause, et en fin d\'actualisation de description.',
+    resume: 'Le prompt qui relit tout le dossier pour PROPOSER (✓/✗) les personnes mises en cause manquantes.',
+    quand: 'Sur l\'icône « Actualiser » de la section Mis en cause. Le fil de l\'eau (pièce par pièce, avec rôle décrit) passe par le flux tendu.',
     variables: ['{{dossier}}'],
   },
   {

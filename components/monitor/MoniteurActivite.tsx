@@ -47,11 +47,23 @@ interface AttacheActivite {
   dernierBilan?: { dossiers: number; empreintes: number; extraites: number; entites: number; echecs: number; enAttente: number };
 }
 
+interface FluxBilan {
+  numero: string; at: string; pieces: number; crs: number; actes: number;
+  crEcrit: number; mecProposes: number; actesProposes: number; run: boolean;
+  chantier?: boolean; differe?: boolean; erreur?: string;
+}
+
 interface AttacheInfo {
   demarreA: string;
   activites: AttacheActivite[];
   runsEnCours: number;
   chantierActif: boolean;
+  // Flux tendu : la file d'attente des dossiers qui ont bougé, et les derniers passages.
+  flux?: {
+    enAttente: Array<{ numero: string; depuis: string; raisons: string[]; pretDansMs: number }>;
+    enCours: string | null;
+    derniers: FluxBilan[];
+  } | null;
   eventLoop: { moyenMs: number; maxMs: number; p99Ms: number };
   memoire: { rssMB: number; heapMB: number };
 }
@@ -316,6 +328,41 @@ export function MoniteurActivite({ isAdmin = false }: { isAdmin?: boolean }) {
                         <p className="text-xs text-gray-400">Aucun travail suivi depuis le démarrage du service.</p>
                       )}
                     </div>
+                    {attache.flux && (
+                      <div className="mt-3 border-t border-gray-100 pt-2">
+                        <div className="mb-1 text-[11px] font-medium text-gray-500">Flux tendu — file d&apos;attente</div>
+                        {attache.flux.enCours && (
+                          <p className="text-xs text-blue-700">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse mr-1.5 align-middle" />
+                            En cours : {attache.flux.enCours}
+                          </p>
+                        )}
+                        {attache.flux.enAttente.map(f => (
+                          <div key={f.numero} className="flex items-start justify-between gap-2 py-0.5 text-xs">
+                            <span className="min-w-0 truncate text-gray-700">
+                              {f.numero}
+                              <span className="ml-1.5 text-gray-400">{f.raisons.join(', ')}</span>
+                            </span>
+                            <span className="shrink-0 tabular-nums text-gray-400">
+                              {f.pretDansMs > 0 ? `dans ${Math.ceil(f.pretDansMs / 1000)} s` : 'prêt'}
+                            </span>
+                          </div>
+                        ))}
+                        {attache.flux.enAttente.length === 0 && !attache.flux.enCours && (
+                          <p className="text-xs text-gray-400">File vide — tout est intégré.</p>
+                        )}
+                        {attache.flux.derniers.slice(0, 5).map(b => (
+                          <div key={b.numero + b.at} className="truncate text-[11px] text-gray-400">
+                            {b.at.slice(11, 16)} · {b.numero} —{' '}
+                            {b.chantier ? `chantier (${b.pieces} pièces)`
+                              : b.differe ? 'différé (forfait)'
+                              : b.run ? `${b.pieces} pièce(s) · ${b.crEcrit} CR · ${b.mecProposes} MEC · ${b.actesProposes} acte(s)`
+                              : 'rien de neuf'}
+                            {b.erreur ? ` · ${b.erreur}` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </>
                 ) : (
                   <p className="text-xs text-gray-400 flex items-center gap-1.5">

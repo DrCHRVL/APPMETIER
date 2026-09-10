@@ -33,6 +33,7 @@ import { dossierSyntheseSignals } from './attache/dossier.mjs'
 import { ingestPass } from './attache/ingest.mjs'
 import { passeRecoupements, dernierResultat } from './attache/recoupements.mjs'
 import { registreFichesStep } from './attache/registre.mjs'
+import { enfiler as fluxEnfiler, balayer as fluxBalayer, pomper as fluxPomper, fileAttente as fluxFileAttente, basculerEnChantier, CHANTIER_SEUIL as DESC_CHANTIER_SEUIL, FLUX_QUIET_MS } from './attache/flux.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
@@ -489,48 +490,15 @@ async function maybeScheduledEtude() {
   runEtude(`auto — ${raison}`).catch((e) => console.error('[attache] étude :', e))
 }
 
-// ── Actualisation automatique de la description (« l'objet ») des dossiers ──
-// L'attaché tient la description à jour AU FIL DE L'EAU : à chaque CR rédigé ou
-// acte/document téléversé, un run COURT et ÉCONOME reprend la synthèse et la
-// fait progresser, en deux parties (SYNTHÈSE globale + MIS EN CAUSE et charges),
-// en prise de notes. Déclenché en arrière-plan par la détection de changement
-// (maybeScheduledDescriptions, un seul dossier par tick — « lentement ») ou à la
-// demande (icône « Actualiser » à côté du titre Description, dans le dossier).
-// Période de calme avant de tirer : on attend qu'un dossier ne bouge plus
-// (rafale d'ajouts fusionnée en une seule actualisation).
-const DESC_QUIET_MS = Math.max(60_000, Number(process.env.SIRAL_ATTACHE_DESC_QUIET_MIN || 3) * 60 * 1000)
-// Anti-rafale : jamais deux actualisations du MÊME dossier trop rapprochées.
-const DESC_MIN_INTERVAL_MS = Math.max(0, Number(process.env.SIRAL_ATTACHE_DESC_MIN_INTERVAL_MIN || 20) * 60 * 1000)
-
-// Dossier trop volumineux pour un run court (même économe, même via le
-// registre) : au lieu de tenter une lecture rapide vouée à l'échec ou trop
-// superficielle, l'actualisation bascule sur un CHANTIER — le dépouillement
-// complet, en lots, cantonné à la nuit par défaut — et le dit CLAIREMENT au
-// magistrat plutôt que de le laisser recliquer sur « Actualiser » sans rien
-// comprendre. Seuil sur les pièces SERVEUR déposées (hors jumeaux MD/, même
-// compte que dossierSyntheseSignals — coût nul).
-const bounded = (v, min, max, dflt) => {
-  const n = Math.floor(Number(v))
-  return Number.isFinite(n) && n >= min && n <= max ? n : dflt
-}
-const DESC_CHANTIER_SEUIL = bounded(process.env.SIRAL_ATTACHE_DESC_CHANTIER_SEUIL, 10, 1000, 100)
-
-/** Le chantier de dépouillement (existant ou tout juste créé) dit en clair au magistrat. */
-function chantierMessage(ch, { pieces, cree }) {
-  if (cree) {
-    const h = ch.estimation?.heures
-    return `Dossier volumineux (${pieces} pièces) : l'actualisation rapide laisse place à un chantier de dépouillement complet — ${ch.estimation?.lots ?? '?'} lot(s), ~${ch.estimation?.nuits ?? '?'} nuit(s)${h ? ` (~${h} h)` : ''}. Le devis attend votre validation dans Assistant de justice → Chantiers.`
-  }
-  if (ch.etat === 'devis') {
-    return `Dossier volumineux — un chantier de dépouillement est déjà en attente de votre validation (devis du ${String(ch.creeLe || '').slice(0, 10)}). Validez-le dans Assistant de justice → Chantiers pour que la description en profite.`
-  }
-  return `Dossier volumineux — un chantier de dépouillement est déjà en cours (${ch.piecesFaites}/${ch.totalPieces} pièces). La description se mettra à jour une fois le dépouillement avancé.`
-}
-
-function descriptionState() {
-  const st = readState()
-  return st.descriptions && typeof st.descriptions === 'object' ? st.descriptions : {}
-}
+// ── Actualisation « à la demande » de la description (« l'objet ») d'un dossier ──
+// Icône « Actualiser » à côté du titre Description : un run COURT et ÉCONOME
+// reprend la synthèse depuis le dossier (CR, registre des pièces) et la fait
+// progresser, en deux parties (SYNTHÈSE + MIS EN CAUSE et charges), en prise
+// de notes. Le FIL DE L'EAU, lui, ne passe plus par ici : c'est le FLUX TENDU
+// (attache/flux.mjs) qui intègre le neuf à chaque mouvement du dossier.
+// Dossier trop volumineux pour un run court (≥ DESC_CHANTIER_SEUIL pièces
+// serveur, hors jumeaux MD/) : bascule sur un CHANTIER de dépouillement —
+// basculerEnChantier, partagé avec le flux — et le dit CLAIREMENT au magistrat.
 
 // Le TEXTE du prompt vit dans attache/consignes.mjs (socle « description ») :
 // le magistrat le lit, le complète ou le remplace depuis Paramètres → Attaché IA.
@@ -555,20 +523,6 @@ function mecPrompt(keys, numero) {
   })
 }
 
-// Recale le point de référence sur l'état COURANT (la signature exclut la
-// description, donc rien de ce qu'on vient de faire — écriture ou bascule en
-// chantier — ne l'a fait bouger) : l'auto ne se redéclenche pas immédiatement,
-// l'anti-rafale part de maintenant. Un changement ULTÉRIEUR (nouvelle pièce,
-// nouveau CR) rebasculera normalement.
-async function recalerDescriptionState(keys, num) {
-  try {
-    const sig = dossierSyntheseSignals(keys).find((d) => d.numero === num)?.signature
-    const descs = descriptionState()
-    descs[num] = { sig: sig ?? descs[num]?.sig ?? '', lastRefreshedAt: new Date().toISOString(), pendingSig: null, pendingSince: null }
-    await writeState({ descriptions: descs })
-  } catch { /* recalage best-effort */ }
-}
-
 let descriptionRunning = false
 async function runActualiserDescription(numero, trigger = 'auto') {
   const num = String(numero || '').trim()
@@ -584,24 +538,10 @@ async function runActualiserDescription(numero, trigger = 'auto') {
     // souvent rater) une lecture rapide — voir DESC_CHANTIER_SEUIL ci-dessus.
     const signal = dossierSyntheseSignals(keys).find((d) => d.numero === num)
     if ((signal?.docs || 0) >= DESC_CHANTIER_SEUIL) {
-      const existant = listChantiers(keys).find((c) => c.type === 'dossier' && String(c.numero) === num && c.etat !== 'termine')
-      if (existant) {
-        console.log(`[attache] description « ${num} » (${trigger}) : chantier ${existant.id} déjà « ${existant.etat} », pas de run`)
-        await recalerDescriptionState(keys, num)
-        return { ok: true, chantier: existant, message: chantierMessage(existant, { pieces: signal.docs, cree: false }) }
-      }
       try {
-        const ch = await createChantier(keys, {
-          type: 'dossier',
-          numero: num,
-          consigne: 'Dépouillement complet — bascule automatique depuis l\'actualisation de la description (dossier volumineux).',
-          nuitSeulement: true,
-          origine: 'attache',
-        })
-        console.log(`[attache] description « ${num} » (${trigger}) : basculée en chantier ${ch.id} (${ch.estimation?.pieces} pièces, ${ch.estimation?.lots} lots)`)
-        await audit(keys, 'description_chantier', { numero: num, trigger, chantierId: ch.id, pieces: ch.estimation?.pieces, lots: ch.estimation?.lots })
-        await recalerDescriptionState(keys, num)
-        return { ok: true, chantier: ch, message: chantierMessage(ch, { pieces: signal.docs, cree: true }) }
+        const b = await basculerEnChantier(keys, { numero: num, pieces: signal.docs, trigger })
+        console.log(`[attache] description « ${num} » (${trigger}) : chantier ${b.chantier.id} ${b.cree ? 'créé' : `déjà « ${b.chantier.etat} »`}, pas de run`)
+        return { ok: true, chantier: b.chantier, message: b.message }
       } catch (e) {
         // Cas attendu le plus courant : toutes les pièces sont déjà couvertes
         // par les fiches d'un chantier précédent — rien de neuf à basculer, la
@@ -633,7 +573,6 @@ async function runActualiserDescription(numero, trigger = 'auto') {
     })
     const proposees = Math.max(0, countPropositionsMec(keys, num) - avantMec)
     await audit(keys, 'description_actualisee', { numero: num, trigger, ok: result.ok, proposees, convId: result.convId, erreur: result.error })
-    await recalerDescriptionState(keys, num)
     return { ok: result.ok, proposees, convId: result.convId, error: result.error }
   } finally {
     descriptionRunning = false
@@ -685,13 +624,6 @@ function countPropositionsMec(keys, numero) {
   } catch { return 0 }
 }
 
-/**
- * Actualise en fond la description des dossiers qui ont bougé (nouveau CR, acte
- * ou document téléversé). Comptage déterministe à chaque tick (aucun jeton hors
- * du run lui-même) : on repère les dossiers dont la signature a changé, on
- * attend une courte période de calme (fusion des rafales), puis on n'en tire
- * qu'UN seul par tick — la mise à jour se fait donc lentement, en arrière-plan.
- */
 // ── Ingestion des pièces (extraction + empreinte, fil de l'eau) ──
 // CPU local uniquement, zéro jeton : hors gouverneur (ni nuit ni cap 5 h).
 // Garde anti-chevauchement : un passage OCR peut dépasser un tick.
@@ -732,58 +664,38 @@ async function maybeRegistreFiches() {
   }
 }
 
-async function maybeScheduledDescriptions() {
-  if (descriptionRunning) return
+// ── Flux tendu : file d'attente + pipeline par dossier (attache/flux.mjs) ──
+// Deux entrées : le RÉVEIL (POST /reveil, dès qu'un dossier bouge dans l'app)
+// et la RELÈVE (signature déterministe à chaque tick — rattrape tout réveil
+// manqué). Un dossier à la fois, après une courte période de calme. Les
+// étages qui consomment des jetons passent par le gouverneur de forfait.
+let fluxTimer = null
+function fluxPlanifier() {
+  if (fluxTimer) return
+  fluxTimer = setTimeout(() => {
+    fluxTimer = null
+    traque('flux', 'flux tendu (file d\'attente)', () => fluxPomperMaintenant())
+      .catch((e) => console.error('[attache] flux :', e))
+  }, FLUX_QUIET_MS + 1_000)
+}
+async function fluxPomperMaintenant() {
   const keys = loadKeyring()
   if (!keys) return
-  let signals
-  try { signals = dossierSyntheseSignals(keys) } catch { return }
-  const descs = descriptionState()
-  const now = Date.now()
-  const present = new Set()
-  let patched = false
-  let due = null // { numero, pendingSince }
-  for (const { numero, signature } of signals) {
-    present.add(numero)
-    const prev = descs[numero]
-    if (!prev) {
-      // Baseline SILENCIEUSE au premier passage : on n'actualise pas d'un coup
-      // tout le stock existant — on ne réagit qu'aux changements ULTÉRIEURS.
-      descs[numero] = { sig: signature, lastRefreshedAt: null, pendingSig: null, pendingSince: null }
-      patched = true
-      continue
-    }
-    if (signature === prev.sig) {
-      // stable : purge d'un « en attente » devenu obsolète
-      if (prev.pendingSig) { prev.pendingSig = null; prev.pendingSince = null; patched = true }
-      continue
-    }
-    // le dossier a bougé depuis la dernière référence
-    if (prev.pendingSig !== signature) {
-      // nouveau changement (ou changement qui a encore évolué) : (re)démarre le calme
-      prev.pendingSig = signature
-      prev.pendingSince = now
-      patched = true
-      continue
-    }
-    // même changement en attente : période de calme écoulée + anti-rafale ?
-    const quietOk = now - (prev.pendingSince || now) >= DESC_QUIET_MS
-    const intervalOk = !prev.lastRefreshedAt || now - Date.parse(prev.lastRefreshedAt) >= DESC_MIN_INTERVAL_MS
-    if (quietOk && intervalOk && (!due || (prev.pendingSince || 0) < due.pendingSince)) {
-      due = { numero, pendingSince: prev.pendingSince || 0 }
-    }
+  const out = await fluxPomper(keys, { onHold: (quoi) => autonomousOnHold(keys, quoi) })
+  for (const b of out.traites || []) {
+    if (b.ignore) continue
+    console.log(`[attache] flux « ${b.numero} » : ${b.differe ? 'différé (forfait)' : b.chantier ? `chantier (${b.pieces} pièces)` : `${b.pieces} pièce(s), ${b.crs} CR, ${b.actes} acte(s) — ${b.run ? `${b.crEcrit} CR écrit, ${b.mecProposes} MEC proposé(s), ${b.actesProposes} acte(s) proposé(s)` : 'rien de neuf'}`}${b.enAttente ? ` — ${b.enAttente} pièce(s) à suivre` : ''}${b.erreur ? ` — ${b.erreur}` : ''}`)
   }
-  // Purge des dossiers disparus (archivés / supprimés) pour ne pas gonfler l'état.
-  for (const numero of Object.keys(descs)) {
-    if (!present.has(numero)) { delete descs[numero]; patched = true }
-  }
-  if (patched) await writeState({ descriptions: descs })
-  if (!due) return
-  // Forfait saturé : on diffère (rien n'est perdu — le dossier reste « en
-  // attente », on relira au prochain tick une fois la fenêtre redescendue).
-  if (await autonomousOnHold(keys, 'actualisation des descriptions')) return
-  // Un seul dossier par tick → « en arrière-plan, lentement ».
-  runActualiserDescription(due.numero, 'auto').catch((e) => console.error('[attache] description :', e))
+  if (activites.flux && out.traites?.length) activites.flux.dernierBilan = out.traites[out.traites.length - 1]
+  // du travail reste (suite, différé) : on repassera après le calme
+  if (fluxFileAttente().enAttente.length) fluxPlanifier()
+}
+async function fluxTick() {
+  const keys = loadKeyring()
+  if (!keys) return
+  const { enfiles } = fluxBalayer(keys)
+  if (enfiles.length) console.log(`[attache] flux : ${enfiles.length} dossier(s) mis en file par la relève (${enfiles.join(', ')})`)
+  await fluxPomperMaintenant()
 }
 
 // Plafond de durée d'une analyse de LOT (trames, base de connaissances) : ces
@@ -1247,6 +1159,7 @@ const server = http.createServer(async (req, res) => {
         activites: Object.values(activites),
         runsEnCours: running,
         chantierActif: (() => { try { return Boolean(chantierActif()) } catch { return false } })(),
+        flux: (() => { try { return fluxFileAttente() } catch { return null } })(),
         eventLoop,
         memoire: { rssMB: Math.round(mem.rss / (1024 * 1024)), heapMB: Math.round(mem.heapUsed / (1024 * 1024)) },
       })
@@ -1395,6 +1308,34 @@ const server = http.createServer(async (req, res) => {
       const keys = loadKeyring()
       if (keys) await audit(keys, 'mail_config_effacee', { removed })
       return json(res, 200, { ok: true, removed, mail: describeMailConfig() })
+    }
+
+    if (route === 'POST /reveil') {
+      // RÉVEIL du flux tendu : l'app prévient qu'un dossier a bougé (pièce
+      // versée côté serveur, CR/acte sauvegardé côté navigateur — par
+      // n'importe quel utilisateur). Ne porte aucune donnée : l'attaché relit
+      // ses coffres. Réponse immédiate ; le traitement part après le calme.
+      const body = await readBody(req)
+      const keys = loadKeyring()
+      if (!keys) return json(res, 200, { ok: true, ignore: 'trousseau non remis' })
+      const numeros = Array.isArray(body.numeros) ? body.numeros : (body.numero ? [body.numero] : [])
+      const raison = String(body.raison || 'dossier').slice(0, 40)
+      const par = body.par ? String(body.par).slice(0, 60) : undefined
+      const mis = []
+      for (const numero of numeros.slice(0, 50)) {
+        const r = fluxEnfiler(keys, { numero, raison, par })
+        if (r) mis.push(r)
+      }
+      if (body.docKey) {
+        const r = fluxEnfiler(keys, { docKey: String(body.docKey), raison, par })
+        if (r) mis.push(r)
+      }
+      if (mis.length) fluxPlanifier()
+      return json(res, 200, { ok: true, enFile: mis })
+    }
+
+    if (route === 'GET /flux') {
+      return json(res, 200, fluxFileAttente())
     }
 
     if (route === 'POST /actualiser-description') {
@@ -1989,7 +1930,7 @@ setInterval(() => {
   decale(5_000, 'routines', 'routines planifiées', () => maybeDueRoutines())
   decale(10_000, 'apprentissage', 'apprentissage planifié', () => maybeScheduledApprentissage())
   decale(15_000, 'etude', 'étude planifiée', () => maybeScheduledEtude())
-  decale(20_000, 'descriptions', 'descriptions de dossiers', () => maybeScheduledDescriptions())
+  decale(20_000, 'flux', 'flux tendu (file d\'attente)', () => fluxTick())
   decale(30_000, 'ingestion', 'ingestion des pièces', () => maybeIngest())
   decale(45_000, 'chantiers', 'chantiers d\'analyse', () => maybeChantiers())
   decale(90_000, 'registre', 'mini-fiches du registre', () => maybeRegistreFiches())

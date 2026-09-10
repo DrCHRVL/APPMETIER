@@ -491,41 +491,63 @@ l'usage).
   ✓/✗**. Un balayage régulier se planifie en **routine** (Paramètres → Attaché
   IA), de préférence de nuit. Les relevés de consommation antérieurs gardent
   leur poste « Brief quotidien (retiré) » : l'historique reste lisible.
-- **Tient la description à jour, TOUT SEUL** : la description (« l'objet »)
-  d'un dossier se met à jour **progressivement, en arrière-plan**, au fil de
-  ce qui l'alimente — **à chaque acte/document téléversé** (l'attaché lit la
-  copie markdown générée au passage) **ou à chaque CR rédigé**. Le service
-  compare, à chaque relève, une signature déterministe par dossier (nombre et
-  date des CR, des documents, des actes — coût nul, aucun jeton) ; dès qu'un
-  dossier a bougé, il attend une courte période de calme (les ajouts en rafale
-  sont fusionnés) puis lance **un run COURT et ÉCONOME** (modèle rapide, effort
-  faible, ≤ 12 tours) — **un seul dossier par relève**, lentement, pour un
-  minimum de jetons. Il est **différé** si le forfait sature (gouverneur), et
-  la consommation apparaît sous le poste **« Descriptions »** de « Consommation
-  IA ». **Dossier volumineux** (≥ `SIRAL_ATTACHE_DESC_CHANTIER_SEUIL`, 100
-  pièces déposées par défaut) : un run court n'y suffit pas — l'actualisation
-  bascule alors sur un **CHANTIER** de dépouillement complet (pièce par pièce,
-  en lots, cantonné à la nuit par défaut) plutôt que de tenter une lecture
-  rapide vouée à l'échec ou trop superficielle. Le devis (pièces, lots, nuits
-  estimées) est déposé **en attente de validation** — rien ne se lance sans le
-  magistrat — et **dit franchement** ce qui se passe (icône et message de
-  retour), pour ne pas laisser cliquer sur « Actualiser » sans comprendre
-  pourquoi rien ne bouge. La description suit un **format en deux parties, en prise de notes**
-  (rédigé à ~80 %, mots inutiles et verbes de liaison retirés, mais clair) :
-  - **SYNTHÈSE** — la vision globale des faits, qui **s'enrichit et se
-    reformule** à chaque passage (qualification, mode opératoire, lieux,
-    période, mesures en cours, échéances) ;
-  - **MIS EN CAUSE** — un par un les mis en cause **enregistrés** du dossier
-    (jamais inventés), chacun suivi des **éléments à charge** relevés contre
-    lui (ce que les CR, actes et pièces établissent).
-  Une **icône « Actualiser »** à côté du titre *Description* (détail du
-  dossier, admin seul) force la mise à jour **de suite** — en plus de
-  l'automatique. L'ancienne description est archivée (`descriptionHistory`),
-  rien n'est jamais perdu (en plus du versionnage du coffre).
+- **Flux tendu — à chaque mouvement du dossier, le neuf est intégré** : une
+  pièce versée, un CR rédigé, un acte ajouté — **par vous ou par un
+  collègue** — met le dossier dans une **file d'attente** (visible dans le
+  moniteur d'activité : dossier, depuis quand, raison, qui). Deux entrées :
+  le **réveil** (l'app prévient le service dès l'écriture — dépôt de pièce
+  côté serveur, sauvegarde d'un dossier dont les CR/actes ont bougé côté
+  navigateur ; jamais une donnée, seulement « ce dossier a bougé ») et la
+  **relève** (signature déterministe à chaque tick, qui rattrape tout réveil
+  manqué). Après une courte période de calme (60 s, `SIRAL_ATTACHE_FLUX_QUIET_SEC` —
+  une rafale d'ajouts est fusionnée), **un dossier à la fois** passe le
+  pipeline (`scripts/attache/flux.mjs`), qui ne traite que le **neuf**, petit
+  bout par petit bout :
+  1. **ingestion ciblée** de ses pièces nouvelles (texte, OCR au besoin,
+     empreinte, entités — zéro jeton) ;
+  2. **mini-fiches** du registre pour ces pièces (lots de 8, trois lots par
+     passage au plus — le reste au passage suivant, le dossier reste en file) ;
+  3. **analyse d'actes** côté serveur pour les pièces des zones Actes / Geoloc /
+     Ecoutes / DML (le moteur d'`analyse.mjs`, un tour sans outil) : les actes
+     détectés sont **proposés** ✓/✗ (dédoublonnés contre l'échéancier et les
+     propositions en attente ; confiance < 0,5 écartée), les incohérences
+     (numéro de procédure, NATINF absent, dates) et les manques de chaîne
+     légale font **une carte d'alerte** au fil ;
+  4. **un run court et économe** (modèle rapide, effort faible, ≤ 14 tours,
+     socle `flux` réglable dans Paramètres → Attaché IA) qui reçoit tout le
+     neuf déjà digéré — fiches des pièces, CR et actes nouveaux, description
+     actuelle, index des CR, **candidats mis en cause pré-calculés** (personnes
+     des fiches au rôle de mis en cause, absentes des enregistrés, avec
+     l'avertissement « nom voisin ») — et, dans l'ordre : **rédige UN CR
+     complet** (`classer_note`, signature configurée) si le neuf apporte des
+     faits ou infractions absents de la description et des CR ; ajoute les
+     **NATINF** nouveaux ; **propose** chaque mis en cause manquant avec un
+     `role` qui décrit sa place dans le dossier (pièce à l'appui) ; **actualise
+     la description** si la vision globale ou les charges changent ; acte une
+     **prolongation** détectée quand l'acte visé est sans ambiguïté. S'il n'y a
+     rien de neuf, il n'écrit rien. Silencieux : aucune carte, aucune question.
+  Le CR de l'attaché ne réveille pas le dossier (l'état du flux est recalé
+  après chaque passage). **Versement massif** (≥ `SIRAL_ATTACHE_DESC_CHANTIER_SEUIL`,
+  100 pièces nouvelles d'un coup) : pas de passage rapide — bascule sur un
+  **chantier** de dépouillement (devis en attente de validation, carte au fil).
+  Les étages 2 à 4 passent par le **gouverneur de forfait** (différés, jamais
+  perdus) ; l'ingestion, elle, tourne toujours. Consommation sous le poste
+  **« Flux »** de « Consommation IA » ; audit `flux_traite` / `flux_chantier`.
+  Une pièce rangée par le **majordome** (`ranger_document`) entre dans la même
+  file — il ne refait pas ces détections lui-même.
+- **Icône « Actualiser » de la description** (détail du dossier, admin seul) :
+  hors flux, un run court **reprend toute la description** depuis le dossier
+  (CR, registre des pièces) et la fait progresser — même format en deux
+  parties, en prise de notes (**SYNTHÈSE** globale qui s'enrichit ; **MIS EN
+  CAUSE** enregistrés + éléments à charge). **Dossier volumineux** (≥ 100
+  pièces déposées) : bascule sur un chantier de dépouillement, avec un message
+  qui le dit franchement. L'ancienne description est archivée
+  (`descriptionHistory`), rien n'est jamais perdu.
 - **Tient la section « Mis en cause » en cohérence** : la partie *MIS EN CAUSE*
   de la description ne parle que des personnes **enregistrées** — une passe qui
   relève un nom mis en cause absent du dossier le **propose** aussitôt (✓/✗),
-  sans jamais l'écrire d'office. C'est le même geste dans les deux sens :
+  sans jamais l'écrire d'office. Trois gestes :
+  - **le flux tendu**, pièce par pièce, avec un rôle décrit (ci-dessus) ;
   - **icône « Actualiser » à côté du + de la section *Mis en cause*** (détail du
     dossier, admin seul) : l'attaché relit les CR, actes et documents et dépose
     les noms manquants en propositions — victimes, témoins, enquêteurs,
