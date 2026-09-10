@@ -124,7 +124,27 @@ const audienceResultats = {
   },
 }
 
-const syncData = { enquetes, audienceResultats, customTags: [], alertRules: [], version: 3 }
+// ── Coffre `audience` : LA SOURCE DES RÉSULTATS D'AUDIENCE (AudienceSyncService)
+// C'est ce coffre que lit la page Statistiques du magistrat. Le connecteur doit
+// le lire lui aussi — c'est tout l'objet du test qui suit.
+const envAudience = encryptJson(keyGlobal, {
+  version: 7, updatedAt: '2026-07-02T08:00:00Z', updatedBy: 'Audran CHEVALIER', computerName: 'SIRAL',
+  audienceResultats,
+})
+fs.writeFileSync(path.join(DATA_DIR, 'vaults', 'audience.json'), JSON.stringify(envAudience))
+
+// ── Coffre ctx : il porte encore un champ `audienceResultats`, VESTIGE figé du
+// stockage mono-contentieux (plus rien ne l'alimente depuis la bascule vers le
+// pipeline dédié). On y met exprès un état PÉRIMÉ — les audiences de mai et de
+// juin manquantes, celle de février mal datée — pour que toute régression qui
+// relirait ce champ fasse tomber les assertions de chiffres ci-dessous.
+const audienceResultatsPerimes = {
+  'crimorg__1': { ...audienceResultats['crimorg__1'], dateAudience: '2026-01-09', modifiedAt: '2026-01-09T10:00:00Z' },
+  'crimorg__6': audienceResultats['crimorg__6'],
+  'crimorg__direct-1': audienceResultats['crimorg__direct-1'],
+}
+
+const syncData = { enquetes, audienceResultats: audienceResultatsPerimes, customTags: [], alertRules: [], version: 3 }
 const envelope = encryptJson(keyCtx, { data: syncData, metadata: { lastModified: new Date().toISOString(), modifiedBy: 'test', version: 3 } })
 fs.writeFileSync(path.join(DATA_DIR, 'vaults', 'ctx-crimorg.json'), JSON.stringify(envelope))
 
@@ -259,6 +279,14 @@ const instruCartes = sections['Statistiques instruction']
 attendu('les 4 sections de la page', page.sections.length === 4, page.sections.map((x) => x.section).join(' · '))
 attendu('chaque carte porte sa règle', page.sections.every((sec) => sec.cartes.every((c) => typeof c.regle === 'string' && c.regle.length > 20)))
 
+// Provenance : les résultats d'audience viennent du coffre DÉDIÉ, pas du
+// vestige figé du coffre ctx — et la réponse le dit, avec sa date de fraîcheur.
+attendu('source des résultats d\'audience = coffre « audience »', page.sources?.resultatsAudience?.coffre === 'audience'
+  && page.sources.resultatsAudience.repli === undefined
+  && page.sources.resultatsAudience.derniereMiseAJour === '2026-07-02T08:00:00Z', JSON.stringify(page.sources?.resultatsAudience))
+attendu('source des enquêtes = coffre ctx-crimorg', page.sources?.enquetes?.coffre === 'ctx-crimorg', JSON.stringify(page.sources?.enquetes))
+attendu('bilan par période : même provenance', bilan.sources?.resultatsAudience?.coffre === 'audience', JSON.stringify(bilan.sources?.resultatsAudience))
+
 // Mêmes chiffres que l'écran : 3 procédures terminées en 2026 (dont 1 OI listée à part)
 attendu('carte « Total des procédures terminées » = 3', generales['Total des procédures terminées'].valeur === 3, JSON.stringify(generales['Total des procédures terminées'].valeur))
 attendu('dont 1 OI et 0 classement', generales['Total des procédures terminées'].detail.dontOuverturesInformation === 1
@@ -360,6 +388,17 @@ attendu('marqueur : sans période', parseMarqueur('[GRAPHIQUE : orientation]')?.
 attendu('marqueur : une phrase normale n\'en est pas un', parseMarqueur('Le graphique montre une hausse.') === null && parseMarqueur('[À CONFIRMER]') === null)
 const doc = `Bilan.\n\n${marqueur}\n\nTexte.\n[GRAPHIQUE : orientation | du=2026-01-01 | au=2026-06-30]\n${marqueur}\n`
 attendu('marqueurs : trouvés et dédoublonnés dans un document', trouverMarqueurs(doc).length === 2)
+
+// ── Coffre `audience` absent : repli sur le coffre ctx, mais JAMAIS en silence.
+// Le magistrat doit être averti que les chiffres servis peuvent être périmés.
+fs.rmSync(path.join(DATA_DIR, 'vaults', 'audience.json'))
+const repli = await rpc('tools/call', { name: 'stats_ecran', arguments: { annee: 2026 } })
+const pageRepli = JSON.parse(repli.result.content[0].text)
+attendu('coffre audience absent : repli explicitement signalé', pageRepli.sources?.resultatsAudience?.repli === true
+  && /PÉRIMÉ/.test(pageRepli.sources.resultatsAudience.alerte || ''), JSON.stringify(pageRepli.sources?.resultatsAudience))
+attendu('repli : les chiffres du vestige, pas une erreur', !repli.result.isError
+  && Object.fromEntries(pageRepli.sections[0].cartes.map((c) => [c.carte, c.valeur]))['Total des procédures terminées'] === 2,
+  JSON.stringify(pageRepli.sections[0].cartes[0]?.valeur))
 
 child.kill()
 console.log(echecs.length ? `\n❌ ${echecs.length} échec(s) : ${echecs.join(' · ')}` : '\n✅ TOUS LES TESTS PASSENT')

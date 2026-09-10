@@ -57,6 +57,20 @@ cite la carte et sa valeur. Deux nombres voisins qui diffèrent (« déférement
 de l'orientation vs « Évolution des déférements ») ne sont pas une
 incohérence — chaque carte porte la règle qui l'explique.
 
+Les mêmes règles ne suffisent pas : encore faut-il les appliquer aux mêmes
+**données**. Les résultats d'audience ne vivent pas dans le coffre du
+contentieux mais dans le coffre dédié `audience` (celui qu'alimente
+`AudienceSyncService`, et que lit la page Statistiques) ; les tags
+personnalisés dans le coffre `tags`. Le coffre `ctx-<contentieux>` porte
+encore des champs homonymes : ce sont des vestiges du stockage
+mono-contentieux, figés au jour de la bascule, que plus rien n'alimente. Le
+connecteur lit donc les coffres dédiés (`scripts/attache/coffresGlobaux.mjs`)
+et joint à chaque réponse un bloc `sources` — quel coffre, mis à jour quand.
+Si un coffre dédié manque, le repli sur le vestige est explicitement signalé
+(`repli: true`) avec l'avertissement que les chiffres peuvent être périmés :
+une divergence avec l'écran doit se lire dans la réponse, jamais se découvrir
+en comparant les nombres à la main.
+
 Côté code, **aucune règle n'est réécrite pour le connecteur** : les cartes
 sont calculées par les cœurs partagés avec l'écran —
 `lib/stats/ecranCore.mjs` (les cartes), `lib/stats/audienceCore.mjs` (peines,

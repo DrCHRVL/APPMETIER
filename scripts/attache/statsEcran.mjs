@@ -114,7 +114,7 @@ export function periodeDeAnnee(anneeBrute, maintenant = new Date()) {
 export function ecranStatistiques(keys, { annee: anneeBrute } = {}) {
   const maintenant = new Date()
   const annee = anneeNormalisee(anneeBrute, maintenant)
-  const { enquetes, resultats, customTags } = donneesContentieux(keys)
+  const { enquetes, resultats, customTags, sources } = donneesContentieux(keys)
 
   const infractionsDe = (e) => infractionsDeEnquete(e, customTags)
   const mois = moisAffiches(annee, maintenant)
@@ -493,6 +493,7 @@ export function ecranStatistiques(keys, { annee: anneeBrute } = {}) {
   return {
     ecran: 'Page « Statistiques » de SIRAL',
     contentieux: attacheContentieux(),
+    sources,
     annee,
     selecteurAnnee: `Année : ${annee}`,
     periodeCouverte: anneeEnCours
