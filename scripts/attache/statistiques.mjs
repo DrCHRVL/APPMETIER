@@ -50,6 +50,8 @@ import {
   repartitionCategoriesInfraction,
 } from '../../lib/stats/ecranCore.mjs'
 import { computeInstructionStats } from '../../lib/stats/instructionCore.mjs'
+import { coffreAudience, coffreTags, provenance } from './coffresGlobaux.mjs'
+import { migrateLegacyResultats } from '../../lib/audience/resultatsCles.mjs'
 import { infractionsDeEnquete, categorieDeInfraction, libelleNatinf } from './statsReferentiel.mjs'
 
 // ── Dates ──
@@ -116,16 +118,40 @@ function joursEntre(debut, fin) {
  * Enquêtes + résultats d'audience du contentieux confié — même périmètre que
  * l'écran : résultats du contentieux courant dont l'enquête existe encore,
  * plus les procédures directes (permanence).
+ *
+ * DEUX COFFRES, PAS UN : les enquêtes viennent du coffre `ctx-<contentieux>`,
+ * les résultats d'audience et les tags de leurs coffres DÉDIÉS (`audience`,
+ * `tags`) — ceux qu'alimentent les clients web et que lit la page
+ * Statistiques. Les champs homonymes du coffre ctx sont des vestiges figés
+ * (cf. coffresGlobaux.mjs) : ils ne servent que de repli, toujours signalé.
  */
 export function donneesContentieux(keys) {
-  const { data } = loadContentieux(keys)
+  const { data, metadata } = loadContentieux(keys)
   const enquetes = data.enquetes || []
   const ctx = attacheContentieux()
   const ids = new Set(enquetes.map((e) => e.id))
-  const resultats = Object.values(data.audienceResultats || {}).filter((r) =>
+
+  const audience = coffreAudience(keys)
+  const dictionnaire = audience
+    ? audience.resultats
+    : migrateLegacyResultats(data.audienceResultats || {}).migrated
+  const resultats = Object.values(dictionnaire).filter((r) =>
     r && (r.contentieuxId || 'crimorg') === ctx
     && (r.isDirectResult === true || ids.has(r.enqueteId)))
-  return { enquetes, resultats, customTags: data.customTags || [] }
+
+  const tags = coffreTags(keys)
+  const customTags = tags ? tags.customTags : (data.customTags || [])
+
+  return {
+    enquetes,
+    resultats,
+    customTags,
+    sources: {
+      enquetes: { coffre: `ctx-${ctx}`, derniereMiseAJour: metadata?.lastModified || null },
+      resultatsAudience: provenance(audience, { nom: 'audience', repli: `ctx-${ctx}` }),
+      tags: provenance(tags, { nom: 'tags', repli: `ctx-${ctx}` }),
+    },
+  }
 }
 
 const resultatDe = (resultats, enqueteId) => resultats.find((r) => r.enqueteId === enqueteId && !r.isDirectResult)
@@ -291,7 +317,7 @@ export function periodeNormalisee(du, au) {
  */
 export function bilanStatistiques(keys, { du: duBrut, au: auBrut } = {}) {
   const { du, au } = periodeNormalisee(duBrut, auBrut)
-  const { enquetes, resultats, customTags } = donneesContentieux(keys)
+  const { enquetes, resultats, customTags, sources } = donneesContentieux(keys)
   const mois = moisDePeriode(du, au)
   const zeroParMois = () => Object.fromEntries(mois.map((m) => [m, 0]))
 
@@ -514,6 +540,7 @@ export function bilanStatistiques(keys, { du: duBrut, au: auBrut } = {}) {
 
   return {
     contentieux: attacheContentieux(),
+    sources,
     periode: { du, au, mois: mois.map((m) => ({ cle: m, libelle: labelMois(m, mois.length > 12) })) },
     proceduresTerminees: {
       total: termineesHorsClOi.length,

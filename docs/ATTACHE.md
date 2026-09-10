@@ -673,6 +673,16 @@ l'usage).
     triple implémentation à maintenir. Vérifié de bout en bout par
     `scripts/attache-stats.test.mjs` (coffre chiffré réel + serveur MCP en
     stdio, 30+ assertions).
+  - **Les mêmes DONNÉES, pas seulement les mêmes règles** : les résultats
+    d'audience se lisent dans le coffre dédié `audience` et les tags dans le
+    coffre `tags` — ceux qu'alimentent les pipelines de synchronisation des
+    clients et que lit la page Statistiques. Les champs homonymes du coffre
+    `ctx-<contentieux>` sont des vestiges du stockage mono-contentieux, figés
+    au jour de la bascule : les lire servait au magistrat des résultats
+    d'audience périmés alors que ses enquêtes étaient à jour.
+    `scripts/attache/coffresGlobaux.mjs` centralise ces lectures et joint aux
+    réponses un bloc `sources` (quel coffre, mis à jour quand) ; un repli sur
+    le vestige, faute de coffre dédié lisible, est signalé en clair.
 - **Bureautique complète — présentations, diagrammes, Excel (parité Claude
   web, sans que rien ne sorte de SIRAL)** :
   - **Présentations PowerPoint** : « prépare-moi une présentation du bilan
