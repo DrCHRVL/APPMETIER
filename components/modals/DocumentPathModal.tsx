@@ -342,17 +342,18 @@ export const DocumentPathModal = ({
         <DialogFooter style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
           <div className="flex justify-between items-center w-full">
             <div className="text-xs text-gray-500">
-              {!selectedPath.trim() ? 'Sauvegarde interne uniquement' : 
-               pathStatus === 'valid' ? 'Sauvegarde double (interne + externe)' : 
+              {!selectedPath.trim() ? 'Sauvegarde interne uniquement' :
+               needsReselect ? 'Re-sélectionnez le dossier pour activer la synchronisation' :
+               pathStatus === 'valid' ? 'Sauvegarde double (interne + externe)' :
                'Validation requise'}
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={handleCancel}>
                 Annuler
               </Button>
-              <Button 
+              <Button
                 onClick={handleSave}
-                disabled={!!(selectedPath.trim() && pathStatus === 'invalid')}
+                disabled={!!(selectedPath.trim() && (pathStatus === 'invalid' || needsReselect))}
                 className={selectedPath.trim() && pathStatus === 'valid' ? 'bg-green-600 hover:bg-green-700' : ''}
               >
                 {!selectedPath.trim() ? 'Désactiver' : 'Enregistrer'}
