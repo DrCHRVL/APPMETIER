@@ -105,11 +105,26 @@ function enqueteDe(keys, numero) {
   return (data.enquetes || []).find((e) => String(e.numero).trim() === wanted) || null
 }
 
-/** Point de référence SILENCIEUX d'un dossier : on ne réagira qu'aux changements ultérieurs. */
+/**
+ * Point de référence SILENCIEUX d'un dossier : on ne réagira qu'aux
+ * changements ultérieurs.
+ *
+ * La MARGE tient à l'ordre des opérations d'un versement : la route de dépôt
+ * ENREGISTRE la pièce, PUIS réveille l'attaché. Un dossier que le flux ne
+ * connaît pas encore reçoit donc son point de référence quelques instants
+ * APRÈS la pièce qui l'a fait bouger — laquelle serait alors tenue pour du
+ * stock ancien et écartée en silence : le premier versement d'un dossier ne
+ * déclencherait jamais rien (et le dossier créé après le démarrage du service
+ * non plus, tant que la relève ne l'a pas vu). La marge ne réveille pas le
+ * stock : seules les pièces versées dans les dernières minutes échappent au
+ * silence.
+ */
+const BASELINE_MARGE_MS = 10 * 60 * 1000
+
 function baseline(st, e, signature) {
   st.dossiers[String(e.numero)] = {
     sig: signature, pendingSince: null, pendingAt: null, raisons: [],
-    baselineAt: new Date().toISOString(), lastRunAt: null, ...idsDe(e),
+    baselineAt: new Date(Date.now() - BASELINE_MARGE_MS).toISOString(), lastRunAt: null, ...idsDe(e),
   }
 }
 

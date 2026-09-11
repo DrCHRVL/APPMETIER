@@ -14,7 +14,10 @@
  *     l'attaché ne réveille pas le dossier ;
  *   - un second passage sans neuf ne lance aucun run ;
  *   - un CR ajouté par l'app (relève) repasse en file et est joint au run ;
- *   - un versement massif bascule sur un chantier au lieu d'un passage rapide.
+ *   - un versement massif bascule sur un chantier au lieu d'un passage rapide ;
+ *   - le PREMIER versement sur un dossier que le flux n'a jamais vu est traité :
+ *     la pièce qui provoque le réveil précède le point de référence, elle ne doit
+ *     pas être prise pour du stock ancien.
  *
  *   node scripts/attache-flux.test.mjs
  */
@@ -197,6 +200,31 @@ attendu('versement massif : bascule chantier, pas de run', b4.chantier === true 
 const reg4 = readRegistre(keys, KEY)
 attendu('pièces du versement massif marquées (chantier)', Object.values(reg4.pieces).filter((e) => e.flux?.chantier).length >= flux.CHANTIER_SEUIL)
 attendu('file vidée', flux.fileAttente().enAttente.length === 0)
+
+// ── 7. Premier versement sur un dossier que le flux n'a JAMAIS vu
+// La route de dépôt enregistre la pièce PUIS réveille : le point de référence
+// du dossier naît après elle. Sans marge, elle passait pour du stock ancien et
+// était écartée en silence — aucun CR ne pouvait jamais sortir d'un premier
+// versement.
+{
+  const NUM2 = '500/200/2026 - FLUXNEUF'
+  const KEY2 = docServerKey(NUM2)
+  const { data } = loadContentieux(keys)
+  ecrireVault([...data.enquetes, {
+    id: 2, numero: NUM2, dateDebut: '2026-09-10', statut: 'en_cours', description: 'SYNTHÈSE\nDossier neuf.',
+    tags: [], actes: [], comptesRendus: [], ecoutes: [], geolocalisations: [], misEnCause: [], infractionNatinfCodes: [],
+  }])
+  writeDocBlob(attacheTj(), KEY2, 'PV/D1_premier.txt',
+    encryptDocBlob(keyGlobal, Buffer.from('Procès-verbal : première pièce versée sur ce dossier.', 'utf8')), { savedBy: 'greffe' })
+  // La route de dépôt sauve puis appelle le réveil : quelques millisecondes
+  // séparent les deux horodatages. Sans cet écart, le test ne reproduit rien.
+  await new Promise((r) => setTimeout(r, 10))
+  const rev2 = flux.enfiler(keys, { docKey: KEY2, raison: 'document', par: 'greffe' })
+  attendu('dossier inconnu du flux : le réveil le met en file', rev2?.numero === NUM2, JSON.stringify(rev2))
+  const b5 = await flux.traiterDossier(keys, NUM2)
+  attendu('la pièce qui a provoqué le réveil est traitée, pas écartée en silence',
+    b5.pieces === 1 && b5.run === true, JSON.stringify(b5))
+}
 
 console.log(echecs.length ? `\n${echecs.length} échec(s) : ${echecs.join(' ; ')}` : '\nTous les tests passent.')
 fs.rmSync(SCRATCH, { recursive: true, force: true })
