@@ -27,6 +27,10 @@ import { audit } from './journal.mjs'
 import { recordLearningSignal } from './apprentissage.mjs'
 
 const FILE = () => attacheDir('propositions.json')
+// Le motif d'une proposition de méthode est LU par le magistrat : il doit tenir
+// entier dans le panneau. Borné large (une révision cite pièces et textes) et
+// coupé sur une frontière de mot — jamais amputé au milieu d'un mot.
+const MOTIF_MAX = 2000
 const TYPES = ['mec', 'acte', 'cr', 'lien', 'dossier', 'dossier_carto', 'mec_carto', 'mec_note', 'camp_carto', 'trame', 'skill']
 // Types rattachés à un dossier EXISTANT (numéro requis). « dossier » porte le
 // numéro du dossier à créer ; « dossier_carto », « mec_carto » et « lien »
@@ -35,6 +39,15 @@ const TYPES = ['mec', 'acte', 'cr', 'lien', 'dossier', 'dossier_carto', 'mec_car
 // « skill » sont globaux : amélioration d'une méthode du magistrat, appliquée
 // d'un ✓ (écriture versionnée) depuis Paramètres → Attaché IA.
 const TYPES_DOSSIER = ['mec', 'acte', 'cr']
+
+/** Motif borné à MOTIF_MAX, coupé proprement (fin de mot) s'il déborde. */
+function bornerMotif(brut) {
+  const s = String(brut || '').trim()
+  if (s.length <= MOTIF_MAX) return s
+  const coupe = s.slice(0, MOTIF_MAX)
+  const mot = coupe.lastIndexOf(' ')
+  return (mot > MOTIF_MAX * 0.8 ? coupe.slice(0, mot) : coupe).trimEnd() + ' […]'
+}
 
 function load(keys) {
   const env = readJson(FILE(), null)
@@ -166,6 +179,7 @@ export async function addProposition(keys, { numero, type, payload, source, titr
     if (pendante) return { doublon: true, message: `Une proposition sur cette ${type} est déjà en attente — le magistrat n'a pas encore tranché` }
     payload.nom = propre
     payload.existante = Boolean(existante)
+    payload.motif = bornerMotif(payload.motif)
     numero = ''
   }
 

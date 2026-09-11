@@ -245,9 +245,13 @@ l'usage).
       `proposer_skill`) : le texte **intégral révisé** + le **motif**
       (signaux, écart au corpus validé, fragilité de légalité). Elle
       apparaît dans Paramètres → Attaché IA, encadré **« Propositions de
-      méthode »** : motif, texte complet déroulable, **✓ Appliquer** (écriture
-      versionnée — l'ancienne version reste archivée) ou **✗ Refuser** (et le
-      refus est lui-même un signal d'apprentissage). L'**étude du corpus** en
+      méthode »** : motif **entier** (jamais coupé au milieu d'un mot), puis la
+      **liste des changements** — le diff ligne à ligne contre VOTRE version
+      courante, ajouts en vert, retraits en rouge, inchangé replié, calculé
+      dans votre navigateur sur le texte déchiffré — et le texte complet
+      déroulable. **✓ Appliquer** (écriture versionnée — l'ancienne version
+      reste archivée) ou **✗ Refuser** (et le refus est lui-même un signal
+      d'apprentissage). L'**étude du corpus** en
       dépose quand vos propres actes signés divergent de votre trame ; une
       analyse juridique de trame demandée en chat peut en déposer aussi.
     - **Ciblage par corrélation** : les signaux d'actes retouchés portent la

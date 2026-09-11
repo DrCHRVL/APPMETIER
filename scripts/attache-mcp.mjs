@@ -1031,7 +1031,8 @@ const TOOLS = [
     },
     handler: async (a) => addProposition(keys, {
       type: 'trame',
-      payload: { nom: a.nom, contenu: a.contenu, description: a.description, motif: String(a.motif).slice(0, 600) },
+      // motif transmis tel quel : c'est addProposition qui le borne proprement
+      payload: { nom: a.nom, contenu: a.contenu, description: a.description, motif: a.motif },
       source: a.source,
     }),
     write: true,
@@ -1052,7 +1053,8 @@ const TOOLS = [
     },
     handler: async (a) => addProposition(keys, {
       type: 'skill',
-      payload: { nom: a.nom, contenu: a.contenu, description: a.description, motif: String(a.motif).slice(0, 600) },
+      // motif transmis tel quel : c'est addProposition qui le borne proprement
+      payload: { nom: a.nom, contenu: a.contenu, description: a.description, motif: a.motif },
       source: a.source,
     }),
     write: true,
