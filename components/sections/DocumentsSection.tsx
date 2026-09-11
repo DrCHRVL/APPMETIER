@@ -36,6 +36,7 @@ import { DocumentPathModal } from '../modals/DocumentPathModal';
 import { DocumentExplorerModal } from '../modals/DocumentExplorerModal';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { useUserStore } from '@/stores/useUserStore';
+import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 import { DocHoverPreview } from '@/components/DocHoverPreview';
 import { DocumentSyncManager, SyncResult } from '@/utils/documents/DocumentSyncManager';
 import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipProvider } from '../ui/tooltip';
@@ -209,6 +210,18 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   const [showExplorer, setShowExplorer] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null);
   const [pendingCommun, setPendingCommun] = useState(0);
+  // Sonde de présence de l'attaché (en cache) : décide si le toast de
+  // téléversement annonce la suite — l'analyse automatique — ou reste muet.
+  // 404 pour tout compte non administrateur : le toast reste alors neutre.
+  const iaMasquee = useIaMasquee();
+  const attacheOkRef = useRef<boolean | null>(null);
+  const attacheActif = async (): Promise<boolean> => {
+    if (iaMasquee) return false;
+    if (attacheOkRef.current === null) {
+      attacheOkRef.current = await fetch('/api/attache/status?sonde=1').then((r) => r.ok).catch(() => false);
+    }
+    return attacheOkRef.current;
+  };
   // compteur de copies « dossier commun » en attente pour cette enquête
   const refreshPendingCommun = useCallback(async () => {
     try {
@@ -585,8 +598,15 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
           : savedFiles;
         onUpdate(enquete.id, { documents: [...(enquete.documents || []), ...annotated] });
         if (!chunkError) {
+          // Le dépôt a réveillé le flux tendu : le dire ici, sinon le travail
+          // qui suit est entièrement invisible. Aucune promesse de compte
+          // rendu — il n'est écrit que s'il y a du neuf, et c'est le bandeau
+          // du dossier qui rendra la conclusion.
+          const suite = (await attacheActif())
+            ? " — l'attaché les analyse ; compte rendu s'il y a du neuf"
+            : '';
           showToast(
-            `${savedFiles.length} document(s) ajoutés dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title}`,
+            `${savedFiles.length} document(s) ajoutés dans ${DOCUMENT_ZONES.find(z => z.category === category)?.title}${suite}`,
             'success'
           );
         }

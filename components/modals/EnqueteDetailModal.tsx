@@ -27,6 +27,7 @@ import { CoSaisineSection } from '../sections/CoSaisineSection';
 import { TransfertContentieuxSection } from '../sections/TransfertContentieuxSection';
 import { ChronologieSection } from '../attache/ChronologieSection';
 import { PropositionsBar } from '../attache/PropositionsBar';
+import { FluxBandeau } from '../attache/FluxBandeau';
 import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { ProductionsSection } from '../attache/ProductionsSection';
 import { Label } from '../ui/label';
@@ -481,8 +482,11 @@ const EnqueteDetailModalImpl = ({
               />
             )}
 
-            {/* Propositions de l'attaché en attente (✓/✗) + chronologie
-                probatoire — admin uniquement, auto-masquées sinon. */}
+            {/* Où en est l'attaché sur ce dossier (pièce en file, analyse en
+                cours, CR rédigé ou rien de neuf), puis ses propositions en
+                attente (✓/✗) et la chronologie probatoire — admin uniquement,
+                auto-masqués sinon. */}
+            {isAdmin() && <FluxBandeau numero={enquete.numero} />}
             {isAdmin() && <PropositionsBar numero={enquete.numero} reloadToken={propositionsToken} />}
             {isAdmin() && (
               <ProductionsSection
