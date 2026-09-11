@@ -185,6 +185,16 @@ export const DocumentPathModal = ({
                 </div>
               )}
 
+              {pathStatus === 'invalid' && errorMessage && (
+                <div className="flex items-start gap-2 text-red-800 bg-red-50 border border-red-300 rounded-md px-3 py-2">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  <span className="text-xs">
+                    {errorMessage}. Cliquez sur « Choisir un autre dossier » pour re-sélectionner et
+                    ré-autoriser l'accès.
+                  </span>
+                </div>
+              )}
+
               <Button
                 type="button"
                 variant="outline"
@@ -332,17 +342,18 @@ export const DocumentPathModal = ({
         <DialogFooter style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
           <div className="flex justify-between items-center w-full">
             <div className="text-xs text-gray-500">
-              {!selectedPath.trim() ? 'Sauvegarde interne uniquement' : 
-               pathStatus === 'valid' ? 'Sauvegarde double (interne + externe)' : 
+              {!selectedPath.trim() ? 'Sauvegarde interne uniquement' :
+               needsReselect ? 'Re-sélectionnez le dossier pour activer la synchronisation' :
+               pathStatus === 'valid' ? 'Sauvegarde double (interne + externe)' :
                'Validation requise'}
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={handleCancel}>
                 Annuler
               </Button>
-              <Button 
+              <Button
                 onClick={handleSave}
-                disabled={!!(selectedPath.trim() && pathStatus === 'invalid')}
+                disabled={!!(selectedPath.trim() && (pathStatus === 'invalid' || needsReselect))}
                 className={selectedPath.trim() && pathStatus === 'valid' ? 'bg-green-600 hover:bg-green-700' : ''}
               >
                 {!selectedPath.trim() ? 'Désactiver' : 'Enregistrer'}
