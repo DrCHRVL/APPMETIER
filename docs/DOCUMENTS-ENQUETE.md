@@ -61,7 +61,7 @@ Il n'y a pas UN sommaire ; il y a un empilement, et c'est voulu :
 | Couche | Rôle | Où |
 |---|---|---|
 | **Arborescence** | OÙ sont les pièces (pochettes, volumes) | reconstruite depuis `.index.json` |
-| **Description du dossier** | CE QU'EST l'affaire (SYNTHÈSE + MIS EN CAUSE), actualisée automatiquement à chaque versement/CR/acte | `actualiser_description`, fil de l'eau (`attache-service.mjs:595-647`) |
+| **Description du dossier** | CE QU'EST l'affaire (SYNTHÈSE + MIS EN CAUSE), actualisée automatiquement à chaque versement/CR/acte | `actualiser_description`, flux tendu (`scripts/attache/flux.mjs`) |
 | **Fiches de dépouillement** | CE QUE CONTIENT chaque lot de pièces, AVEC COTES : chronologie datée, personnes, verbatims, à charge/à décharge, contradictions, actes manquants | chantiers d'analyse profonde (`chantier.mjs`), productions type `fiche` |
 | **Mémoire du dossier** | ce qui a été dit/décidé (4 000 car., registres `[fait]`/`[échange]`) | `dossierMemory.mjs` |
 
@@ -294,6 +294,7 @@ quand il répond.
 | 3 | **Explorateur** (A) | deux panneaux (pochettes / liste triable-filtrable), badges T (copie texte) et ≡ (doublon), renommer/déplacer (`moveDoc` : original renommé sur place, jumeau MD suivi), multi-sélection, suppression | Moyen | 🟠 | ✅ Fait |
 | 4 | **Registre + mini-fiches** (B2) | entités déterministes (tél/plaques/IBAN/adresses, regex carto) à l'ingestion + mini-fiche IA par pièce (type, date, PERSONNES, résumé) au fil de l'eau ; `registre_lire` + `registre_recouper` (recoupement inter-dossiers, pièces citées) | Moyen | 🟠 | ✅ Fait |
 | 5 | Niveau pochette | note de pochette dans la pyramide (pièce→pochette→dossier) quand 1-4 sont en place | Faible | 🟢 | À faire |
+| 6 | **Flux tendu** | réveil dès le dépôt (serveur) ou la sauvegarde (navigateur, tout utilisateur) + relève de secours ; file d'attente visible ; par dossier : ingestion ciblée → mini-fiches → analyse d'actes (propositions, alerte) → un run économe qui écrit un CR si faits nouveaux, ajoute les NATINF, propose les mis en cause avec rôle, actualise la description | Moyen | 🔴 | ✅ Fait |
 
 Choix actés à l'implémentation de 1 et 2 (2026-08-20) :
 
@@ -323,6 +324,28 @@ Choix actés à l'implémentation de 1 et 2 (2026-08-20) :
   et non plus des seules données structurées. Un recoupement reste un
   signalement à vérifier dans les pièces avant tout `proposer_lien`.
 - Tests : `scripts/attache-docs-empreintes.test.mjs`.
+
+Choix actés à l'implémentation de 6 (2026-09-10) :
+
+- **Pousser, pas seulement relever** : le réveil (`POST /reveil` du service,
+  `app/api/attache/reveil` côté app) ne porte que « dossier X a bougé, raison,
+  auteur » — jamais une donnée : l'attaché relit ses coffres. Le dépôt de pièce
+  réveille depuis la route serveur (`app/api/docs/[enquete]`), les CR/actes
+  depuis le store du navigateur (signature par dossier, comparée à chaque
+  sauvegarde — `useEnquetesStore`). Un réveil manqué est rattrapé par la relève
+  (signature au tick). Le réveil est ouvert à **tout utilisateur** du TJ : ce
+  qu'un collègue verse doit déclencher le même travail.
+- **Le neuf seulement** : chaque pièce porte sa marque de flux dans le registre
+  (`reg.pieces[rel].flux`), chaque dossier ses CR/actes déjà vus ; un passage ne
+  joint au run que ce qui n'a pas été vu, fiches en main (pas de relecture).
+- **CR = écriture directe**, mis en cause et actes = **propositions** ✓/✗ : le
+  CR est une note de réception réversible, la qualification d'un mis en cause
+  et l'échéancier restent le geste du magistrat.
+- **L'analyse d'actes au versement est automatique** (plus de bandeau à
+  cliquer) : le moteur `analyse.mjs` tourne côté serveur dans le pipeline, sur
+  les pièces des zones d'actes uniquement. Le modal `AnalyseDocumentsModal` a
+  été retiré.
+- Tests : `scripts/attache-flux.test.mjs`.
 
 Ordre recommandé : **1 → 2** (déterministes, gratuits, débloquent le reste),
 puis 3 et 4 en parallèle. Tout reste dans le modèle actuel : E2EE, originaux

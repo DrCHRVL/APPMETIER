@@ -245,8 +245,10 @@ function propageFichesDoublons(reg) {
  * persisté. Le service l'appelle au tick, APRÈS son contrôle de forfait.
  * Rend null si rien à faire, sinon { dossier, faites, copies, echecs, restantes }.
  */
-export async function registreFichesStep(keys, { maxPieces = LOT_PIECES } = {}) {
-  for (const docKey of docKeysAvecRegistre()) {
+export async function registreFichesStep(keys, { maxPieces = LOT_PIECES, docKey: seulement = null } = {}) {
+  // `docKey` : passage CIBLÉ sur un seul dossier (flux tendu) — sinon le
+  // premier dossier du registre qui a du travail.
+  for (const docKey of docKeysAvecRegistre().filter((k) => !seulement || k === seulement)) {
     const reg = readRegistre(keys, docKey)
     const copies = propageFichesDoublons(reg)
     const metas = listDocsMeta(attacheTj(), docKey)
@@ -311,7 +313,7 @@ export async function registreFichesStep(keys, { maxPieces = LOT_PIECES } = {}) 
 }
 
 /** Retrouve le numéro lisible d'un dossier depuis sa clé serveur. */
-function numeroDepuisDocKey(keys, docKey) {
+export function numeroDepuisDocKey(keys, docKey) {
   try {
     const { data } = loadContentieux(keys)
     for (const e of data.enquetes || []) {

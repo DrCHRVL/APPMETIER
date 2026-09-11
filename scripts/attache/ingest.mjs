@@ -56,7 +56,7 @@ function statePath(docKey) {
   return attacheDir('ingest', String(docKey).replace(/[^a-zA-Z0-9._@-]/g, '_') + '.json')
 }
 
-function readIngestState(docKey) {
+export function readIngestState(docKey) {
   return readJson(statePath(docKey), { v: 0, sig: null, echecs: {} })
 }
 
@@ -93,6 +93,8 @@ export async function ingestPass(keys, {
   maxExtractions = INGEST_EXTRACTIONS_MAX,
   maxShas = INGEST_SHAS_MAX,
   maxProbes = INGEST_PROBES_MAX,
+  // Passage CIBLÉ (flux tendu : le dossier qui vient de bouger) — sinon tout le stock.
+  docKeys = null,
 } = {}) {
   const tj = attacheTj()
   const docsDir = tjDataDir(tj, 'docs')
@@ -103,6 +105,7 @@ export async function ingestPass(keys, {
   const dirs = fs.readdirSync(docsDir, { withFileTypes: true })
     .filter((e) => e.isDirectory() && !e.name.startsWith('_') && !e.name.startsWith('.'))
     .map((e) => e.name)
+    .filter((name) => !docKeys || docKeys.includes(name))
     .sort()
 
   let budget = maxExtractions

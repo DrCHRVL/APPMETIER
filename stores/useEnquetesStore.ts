@@ -51,6 +51,41 @@ const migrateEnqueteDocuments = (enquete: any): Enquete => {
   return enquete as Enquete;
 };
 
+// ── Réveil du flux tendu de l'attaché ──
+// Après chaque sauvegarde, les dossiers dont la signature (CR, actes,
+// documents inscrits) a bougé sont signalés au serveur — même mesure que la
+// relève du service attaché, calculée ici pour ne réveiller que les dossiers
+// concernés, quel que soit l'utilisateur. Une simple édition de la description
+// ou d'un champ de fiche ne réveille rien. Best-effort : un réveil perdu est
+// rattrapé par la relève du service.
+let _signaturesAttache = new Map<string, string>();
+function signatureAttache(e: Enquete): string {
+  const derniereDate = (e.comptesRendus || []).reduce((max, c) => (c.date > max ? c.date : max), '');
+  const actes = (e.actes?.length || 0) + (e.ecoutes?.length || 0) + (e.geolocalisations?.length || 0);
+  return [e.comptesRendus?.length || 0, derniereDate, e.documents?.length || 0, actes].join('|');
+}
+function _memoriserSignatures(list: Enquete[]): void {
+  _signaturesAttache = new Map(list.map(e => [e.numero, signatureAttache(e)]));
+}
+function _reveillerAttache(list: Enquete[]): void {
+  if (typeof window === 'undefined') return;
+  const bouges: string[] = [];
+  for (const e of list) {
+    const sig = signatureAttache(e);
+    const avant = _signaturesAttache.get(e.numero);
+    _signaturesAttache.set(e.numero, sig);
+    if (avant !== undefined && avant !== sig) bouges.push(e.numero);
+  }
+  if (!bouges.length) return;
+  fetch('/api/attache/reveil', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    keepalive: true,
+    body: JSON.stringify({ numeros: bouges, raison: 'dossier' }),
+  }).catch(() => { /* attaché absent ou hors TJ confié : sans effet */ });
+}
+
 // ── Sauvegarde throttled (module-level pour stabilité) ──
 let _enquetesRef: Enquete[] = [];
 let _contentieuxRef: ContentieuxId = 'crimorg';
@@ -63,6 +98,7 @@ const _saveThrottled = throttle(async () => {
     _isDirty = false;
     useEnquetesStore.setState({ _isDataDirty: false });
     MultiSyncManager.getInstance().triggerPostSaveSync(_contentieuxRef);
+    _reveillerAttache(_enquetesRef);
   } catch (error) {
     console.error(`❌ EnquetesStore[${_contentieuxRef}]: erreur sauvegarde`, error);
   }
@@ -116,6 +152,7 @@ function ensureManagerSubscription(): void {
         });
       if (identiques) return;
       _enquetesRef = fraiches;
+      _memoriserSignatures(fraiches);
       useEnquetesStore.setState(s => ({
         ownEnquetes: fraiches,
         enquetes: [...fraiches, ...s.sharedEnquetes],
@@ -451,6 +488,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
 
       _enquetesRef = repairedData;
       _contentieuxRef = contentieuxId;
+      _memoriserSignatures(repairedData);
       if (actesNormalized || repaired.length > 0) {
         _isDirty = true;
         _saveThrottled();
@@ -462,6 +500,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     } catch (error) {
       console.error(`❌ EnquetesStore[${contentieuxId}]: erreur chargement`, error);
       _enquetesRef = [];
+      _memoriserSignatures([]);
       set({ ownEnquetes: [], enquetes: [...get().sharedEnquetes] });
     } finally {
       set({ isLoading: false });

@@ -5,6 +5,7 @@
  */
 import { requireTjSession, handle, jsonResponse } from '@/lib/server/auth'
 import { listDocs, saveDoc, appendLog, isSafeName, isSafeRelPath } from '@/lib/server/store'
+import { attacheTjId, reveilAttache } from '@/lib/server/attache'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,6 +36,11 @@ export async function POST(req: Request, { params }: { params: { enquete: string
     const content = Buffer.from(b64, 'base64')
     const meta = await saveDoc(session.tj, params.enquete, rel, content, { savedBy: session.u, category, originalName, sha: shaOk })
     await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: session.u, action: 'doc.save', details: { tj: session.tj, enquete: params.enquete, rel } })
+    // Flux tendu : la pièce déposée réveille l'attaché (quel que soit
+    // l'utilisateur). Les jumeaux MD/ accompagnent une pièce déjà signalée.
+    if (session.tj === attacheTjId() && !rel.startsWith('MD/')) {
+      reveilAttache({ docKey: params.enquete, raison: 'document', par: session.u })
+    }
     return jsonResponse({ ok: true, meta })
   })
 }
