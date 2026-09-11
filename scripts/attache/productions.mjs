@@ -20,7 +20,7 @@ import { attacheDir, ensureDir, atomicWrite, readJson, docServerKey, withFileLoc
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { normNumero, numerosProches } from './numero.mjs'
 import { resolveEnquete } from './dossier.mjs'
-import { diffTexte } from './diff.mjs'
+import { diffTexte } from '../../lib/attache/diffCore.mjs'
 
 // « fiche » : fiche factuelle produite par un CHANTIER d'analyse profonde
 // (dépouillement des pièces) — le capital de lecture du dossier.

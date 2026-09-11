@@ -10,13 +10,14 @@
  * - Révocation : suppression du trousseau — l'attaché est aveugle aussitôt.
  * - Journal d'audit : chaque action de l'attaché, déchiffrée ici.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Mail, Wifi, Gauge, Leaf, GraduationCap, Link2, Copy } from 'lucide-react';
 import { AttacheSante } from './AttacheSante';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, SUBMODEL_OPTIONS, PLAN_PRESETS, AttacheConfig, saveAttacheConfig, formatTokens, formatCostEur } from '../attache/modelOptions';
 import { fileToMarkdown, titreDepuisFichier, decodeText } from '@/lib/web/fileToMarkdown';
 import { skillFromArchive } from '@/lib/web/skillImport';
 import { entrySlug } from '@/lib/web/slug';
+import { diffTexte } from '@/lib/attache/diffCore.mjs';
 import { AttacheKbSection } from './AttacheKbSection';
 import { TramesFormePanel } from './TramesFormePanel';
 import { AttacheConsignesSection } from './AttacheConsignesSection';
@@ -179,6 +180,43 @@ const SIGNAL_LABELS: Record<string, string> = {
 interface MethodProp {
   id: string; type: 'trame' | 'skill'; titre: string; source?: string; creeLe?: string;
   payload: { nom: string; contenu: string; description?: string; motif?: string; existante?: boolean };
+}
+
+/**
+ * Liste des changements d'une proposition de méthode : ce que le ✓ va
+ * RÉELLEMENT modifier, ligne à ligne (vert ajouté, rouge retiré), lignes
+ * inchangées repliées. La comparaison se fait ICI, sur la version courante
+ * déchiffrée dans ce navigateur — le service ne voit rien de plus.
+ */
+function MethodPropDiff({ actuel, propose }: { actuel: string; propose: string }) {
+  const d = useMemo(() => diffTexte(actuel, propose, { budget: 20_000, contexte: 2 }) as
+    { diff: string; ajouts: number; retraits: number; tronque: boolean; identique: boolean },
+  [actuel, propose]);
+  if (d.identique) {
+    return <p className="mt-1.5 text-[11px] text-gray-500">Texte identique à la version actuelle — rien ne changerait.</p>;
+  }
+  return (
+    <details open className="mt-1.5">
+      <summary className="cursor-pointer text-[11px] font-semibold text-[#2B5746]">
+        Changements proposés — <span className="text-emerald-700">+{d.ajouts}</span> / <span className="text-red-600">−{d.retraits}</span> ligne{d.ajouts + d.retraits > 1 ? 's' : ''}
+        {d.tronque ? ' (aperçu abrégé)' : ''}
+      </summary>
+      <div className="mt-1 max-h-80 overflow-auto rounded-lg border border-gray-100 bg-gray-50 p-1.5 font-mono text-[11px] leading-relaxed">
+        {d.diff.split('\n').map((l, i) => (
+          <div
+            key={i}
+            className={
+              'whitespace-pre-wrap break-words rounded px-1 ' + (
+                l.startsWith('+ ') ? 'bg-emerald-50 text-emerald-900'
+                  : l.startsWith('- ') ? 'bg-red-50 text-red-900'
+                    : l.trimStart().startsWith('…') ? 'italic text-gray-400'
+                      : 'text-gray-500')
+            }
+          >{l || ' '}</div>
+        ))}
+      </div>
+    </details>
+  );
 }
 
 /** Une tuile de progression : valeur sur 30 j, flèche face aux 30 j précédents. */
@@ -2221,7 +2259,12 @@ export function AdminAttachePanel() {
             </span>
           </div>
           <div className="space-y-2 p-3">
-            {methodProps.map((p) => (
+            {methodProps.map((p) => {
+              // Version courante, déchiffrée dans ce navigateur : c'est elle qui
+              // sert de référence au diff (null = méthode inconnue ici).
+              const courante = (p.type === 'trame' ? trames : skills).find((x) => x.nom === p.payload.nom) ?? null;
+              const lignesProposees = (p.payload.contenu || '').split('\n').length;
+              return (
               <div key={p.id} className="rounded-lg border border-gray-200 bg-white p-2.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">{p.type}</span>
@@ -2246,16 +2289,30 @@ export function AdminAttachePanel() {
                   </span>
                 </div>
                 {p.payload.motif && (
-                  <p className="mt-1.5 text-[11.5px] leading-relaxed text-gray-600"><b>Pourquoi :</b> {p.payload.motif}</p>
+                  <p className="mt-1.5 whitespace-pre-line text-[11.5px] leading-relaxed text-gray-600"><b>Pourquoi :</b> {p.payload.motif}</p>
                 )}
                 {p.source && <p className="mt-0.5 text-[10.5px] text-gray-400">Source : {p.source}</p>}
+                {p.payload.description && p.payload.description !== (courante?.description || '') && (
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-gray-600">
+                    <b>Description {courante?.description ? 'remplacée' : 'ajoutée'} :</b> {p.payload.description}
+                  </p>
+                )}
+                {courante
+                  ? <MethodPropDiff actuel={courante.contenu || ''} propose={p.payload.contenu || ''} />
+                  : (
+                    <p className="mt-1.5 text-[11px] text-gray-500">
+                      {p.payload.existante
+                        ? `Version actuelle de cette ${p.type} introuvable dans cette bibliothèque — liste des changements impossible à établir : relisez le texte proposé.`
+                        : `Nouvelle ${p.type} (${lignesProposees} ligne${lignesProposees > 1 ? 's' : ''}) — rien n'est remplacé.`}
+                    </p>
+                  )}
                 <details className="mt-1.5">
-                  <summary className="cursor-pointer text-[11px] font-semibold text-[#2B5746]">Voir le texte proposé ({(p.payload.contenu || '').length.toLocaleString('fr-FR')} caractères)</summary>
-                  {p.payload.description && <p className="mt-1 text-[11px] text-gray-500">Description : {p.payload.description}</p>}
+                  <summary className="cursor-pointer text-[11px] font-semibold text-[#2B5746]">Voir le texte proposé en entier ({(p.payload.contenu || '').length.toLocaleString('fr-FR')} caractères)</summary>
                   <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-2.5 font-mono text-[11px] leading-relaxed text-gray-700">{p.payload.contenu}</pre>
                 </details>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
