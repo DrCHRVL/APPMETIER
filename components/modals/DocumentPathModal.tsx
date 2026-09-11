@@ -185,6 +185,16 @@ export const DocumentPathModal = ({
                 </div>
               )}
 
+              {pathStatus === 'invalid' && errorMessage && (
+                <div className="flex items-start gap-2 text-red-800 bg-red-50 border border-red-300 rounded-md px-3 py-2">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  <span className="text-xs">
+                    {errorMessage}. Cliquez sur « Choisir un autre dossier » pour re-sélectionner et
+                    ré-autoriser l'accès.
+                  </span>
+                </div>
+              )}
+
               <Button
                 type="button"
                 variant="outline"
