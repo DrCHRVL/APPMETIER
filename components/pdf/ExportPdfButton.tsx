@@ -57,7 +57,8 @@ export const ExportPdfButton = ({
             )
           );
       const directResults = Object.values(resultats)
-        .filter(r => r.isDirectResult && new Date(r.dateAudience).getFullYear() === selectedYear);
+        .filter(r => r.isDirectResult && r.isAudiencePending !== true
+          && new Date(r.dateAudience).getFullYear() === selectedYear);
 
       // --- Calcul des données pour le PDF ---
 
@@ -71,6 +72,8 @@ export const ExportPdfButton = ({
         if (e.statut !== 'archive') return false;
         const audienceResult = Object.values(resultats).find(r => r.enqueteId === e.id);
         if (!audienceResult?.dateAudience) return false;
+        // Audience fixée mais pas encore tenue : rien n'a été jugé (cf. proceduresTerminees).
+        if (audienceResult.isAudiencePending === true) return false;
         return new Date(audienceResult.dateAudience).getFullYear() === selectedYear;
       });
 

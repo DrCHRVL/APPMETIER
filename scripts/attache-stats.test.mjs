@@ -75,6 +75,12 @@ const enquetes = [
     ecoutes: [], geolocalisations: [],
   },
   {
+    id: 7, numero: '85110/700/2025 - AUDIENCE FIXEE', dateCreation: '2025-10-01', dateDebut: '2025-10-01',
+    statut: 'archive', description: 'Archivé avec une audience fixée, pas encore tenue',
+    tags: [], infractionNatinfCodes: [], misEnCause: [], actes: [], comptesRendus: [], notes: '',
+    ecoutes: [], geolocalisations: [],
+  },
+  {
     id: 6, numero: '85108/600/2025 - VIEUX', dateCreation: '2025-06-01', dateDebut: '2025-06-01',
     statut: 'archive', description: 'Dossier 2025 jugé en 2025 (hors période)',
     tags: [], infractionNatinfCodes: ['7995'], misEnCause: [], actes: [], comptesRendus: [], notes: '',
@@ -114,6 +120,14 @@ const audienceResultats = {
     condamnations: [{ nom: 'Z', peinePrison: 10, sursisProbatoire: 0, sursisSimple: 0, peineAmende: 0, interdictionParaitre: false, interdictionGerer: false, typeAudience: 'CI', defere: true }],
     confiscations: { vehicules: [], immeubles: [], numeraire: 2000, saisiesBancaires: [], cryptomonnaies: [], objetsMobiliers: [] },
     infractionNatinfCodes: ['7995'],
+  },
+  // Audience FIXÉE au 15 avril 2026 mais PAS ENCORE TENUE : le dossier est
+  // archivé et daté, mais rien n'a été jugé — il ne doit compter ni dans la
+  // carte « Total des procédures terminées » ni dans le bilan par période.
+  'crimorg__7': {
+    enqueteId: 7, contentieuxId: 'crimorg', dateAudience: '2026-04-15', modifiedAt: '2026-03-01T10:00:00Z',
+    isAudiencePending: true, condamnations: [],
+    confiscations: { vehicules: [], immeubles: [], numeraire: 0, saisiesBancaires: [], cryptomonnaies: [], objetsMobiliers: [] },
   },
   // procédure directe (permanence) jugée dans la période
   'crimorg__direct-1': {
@@ -222,9 +236,15 @@ attendu('pas d\'erreur synthese', !syn.result.isError, syn.result.isError ? syn.
 
 // terminées : enquêtes 1 (20/02) + 2 (12/05) + directe (18/03) = 3 hors classements/OI ; l'OI (dossier 4) est listée mais hors total
 attendu('terminées total = 3', bilan.proceduresTerminees.total === 3, `obtenu ${bilan.proceduresTerminees.total}`)
-attendu('liste terminées = 4 (avec OI)', bilan.proceduresTerminees.liste.length === 4, `obtenu ${bilan.proceduresTerminees.liste.length}`)
+// La LISTE du bilan est exhaustive (OI, classements et audiences en attente y
+// figurent, signalés) ; seul le TOTAL applique les exclusions.
+attendu('liste terminées = 5 (avec OI et audience en attente)', bilan.proceduresTerminees.liste.length === 5, `obtenu ${bilan.proceduresTerminees.liste.length}`)
 attendu('OI listée et marquée', bilan.proceduresTerminees.liste.some((t) => t.orientation === "ouverture d'information" && t.classementOuOI === true))
 attendu('dossier 2025 exclu', !bilan.proceduresTerminees.liste.some((t) => String(t.numero || '').includes('VIEUX')))
+// Une audience fixée mais pas encore tenue n'est pas une procédure terminée.
+attendu('bilan : audience fixée non tenue exclue du total', bilan.proceduresTerminees.total === 3
+  && !bilan.proceduresTerminees.liste.some((t) => String(t.numero || '').includes('AUDIENCE FIXEE') && !t.classementOuOI && t.orientation !== "en attente d'audience"),
+  `total ${bilan.proceduresTerminees.total}`)
 attendu('terminées par mois : févr=1 mai=1 mars=1', bilan.proceduresTerminees.parMois['2026-02'] === 1 && bilan.proceduresTerminees.parMois['2026-05'] === 1 && bilan.proceduresTerminees.parMois['2026-03'] === 1, JSON.stringify(bilan.proceduresTerminees.parMois))
 
 // défèrements : 2 (janv, dossier 1) + 2 (mai, dossier 2 — dont la relaxée) + 1 (mars, directe) = 5 ;
@@ -289,6 +309,13 @@ attendu('bilan par période : même provenance', bilan.sources?.resultatsAudienc
 
 // Mêmes chiffres que l'écran : 3 procédures terminées en 2026 (dont 1 OI listée à part)
 attendu('carte « Total des procédures terminées » = 3', generales['Total des procédures terminées'].valeur === 3, JSON.stringify(generales['Total des procédures terminées'].valeur))
+// MÊME RÈGLE À L'ÉCRAN que dans le bilan : sans quoi la carte compte des
+// audiences à venir et son total dépasse sa propre ventilation mensuelle.
+attendu('carte : audience fixée non tenue exclue', !generales['Total des procédures terminées'].detail.dossiers.some((d) => String(d).includes('AUDIENCE FIXEE')),
+  JSON.stringify(generales['Total des procédures terminées'].detail.dossiers))
+attendu('carte : le total égale la somme de sa ventilation mensuelle',
+  generales['Total des procédures terminées'].valeur === generales['Total des procédures terminées'].detail.parMois.reduce((n, m) => n + m.valeur, 0),
+  `total ${generales['Total des procédures terminées'].valeur} vs mensuel ${generales['Total des procédures terminées'].detail.parMois.reduce((n, m) => n + m.valeur, 0)}`)
 attendu('dont 1 OI et 0 classement', generales['Total des procédures terminées'].detail.dontOuverturesInformation === 1
   && generales['Total des procédures terminées'].detail.dontClassementsSansSuite === 0, JSON.stringify(generales['Total des procédures terminées'].detail))
 // 5 défèrements, dont celui de la personne relaxée : être relaxé n'annule pas
