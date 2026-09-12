@@ -25,7 +25,7 @@ let dbPromise: Promise<IDBDatabase> | null = null
 
 function openDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise
-  dbPromise = new Promise((resolve, reject) => {
+  const p = new Promise<IDBDatabase>((resolve, reject) => {
     // IndexedDB peut être absent (navigation privée durcie, contextes non
     // navigateur) : échouer clairement plutôt que sur un ReferenceError opaque.
     if (typeof indexedDB === 'undefined') {
@@ -47,7 +47,12 @@ function openDb(): Promise<IDBDatabase> {
     // montée de version reste bloquée et la promesse ne se résout jamais.
     req.onblocked = () => reject(new Error('IndexedDB bloqué : fermez les autres onglets SIRAL'))
   })
-  return dbPromise
+  // Un échec d'ouverture (indisponible, onerror, onblocked) ne doit pas rester en
+  // cache : sinon toute lecture/écriture ultérieure rejette jusqu'au rechargement
+  // de la page. On oublie la promesse rejetée pour que le prochain appel retente.
+  p.catch(() => { if (dbPromise === p) dbPromise = null })
+  dbPromise = p
+  return p
 }
 
 function tx<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest): Promise<T> {
