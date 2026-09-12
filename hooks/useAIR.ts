@@ -86,6 +86,21 @@ export const useAIR = () => {
   }, [username, showToast]);
 
   useEffect(() => {
+    // Un changement d'utilisateur en place (ré-auth, poste partagé) peut survenir
+    // dans la fenêtre de debounce d'une édition : on flushe l'écriture en attente
+    // vers l'ANCIENNE clé avant de basculer, sinon la dernière édition de A est
+    // perdue (ni écrite localement, ni poussée). Même garde-fou que useInstructions.
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = undefined;
+      const prevKey = storageKeyRef.current;
+      if (prevKey && !isLoadingRef.current) {
+        const shouldPush = pushDirtyRef.current;
+        SiralBridge.setData(prevKey, mesuresRef.current)
+          .then(() => { if (shouldPush) airSyncService.schedulePush(); })
+          .catch(e => console.error("useAIR: flush avant changement d'utilisateur échoué", e));
+      }
+    }
     storageKeyRef.current = buildStorageKey(username);
     // Un (re)chargement n'est pas une action utilisateur : pas de push réseau.
     pushDirtyRef.current = false;

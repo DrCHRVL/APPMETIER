@@ -22,7 +22,7 @@ import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
 import { useInfractionFilter } from '@/hooks/useInfractionFilter';
 import { useDocumentSearch } from '@/hooks/useDocumentSearch';
-import { CompteRendu, Enquete, NewEnqueteData, Tag, ToDoItem } from '@/types/interfaces';
+import { CompteRendu, Enquete, NewEnqueteData, ProlongationHistoryEntry, Tag, ToDoItem } from '@/types/interfaces';
 import { StorageManager } from '@/utils/storage';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ToastProvider, useToast } from '@/contexts/ToastContext';
@@ -2556,38 +2556,45 @@ return (
               setShowProlongationValidationModal(false);
               setSelectedActe(null);
             }}
-            onValidate={(date, duration) => {
+            onValidate={(date, duration, dureeUnit) => {
               try {
                 if (selectedActe && selectedActe.enqueteId) {
                   const enquete = enquetes.find(e => e.id === selectedActe.enqueteId);
                   if (enquete) {
-                    const acteArray = enquete[selectedActe.type === 'acte' ? 'actes' : 
-                                           selectedActe.type === 'ecoute' ? 'ecoutes' : 
+                    const acteArray = enquete[selectedActe.type === 'acte' ? 'actes' :
+                                           selectedActe.type === 'ecoute' ? 'ecoutes' :
                                            'geolocalisations'];
-                    
+
                     const acte = acteArray?.find(a => a.id === selectedActe.id);
                     if (!acte) {
                       throw new Error('Acte non trouvé');
                     }
 
-                    const nouvelleDuree = (parseInt(acte.duree) + parseInt(duration)).toString();
-                    // Utiliser dateFin actuelle comme base (intègre les prolongations précédentes)
-                    const currentEndDate = acte.dateFin || DateUtils.calculateActeEndDate(acte.datePose || acte.dateDebut, acte.duree);
-                    const dateFinCalculee = DateUtils.addCalendarMonths(currentEndDate, parseInt(duration));
+                    // Prolongation dans l'unité réelle de l'acte (jours ou mois) et non
+                    // toujours en mois : on délègue au calcul unifié qui rejoue la chaîne
+                    // complète depuis la pose, comme les vues détaillées (ActeSection…).
+                    const pUnit = dureeUnit || acte.dureeUnit || 'jours';
+                    const dureeInitiale = acte.prolongationsHistory?.[0]?.dureeInitiale || acte.duree;
+                    const newHistoryEntry: ProlongationHistoryEntry = {
+                      date,
+                      dureeAjoutee: duration,
+                      dureeInitiale,
+                      dureeUnit: pUnit,
+                      dureeInitialeUnit: acte.dureeUnit || 'jours'
+                    };
+                    const updatedHistory = [...(acte.prolongationsHistory || []), newHistoryEntry];
 
                     handleUpdateEnquete(enquete.id, {
-                      [selectedActe.type === 'acte' ? 'actes' : 
-                       selectedActe.type === 'ecoute' ? 'ecoutes' : 
-                       'geolocalisations']: acteArray?.map(a => 
-                        a.id === selectedActe.id ? { 
-                          ...a, 
-                          statut: 'en_cours',
+                      [selectedActe.type === 'acte' ? 'actes' :
+                       selectedActe.type === 'ecoute' ? 'ecoutes' :
+                       'geolocalisations']: acteArray?.map(a =>
+                        a.id === selectedActe.id ? {
+                          ...a,
+                          ...ActeUtils.calculateProlongation(acte, date, duration, pUnit, updatedHistory.map(e => ({ dureeAjoutee: e.dureeAjoutee, dureeUnit: e.dureeUnit }))),
                           prolongationDate: date,
                           dateValidationProlongation: date,
                           dureeProlongation: duration,
-                          dureeInitiale: a.duree,
-                          duree: nouvelleDuree,
-                          dateFin: dateFinCalculee
+                          prolongationsHistory: updatedHistory
                         } : a
                       )
                     });
@@ -2629,6 +2636,20 @@ return (
                 selectedActe.type === 'ecoute' ? 'ecoutes' :
                 'geolocalisations'
               ]?.find(a => a.id === selectedActe.id)?.dateFin) || undefined
+            }
+            originalDureeUnit={
+              (selectedActe && selectedActe.enqueteId && enquetes.find(e => e.id === selectedActe.enqueteId)?.[
+                selectedActe.type === 'acte' ? 'actes' :
+                selectedActe.type === 'ecoute' ? 'ecoutes' :
+                'geolocalisations'
+              ]?.find(a => a.id === selectedActe.id)?.dureeUnit) || 'jours'
+            }
+            prolongationDureeUnit={
+              (selectedActe && selectedActe.enqueteId && enquetes.find(e => e.id === selectedActe.enqueteId)?.[
+                selectedActe.type === 'acte' ? 'actes' :
+                selectedActe.type === 'ecoute' ? 'ecoutes' :
+                'geolocalisations'
+              ]?.find(a => a.id === selectedActe.id)?.dureeUnit) || 'jours'
             }
           />
         </>
