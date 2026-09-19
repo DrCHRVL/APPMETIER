@@ -239,6 +239,7 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
           if (!line) continue;
           let ev: any;
           try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+          if (!ev || typeof ev !== 'object') continue; // ex. `data: null` → ne pas déréférencer
           if (ev.type === 'delta' && ev.text) {
             setMessages((prev) => {
               const next = [...prev];

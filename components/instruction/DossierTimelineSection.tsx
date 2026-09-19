@@ -203,7 +203,7 @@ export const DossierTimelineSection: React.FC<Props> = ({
     return d;
   }, []);
 
-  const evenements = dossier.evenements || [];
+  const evenements = useMemo(() => dossier.evenements || [], [dossier.evenements]);
 
   const derivedEvents = useMemo<DerivedEvt[]>(() => {
     const list: DerivedEvt[] = [];

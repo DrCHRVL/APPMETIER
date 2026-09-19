@@ -5,7 +5,7 @@ import { Badge } from '../ui/badge';
 import {
   FileText,
   File,
-  Image,
+  Image as ImageIcon,
   Trash2,
   FolderOpen,
   Settings,
@@ -497,7 +497,7 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
       case 'doc':
       case 'docx':  return <FileText className={`${size} text-blue-500`} />;
       case 'odt':   return <FileText className={`${size} text-green-500`} />;
-      case 'image': return <Image    className={`${size} text-purple-500`} />;
+      case 'image': return <ImageIcon className={`${size} text-purple-500`} />;
       case 'html':  return <FileCode className={`${size} text-orange-500`} />;
       case 'msg':   return <Mail     className={`${size} text-blue-600`} />;
       case 'txt':   return <File     className={`${size} text-gray-500`} />;

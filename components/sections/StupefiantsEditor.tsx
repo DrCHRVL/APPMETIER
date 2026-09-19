@@ -49,7 +49,7 @@ export const StupefiantsEditor = ({ value, onChange, compact = false }: Stupefia
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const produits: ProduitStupefiantSaisi[] = value?.produits || [];
+  const produits: ProduitStupefiantSaisi[] = useMemo(() => value?.produits || [], [value?.produits]);
   const codesRetenus = useMemo(() => produits.map((p) => p.code), [produits]);
 
   // Résultats regroupés par famille : le tri de pertinence est conservé à

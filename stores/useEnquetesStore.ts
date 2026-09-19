@@ -93,8 +93,17 @@ let _isDirty = false;
 
 const _saveThrottled = throttle(async () => {
   if (!_isDirty || useEnquetesStore.getState().isLoading) return;
+  const key = storageKey(_contentieuxRef);
+  // Ne jamais écrire par-dessus une donnée qu'on n'a pas pu lire : si la
+  // dernière lecture de cette clé a échoué, _enquetesRef ne reflète pas le
+  // disque et le sauvegarder éroderait les enquêtes existantes. Le drapeau se
+  // lève dès qu'une lecture aboutit à nouveau.
+  if (SiralBridge.didReadFail(key)) {
+    console.warn(`⚠️ EnquetesStore[${_contentieuxRef}]: sauvegarde différée — dernière lecture en échec`);
+    return;
+  }
   try {
-    await SiralBridge.setData(storageKey(_contentieuxRef), _enquetesRef);
+    await SiralBridge.setData(key, _enquetesRef);
     _isDirty = false;
     useEnquetesStore.setState({ _isDataDirty: false });
     MultiSyncManager.getInstance().triggerPostSaveSync(_contentieuxRef);
@@ -455,6 +464,16 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     try {
       const key = storageKey(contentieuxId);
       const data = await SiralBridge.getData<Enquete[]>(key, []);
+      // Lecture en échec (≠ contentieux réellement vide) : le pont a renvoyé le
+      // défaut `[]` faute d'avoir pu lire. On NE remplace PAS _enquetesRef par
+      // ce vide (qui, une fois édité, écraserait toutes les enquêtes sur
+      // disque) : on conserve l'état en mémoire et on réessaiera au prochain
+      // appel, une fois la clé de nouveau lisible.
+      if (SiralBridge.didReadFail(key)) {
+        console.warn(`⚠️ EnquetesStore[${contentieuxId}]: lecture en échec — état conservé, aucune sauvegarde`);
+        set({ isLoading: false });
+        return;
+      }
       // Normalise au passage les actes : statut des actes expirés (en_cours →
       // termine) et dateFin résiduelle des actes non posés (en attente de
       // pose/autorisation, le délai ne courant qu'à compter de la pose).
@@ -462,7 +481,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       let actesNormalized = false;
       const validData = Array.isArray(data)
         ? data
-            .filter(item => item.statut !== 'instruction')
+            .filter((item): item is Enquete => !!item && item.statut !== 'instruction')
             .map(item => {
               const migrated = migrateEnqueteDocuments(item);
               const { enquete, changed } = normalizeExpiredActeStatuses(migrated);
