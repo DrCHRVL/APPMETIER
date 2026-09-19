@@ -17,7 +17,7 @@ export const ToDoSection = React.memo(({ enquete, onUpdate, isEditing }: ToDoSec
   const [editingTodoId, setEditingTodoId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState('');
 
-  const toDos = enquete.toDos || [];
+  const toDos = useMemo(() => enquete.toDos || [], [enquete.toDos]);
   const activeTodos = useMemo(() =>
     toDos.filter(todo => todo.status === 'active'),
     [toDos]
