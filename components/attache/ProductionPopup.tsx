@@ -213,6 +213,7 @@ export function ProductionPopup({ numero, prodId, service, onClose, onChanged }:
           if (!line) continue;
           let ev: { type?: string; text?: string; name?: string; convId?: string; ok?: boolean; error?: string };
           try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+          if (!ev || typeof ev !== 'object') continue; // ex. `data: null` → ne pas déréférencer
           if (ev.type === 'delta' && ev.text) {
             setMsgs((p) => { const n = [...p]; const l = n[n.length - 1]; n[n.length - 1] = { ...l, text: (l.text || '') + ev.text }; return n; });
             scrollChat();
