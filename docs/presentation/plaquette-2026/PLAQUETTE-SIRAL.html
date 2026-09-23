@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>SIRAL — Plaquette</title>
+<style>
+@page { size: A4; margin: 0; }
+:root {
+  --ink: #151a32;
+  --ink-2: #242a4d;
+  --slate: #4a5578;
+  --slate-2: #353d5c;
+  --accent: #5b63d6;
+  --accent-2: #8585f6;
+  --accent-soft: #eceefe;
+  --paper: #f4f5f9;
+  --text: #1a2032;
+  --muted: #5b6479;
+  --line: #e2e5ee;
+  --red: #e11d48;
+  --blue: #2563eb;
+  --green: #16a34a;
+  --amber: #d97706;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  color: var(--text);
+  font-size: 9.5pt;
+  line-height: 1.45;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  font-feature-settings: "cv11", "ss01";
+}
+.page {
+  width: 210mm; height: 297mm;
+  position: relative; overflow: hidden;
+  background: var(--paper);
+  break-after: page;
+  padding: 15mm 14mm 0 14mm;
+}
+.page:last-child { break-after: auto; }
+.display { font-family: "Inter Display", "Inter", sans-serif; }
+img { display: block; }
+
+/* ─── en-têtes de section ─── */
+.kicker {
+  display: flex; align-items: center; gap: 2.4mm;
+  font-size: 7.6pt; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--accent);
+}
+.kicker .num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 6.4mm; height: 6.4mm; border-radius: 1.8mm;
+  background: var(--accent); color: #fff; letter-spacing: 0; font-size: 7.6pt;
+}
+h1.title {
+  font-family: "Inter Display", "Inter", sans-serif;
+  font-weight: 800; font-size: 29pt; line-height: 1.03; letter-spacing: -.02em;
+  margin: 4mm 0 0 0; color: var(--ink);
+}
+h1.title em { font-style: normal; color: var(--accent); }
+.lead {
+  font-size: 10.8pt; line-height: 1.5; color: #3d4660;
+  margin: 4mm 0 0 0; max-width: 168mm;
+}
+.lead b { color: var(--ink); font-weight: 650; }
+
+/* ─── cadres de captures ─── */
+.shot {
+  position: relative; background: #fff; border-radius: 2.6mm; overflow: hidden;
+  box-shadow: 0 .4mm 1.2mm rgba(20, 26, 60, .08), 0 3mm 8mm rgba(20, 26, 60, .10);
+  border: .25mm solid #dde1ec;
+}
+.shot img { width: 100%; height: auto; }
+.shot.bar { padding-top: 5.2mm; }
+.shot.bar::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 5.2mm;
+  background: #eef0f6; border-bottom: .25mm solid #dde1ec;
+}
+.shot.bar::after {
+  content: ""; position: absolute; top: 1.9mm; left: 3mm; width: 1.5mm; height: 1.5mm; border-radius: 50%;
+  background: #f87171; box-shadow: 2.5mm 0 0 #fbbf24, 5mm 0 0 #34d399;
+}
+.caption {
+  font-size: 8pt; color: var(--muted); margin-top: 2mm; line-height: 1.4;
+}
+.caption b { color: var(--text); font-weight: 650; }
+
+/* pastilles numérotées posées sur les captures */
+.pin {
+  position: absolute; transform: translate(-50%, -50%);
+  width: 6.2mm; height: 6.2mm; border-radius: 50%;
+  background: var(--accent); color: #fff; font-weight: 800; font-size: 8pt;
+  display: flex; align-items: center; justify-content: center;
+  border: .6mm solid #fff; box-shadow: 0 .6mm 1.6mm rgba(20, 26, 60, .35);
+  z-index: 3;
+}
+.pin.red { background: var(--red); }
+.pin.dark { background: var(--ink); }
+
+/* légendes numérotées */
+.legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 2.6mm; }
+.legend li { display: grid; grid-template-columns: 6.2mm 1fr; gap: 2.4mm; align-items: start; font-size: 9pt; line-height: 1.4; }
+.legend .n {
+  width: 6.2mm; height: 6.2mm; border-radius: 50%; background: var(--accent); color: #fff;
+  font-weight: 800; font-size: 8pt; display: flex; align-items: center; justify-content: center;
+}
+.legend b { font-weight: 650; color: var(--ink); }
+
+/* listes à puces sobres */
+.points { list-style: none; margin: 0; padding: 0; display: grid; gap: 2.2mm; }
+.points li { position: relative; padding-left: 4.6mm; font-size: 9pt; line-height: 1.42; }
+.points li::before {
+  content: ""; position: absolute; left: 0; top: 1.45mm; width: 2mm; height: 2mm; border-radius: .6mm;
+  background: var(--accent);
+}
+.points b { font-weight: 650; color: var(--ink); }
+
+.icon { width: 5mm; height: 5mm; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+
+/* pied de page */
+.foot {
+  position: absolute; left: 14mm; right: 14mm; bottom: 7mm;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 7pt; color: #8a91a6; letter-spacing: .04em;
+}
+.foot .brand { display: flex; align-items: center; gap: 1.6mm; font-weight: 700; color: #6b7390; }
+.foot .brand svg { width: 3.6mm; height: 3.6mm; }
+.dark .foot, .dark .foot .brand { color: rgba(255,255,255,.55); }
+
+/* ─── COUVERTURE ─── */
+.cover {
+  background:
+    radial-gradient(90mm 70mm at 170mm 20mm, rgba(133,133,246,.35), transparent 70%),
+    radial-gradient(120mm 90mm at 20mm 250mm, rgba(91,99,214,.25), transparent 70%),
+    linear-gradient(170deg, #262c52 0%, #171b35 55%, #10132a 100%);
+  color: #fff; padding: 16mm 15mm 0 15mm;
+}
+.cover .net { position: absolute; right: -14mm; top: -22mm; width: 118mm; opacity: .45; }
+.cover .brandline { display: flex; align-items: center; gap: 3.4mm; position: relative; }
+.cover .brandline svg { width: 13mm; height: 13mm; filter: drop-shadow(0 1.5mm 3mm rgba(0,0,0,.35)); }
+.cover .brandline .name { font-family: "Inter Display", "Inter", sans-serif; font-weight: 800; font-size: 21pt; letter-spacing: .02em; line-height: 1; }
+.cover .brandline .sub { font-size: 7.4pt; letter-spacing: .12em; text-transform: uppercase; color: rgba(255,255,255,.62); margin-top: 1.2mm; }
+.cover h1 {
+  font-family: "Inter Display", "Inter", sans-serif; font-weight: 800;
+  font-size: 45pt; line-height: .98; letter-spacing: -.025em; margin: 21mm 0 0 0; position: relative;
+}
+.cover h1 span { display: block; }
+.cover h1 .l2 { color: #a9acff; }
+.cover .pitch { position: relative; font-size: 11.6pt; line-height: 1.5; color: rgba(255,255,255,.80); margin-top: 6mm; max-width: 150mm; }
+.cover .pitch b { color: #fff; font-weight: 650; }
+.chips { display: flex; gap: 2.4mm; margin-top: 6mm; position: relative; flex-wrap: wrap; }
+.chip {
+  display: inline-flex; align-items: center; gap: 1.8mm; padding: 1.5mm 3.2mm; border-radius: 10mm;
+  background: rgba(255,255,255,.08); border: .25mm solid rgba(255,255,255,.16);
+  font-size: 8.4pt; font-weight: 600; color: rgba(255,255,255,.92);
+}
+.chip i { width: 2.2mm; height: 2.2mm; border-radius: 50%; display: inline-block; }
+.cover .hero { position: absolute; left: 15mm; top: 143mm; width: 170mm; }
+.cover .hero .shot { border: .3mm solid rgba(255,255,255,.14); box-shadow: 0 6mm 16mm rgba(0,0,0,.45); }
+.phone {
+  position: absolute; width: 41mm; right: 11mm; top: 186mm; z-index: 4;
+  border-radius: 6.5mm; padding: 1.6mm; background: #0b0d1c;
+  box-shadow: 0 5mm 12mm rgba(0,0,0,.55), inset 0 0 0 .35mm rgba(255,255,255,.18);
+}
+.phone img { width: 100%; border-radius: 5mm; }
+.cover .bottom {
+  position: absolute; left: 15mm; right: 15mm; bottom: 9mm;
+  display: flex; justify-content: space-between; align-items: flex-end;
+  font-size: 7.6pt; color: rgba(255,255,255,.62); letter-spacing: .03em;
+}
+.cover .bottom b { color: #fff; font-weight: 650; }
+
+/* ─── PAGE 2 : modules ─── */
+.modules { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4mm; margin-top: 8mm; }
+.mod { position: relative; background: #fff; border: .25mm solid var(--line); border-radius: 2.6mm; overflow: hidden; box-shadow: 0 1mm 3mm rgba(20,26,60,.05); }
+.mod .thumb { display: block; width: 100%; height: 38mm; object-fit: cover; object-position: center top; border-bottom: .25mm solid var(--line); }
+.mod .body { padding: 2.6mm 3mm 3mm 3mm; }
+.mod h3 { display: flex; align-items: center; gap: 1.6mm; margin: 0; font-size: 10pt; font-weight: 700; color: var(--ink); }
+.mod h3 .icon { width: 4mm; height: 4mm; color: var(--accent); }
+.mod p { margin: 1.2mm 0 0 0; font-size: 8.2pt; line-height: 1.38; color: var(--muted); }
+.mod.hl { border-color: #c9ccf6; box-shadow: 0 0 0 .5mm #dfe1fb, 0 1mm 3mm rgba(20,26,60,.05); }
+.mod .tag { position: absolute; top: 2mm; right: 2mm; font-size: 6.8pt; font-weight: 700; letter-spacing: .04em; color: #fff; background: var(--accent); padding: .5mm 1.8mm; border-radius: 1.2mm; white-space: nowrap; box-shadow: 0 .6mm 1.6mm rgba(20,26,60,.25); }
+
+.roles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4mm; margin-top: 3.5mm; }
+.role { padding: 3.2mm 3.2mm; border-radius: 2.6mm; background: #fff; border: .25mm solid var(--line); }
+.role h4 { margin: 0; font-size: 9.2pt; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 1.6mm; }
+.role h4 .icon { width: 4mm; height: 4mm; color: var(--accent); }
+.role p { margin: 1.2mm 0 0 0; font-size: 8.2pt; color: var(--muted); line-height: 1.38; }
+.subhead { font-size: 8pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-top: 8mm; }
+
+.facts {
+  position: absolute; left: 14mm; right: 14mm; bottom: 15mm;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border-radius: 3mm; overflow: hidden;
+  background: linear-gradient(120deg, #262c52, #1a1f3d);
+}
+.fact { padding: 5mm 5mm; color: #fff; border-right: .25mm solid rgba(255,255,255,.1); }
+.fact:last-child { border-right: none; }
+.fact .big { font-family: "Inter Display", "Inter", sans-serif; font-weight: 800; font-size: 17pt; letter-spacing: -.01em; line-height: 1.05; }
+.fact .small { font-size: 8.2pt; color: rgba(255,255,255,.7); margin-top: 1.4mm; line-height: 1.38; }
+
+/* ─── mise en page générique ─── */
+.row { display: flex; gap: 6mm; }
+.col { flex: 1; min-width: 0; }
+.mt3 { margin-top: 3mm; } .mt4 { margin-top: 4mm; } .mt5 { margin-top: 5mm; } .mt6 { margin-top: 6mm; } .mt7 { margin-top: 7mm; } .mt8 { margin-top: 8mm; }
+.card { background: #fff; border: .25mm solid var(--line); border-radius: 2.6mm; padding: 4mm; }
+.card h3 { margin: 0 0 2.4mm 0; font-size: 10pt; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 1.8mm; }
+.card h3 .icon { width: 4.2mm; height: 4.2mm; color: var(--accent); }
+.fade { position: relative; }
+.fade::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 12mm; background: linear-gradient(rgba(255,255,255,0), #fff); }
+
+/* ─── page sombre (cartographie) ─── */
+.dark { background: linear-gradient(175deg, #20264a 0%, #151935 60%, #0f1228 100%); color: #fff; }
+.dark h1.title { color: #fff; }
+.dark h1.title em { color: #a9acff; }
+.dark .kicker { color: #a9acff; }
+.dark .kicker .num { background: #8585f6; }
+.dark .lead { color: rgba(255,255,255,.78); }
+.dark .lead b { color: #fff; }
+.dark .shot { border-color: rgba(255,255,255,.14); box-shadow: 0 6mm 16mm rgba(0,0,0,.5); }
+.dark .points li { color: rgba(255,255,255,.82); }
+.dark .points b { color: #fff; }
+.dark .points li::before { background: #8585f6; }
+.dark .caption { color: rgba(255,255,255,.6); }
+.dark .caption b { color: #fff; }
+.feat3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
+.feat { border-radius: 2.6mm; padding: 3.6mm; background: rgba(255,255,255,.06); border: .25mm solid rgba(255,255,255,.12); }
+.feat h4 { margin: 0; display: flex; align-items: center; gap: 1.8mm; font-size: 9.6pt; font-weight: 700; color: #fff; }
+.feat h4 .icon { width: 4.4mm; height: 4.4mm; color: #a9acff; }
+.feat p { margin: 1.4mm 0 0 0; font-size: 8.4pt; color: rgba(255,255,255,.72); line-height: 1.42; }
+
+/* callout étiqueté (bulle) */
+.tagpin {
+  position: absolute; z-index: 3; transform: translate(-50%, -100%);
+  background: #fff; color: var(--ink); font-size: 7.6pt; font-weight: 700; white-space: nowrap;
+  padding: 1.1mm 2.4mm; border-radius: 1.6mm; box-shadow: 0 1mm 3mm rgba(0,0,0,.35);
+}
+.tagpin::after {
+  content: ""; position: absolute; left: 50%; bottom: -1.4mm; transform: translateX(-50%) rotate(45deg);
+  width: 2.4mm; height: 2.4mm; background: #fff;
+}
+.tagpin i { font-style: normal; color: var(--accent); margin-right: 1mm; }
+.tagpin.below { transform: translate(-50%, 0); }
+.tagpin.below::after { bottom: auto; top: -1.2mm; }
+
+/* ─── Top 10 : composantes du score ─── */
+.score-list { display: grid; gap: 1.8mm; }
+.sc { display: grid; grid-template-columns: 8.6mm 1fr auto; gap: 2.6mm; align-items: center; background: #fff; border: .25mm solid var(--line); border-radius: 2.4mm; padding: 1.9mm 3mm; }
+.sc .ic { width: 8.6mm; height: 8.6mm; border-radius: 2.2mm; background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; }
+.sc .ic .icon { width: 4.6mm; height: 4.6mm; }
+.sc h4 { margin: 0; font-size: 9.3pt; font-weight: 700; color: var(--ink); }
+.sc p { margin: .5mm 0 0 0; font-size: 8.2pt; color: var(--muted); line-height: 1.35; }
+.sc .w { font-size: 7.6pt; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 1.2mm; padding: .6mm 1.6mm; white-space: nowrap; }
+
+.usecase { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+.uc { border-left: .8mm solid var(--accent); background: #fff; border-radius: 0 2.4mm 2.4mm 0; padding: 3.2mm 3.6mm; }
+.uc h4 { margin: 0; font-size: 9.2pt; font-weight: 700; color: var(--ink); }
+.uc p { margin: 1mm 0 0 0; font-size: 8.4pt; color: var(--muted); line-height: 1.4; }
+
+/* ─── sécurité (dernière page) ─── */
+.secu {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 78mm;
+  background: linear-gradient(120deg, #262c52, #151935); color: #fff; padding: 8mm 14mm 0 14mm;
+}
+.secu h2 { margin: 0; font-family: "Inter Display", "Inter", sans-serif; font-weight: 800; font-size: 17pt; letter-spacing: -.01em; }
+.secu .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4mm; margin-top: 5mm; }
+.secu .it .ic { width: 9mm; height: 9mm; border-radius: 2.4mm; background: rgba(133,133,246,.18); color: #b9bbff; display: flex; align-items: center; justify-content: center; }
+.secu .it .ic .icon { width: 4.8mm; height: 4.8mm; }
+.secu .it h4 { margin: 2.4mm 0 0 0; font-size: 9.2pt; font-weight: 700; }
+.secu .it p { margin: 1mm 0 0 0; font-size: 8.2pt; color: rgba(255,255,255,.7); line-height: 1.4; }
+.secu .contact {
+  position: absolute; left: 14mm; right: 14mm; bottom: 8mm; display: flex; justify-content: space-between; align-items: flex-end;
+  border-top: .25mm solid rgba(255,255,255,.14); padding-top: 4mm; font-size: 8pt; color: rgba(255,255,255,.7);
+}
+.secu .contact .who { display: flex; align-items: center; gap: 3mm; }
+.secu .contact .who svg { width: 9mm; height: 9mm; }
+.secu .contact .who b { display: block; color: #fff; font-size: 10.5pt; font-family: "Inter Display", "Inter", sans-serif; font-weight: 800; letter-spacing: .02em; }
+</style>
+</head>
+<body>
+
+<!-- Symboles réutilisés -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8585f6"/><stop offset="1" stop-color="#5b63d6"/></linearGradient>
+    <symbol id="logo" viewBox="0 0 48 48">
+      <rect x="0" y="0" width="48" height="48" rx="11" fill="url(#lg)"/>
+      <g stroke="#fff" stroke-width="2.1" stroke-linecap="round" fill="none" opacity=".92"><path d="M31 13 L17 19 L30 27 L17 34"/></g>
+      <g fill="#fff"><circle cx="31" cy="13" r="3.1"/><circle cx="17" cy="19" r="2.5"/><circle cx="30" cy="27" r="2.5"/><circle cx="17" cy="34" r="3.1"/></g>
+    </symbol>
+    <symbol id="i-dash" viewBox="0 0 24 24"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></symbol>
+    <symbol id="i-radio" viewBox="0 0 24 24"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></symbol>
+    <symbol id="i-scale" viewBox="0 0 24 24"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+    <symbol id="i-network" viewBox="0 0 24 24"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+    <symbol id="i-gavel" viewBox="0 0 24 24"><path d="m14.5 12.5-8 8a2.119 2.119 0 1 1-3-3l8-8"/><path d="m16 16 6-6"/><path d="m8 8 6-6"/><path d="m9 7 8 8"/><path d="m21 11-8-8"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+    <symbol id="i-crown" viewBox="0 0 24 24"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="2" x2="6" y1="14" y2="14"/><line x1="10" x2="14" y1="8" y2="8"/><line x1="18" x2="22" y1="16" y2="16"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  </defs>
+</svg>
+
+<!-- ═══════════════════════ 1. COUVERTURE ═══════════════════════ -->
+<section class="page cover">
+  <svg class="net" viewBox="0 0 400 300" aria-hidden="true">
+    <g stroke="rgba(185,187,255,.28)" stroke-width="1" fill="none">
+      <path d="M40 60 L120 40 L200 90 L290 50 L360 110 L300 170 L200 150 L130 200 L60 150 L40 60"/>
+      <path d="M120 40 L130 200 M200 90 L200 150 M290 50 L300 170 M60 150 L200 90 L360 110 M130 200 L220 250 L300 170 M220 250 L340 240 L360 110"/>
+    </g>
+    <g>
+      <circle cx="40" cy="60" r="5" fill="#8585f6"/><circle cx="120" cy="40" r="7" fill="#e11d48"/>
+      <circle cx="200" cy="90" r="10" fill="#e11d48"/><circle cx="290" cy="50" r="5" fill="#b9bbff"/>
+      <circle cx="360" cy="110" r="8" fill="#2563eb"/><circle cx="300" cy="170" r="11" fill="#2563eb"/>
+      <circle cx="200" cy="150" r="6" fill="#b9bbff"/><circle cx="130" cy="200" r="5" fill="#8585f6"/>
+      <circle cx="60" cy="150" r="4" fill="#b9bbff"/><circle cx="220" cy="250" r="6" fill="#8585f6"/>
+      <circle cx="340" cy="240" r="4" fill="#b9bbff"/>
+    </g>
+  </svg>
+
+  <div class="brandline">
+    <svg><use href="#logo"/></svg>
+    <div>
+      <div class="name">SIRAL</div>
+      <div class="sub">Suivi intégré des réseaux criminels et affaires liées</div>
+    </div>
+  </div>
+
+  <h1><span>Suivre les réseaux.</span><span class="l2">Tenir les délais.</span></h1>
+
+  <p class="pitch">L’application du parquet spécialisé&nbsp;: enquêtes et techniques spéciales, informations judiciaires, mesures AIR et statistiques. Avec la <b>cartographie des réseaux</b> et le <b>Top 10 des cibles</b>.</p>
+
+  <div class="chips">
+    <span class="chip"><i style="background:#ef4444"></i>Criminalité organisée</span>
+    <span class="chip"><i style="background:#3b82f6"></i>Économique et financier</span>
+    <span class="chip"><i style="background:#22c55e"></i>Environnement</span>
+  </div>
+
+  <div class="hero">
+    <div class="shot bar"><img src="img/dashboard.jpg" alt="Tableau de bord SIRAL"></div>
+  </div>
+  <div class="phone"><img src="img/mobile.jpg" alt="SIRAL sur iPhone"></div>
+
+  <div class="bottom">
+    <div><b>Parquet d’Amiens</b> · application métier · PC, Mac et iPhone</div>
+    <div>Captures réalisées sur des données fictives</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ 2. VUE D'ENSEMBLE ═══════════════════════ -->
+<section class="page">
+  <div class="kicker"><span class="num">1</span>Vue d’ensemble</div>
+  <h1 class="title">Un seul écran<br><em>pour tout le service.</em></h1>
+  <p class="lead">À l’ouverture, SIRAL vous montre ce qui presse dans votre contentieux&nbsp;: les OP des six prochaines semaines, les actes qui expirent, les demandes en attente devant le JLD.</p>
+
+  <div class="modules">
+    <div class="mod">
+      <img class="thumb" src="img/thumb-dashboard.jpg" alt="">
+      <div class="body"><h3><svg class="icon"><use href="#i-dash"/></svg>Tableau de bord</h3><p>Indicateurs, OP à venir et échéances de chaque contentieux.</p></div>
+    </div>
+    <div class="mod hl">
+      <img class="thumb" src="img/thumb-tse.jpg" alt="">
+      <div class="body"><span class="tag">p. 3</span><h3><svg class="icon"><use href="#i-radio"/></svg>Enquêtes et TSE</h3><p>Écoutes, balises, sonorisations&nbsp;: jours restants affichés.</p></div>
+    </div>
+    <div class="mod hl">
+      <img class="thumb" src="img/thumb-carto.jpg" alt="">
+      <div class="body"><span class="tag">p. 4</span><h3><svg class="icon"><use href="#i-network"/></svg>Cartographie</h3><p>Personnes et dossiers reliés sur une même carte.</p></div>
+    </div>
+    <div class="mod hl">
+      <img class="thumb" src="img/thumb-top10.jpg" alt="">
+      <div class="body"><span class="tag">p. 5</span><h3><svg class="icon"><use href="#i-trophy"/></svg>Top 10</h3><p>Les mis en cause classés par score, tous contentieux.</p></div>
+    </div>
+    <div class="mod hl">
+      <img class="thumb" src="img/thumb-instr.jpg" alt="">
+      <div class="body"><span class="tag">p. 6</span><h3><svg class="icon"><use href="#i-scale"/></svg>Instruction</h3><p>DP, DML, débats JLD et OP du juge, cabinet par cabinet.</p></div>
+    </div>
+    <div class="mod hl">
+      <img class="thumb" src="img/thumb-air.jpg" alt="">
+      <div class="body"><span class="tag">p. 7</span><h3><svg class="icon"><use href="#i-activity"/></svg>Suivi AIR</h3><p>Mesures, résultats et charge de chaque référent.</p></div>
+    </div>
+    <div class="mod">
+      <img class="thumb" src="img/thumb-stats.jpg" alt="">
+      <div class="body"><span class="tag">p. 8</span><h3><svg class="icon"><use href="#i-chart"/></svg>Statistiques</h3><p>Le bilan de l’année, exportable en PDF.</p></div>
+    </div>
+    <div class="mod">
+      <img class="thumb" src="img/thumb-supervision.jpg" alt="">
+      <div class="body"><h3><svg class="icon"><use href="#i-target"/></svg>Supervision</h3><p>Dossiers épinglés et personnes communes à deux contentieux.</p></div>
+    </div>
+  </div>
+
+  <div class="subhead">Un accès par métier</div>
+  <div class="roles">
+    <div class="role"><h4><svg class="icon"><use href="#i-folder"/></svg>Magistrat</h4><p>Ses enquêtes, ses délais, ses réquisitions à rédiger.</p></div>
+    <div class="role"><h4><svg class="icon"><use href="#i-target"/></svg>Hiérarchie</h4><p>Les dossiers sensibles et les OP de tout le parquet.</p></div>
+    <div class="role"><h4><svg class="icon"><use href="#i-users"/></svg>Juriste assistant</h4><p>Saisie et suivi. Vous masquez les dossiers sensibles.</p></div>
+    <div class="role"><h4><svg class="icon"><use href="#i-gavel"/></svg>JLD</h4><p>Les demandes en attente et les échéances, sans accès aux enquêtes.</p></div>
+  </div>
+
+  <div class="facts">
+    <div class="fact"><div class="big">3 contentieux</div><div class="small">Criminalité organisée, économique et financier, environnement. Co-saisine possible.</div></div>
+    <div class="fact"><div class="big">PC et iPhone</div><div class="small">L’application s’installe depuis le navigateur. Un poste préparé travaille hors ligne.</div></div>
+    <div class="fact"><div class="big">Chiffré</div><div class="small">De bout en bout. Le serveur ne stocke que des données illisibles.</div></div>
+  </div>
+
+  <div class="foot"><div class="brand"><svg><use href="#logo"/></svg>SIRAL</div><div>02</div></div>
+</section>
+
+<!-- ═══════════════════════ 3. ENQUÊTES & TSE ═══════════════════════ -->
+<section class="page">
+  <div class="kicker"><span class="num">2</span>Enquêtes et techniques spéciales</div>
+  <h1 class="title">Chaque mesure a son<br><em>compte à rebours.</em></h1>
+  <p class="lead">Écoute, géolocalisation, sonorisation, captation, IMSI-catcher, infiltration&nbsp;: SIRAL tient la date d’autorisation, la pose, la fin de mesure et les prolongations encore permises. Vous lisez les <b>jours restants</b> sans rouvrir la procédure.</p>
+
+  <div class="row mt6">
+    <div style="width:84mm">
+      <div class="shot" style="position:relative">
+        <img src="img/tse.jpg" alt="Géolocalisations et écoutes d’une enquête">
+        <span class="pin" style="left:2.6%;top:31.5%">1</span>
+        <span class="pin" style="left:84%;top:72.2%">2</span>
+        <span class="pin" style="left:2.6%;top:54.1%">3</span>
+      </div>
+      <div class="caption">Fiche d’enquête, <b>OP HERMÈS</b>&nbsp;: balises et écoutes.</div>
+    </div>
+    <div class="col">
+      <ul class="legend">
+        <li><span class="n">1</span><span><b>Jours restants</b> et barre de progression depuis la pose.</span></li>
+        <li><span class="n">2</span><span><b>Prolongation à valider</b>&nbsp;: la demande part au JLD, l’acte reste visible.</span></li>
+        <li><span class="n">3</span><span><b>Actions en attente</b> regroupées en tête de rubrique.</span></li>
+      </ul>
+      <div class="shot mt5"><img src="img/attente.jpg" alt="File Attente JLD"></div>
+      <div class="caption"><b>Attente JLD</b>&nbsp;: autorisations et prolongations, avec l’ancienneté de chaque demande.</div>
+    </div>
+  </div>
+
+  <div class="shot mt6"><img src="img/echeances.jpg" alt="Échéances d’actes à sept jours"></div>
+  <div class="caption"><b>Échéances à sept jours</b> sur le tableau de bord. SIRAL signale l’échéance qui tombe un week-end.</div>
+
+  <div class="row mt5">
+    <div class="col">
+      <div class="shot"><img src="img/enquetes-row.jpg" alt="Cartes d’enquêtes"></div>
+      <div class="caption"><b>Alertes visuelles</b>&nbsp;: la carte d’une enquête rougit quand une mesure arrive à échéance ou qu’un compte rendu tarde. Vous réglez les seuils.</div>
+    </div>
+    <div style="width:58mm">
+      <ul class="points">
+        <li><b>Limites légales</b> de prolongation contrôlées par type d’acte.</li>
+        <li><b>Pose en attente</b>&nbsp;: les mesures autorisées, pas encore posées.</li>
+        <li><b>OP</b> planifiées en une ou plusieurs vagues.</li>
+        <li><b>Comptes rendus</b> datés, à-faire, mis en cause.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="foot"><div class="brand"><svg><use href="#logo"/></svg>SIRAL</div><div>03</div></div>
+</section>
+
+<!-- ═══════════════════════ 4. CARTOGRAPHIE ═══════════════════════ -->
+<section class="page dark">
+  <div class="kicker"><span class="num">3</span>Cartographie des réseaux</div>
+  <h1 class="title">Le réseau entier, <em>sur une seule carte.</em></h1>
+  <p class="lead">SIRAL place sur la carte chaque personne citée dans une enquête, une information judiciaire ou un jugement. Quand un nom revient dans deux dossiers, SIRAL trace le lien. Vous repérez les passerelles entre équipes et les têtes de réseau.</p>
+
+  <div class="shot mt6" style="position:relative">
+    <img src="img/carto.jpg" alt="Cartographie des réseaux">
+    <span class="tagpin below" style="left:46.9%;top:80.8%">Tête de réseau</span>
+    <span class="tagpin" style="left:51.3%;top:32.6%">Chef du clan rival</span>
+    <span class="tagpin below" style="left:37.2%;top:47.8%">Dossier commun</span>
+  </div>
+  <div class="caption"><b>Cartographie</b>&nbsp;: 52 personnes, 46 dossiers, 3 contentieux. Les bulles colorées marquent les camps, les étiquettes les dossiers. L’OP TITAN réunit des membres des deux camps.</div>
+
+  <div class="feat3 mt5" style="grid-template-columns:1fr 1fr">
+    <div class="feat">
+      <h4><svg class="icon"><use href="#i-link"/></svg>Noms rapprochés</h4>
+      <p>SIRAL reconnaît la même personne malgré l’ordre nom-prénom, une coquille ou une variante (Yacine, Yassine).</p>
+    </div>
+    <div class="feat">
+      <h4><svg class="icon"><use href="#i-crown"/></svg>Carte annotée</h4>
+      <p>Vous ajoutez camps, rôles, surnoms et liens de renseignement. Toute l’équipe voit la même carte.</p>
+    </div>
+  </div>
+
+  <div class="row mt5" style="align-items:flex-start">
+    <div style="width:70mm">
+      <div class="shot"><img src="img/search.jpg" alt="Recherche transverse"></div>
+      <div class="caption"><b>Recherche transverse</b>&nbsp;: un nom, et SIRAL retrouve la personne, ses enquêtes et ses informations judiciaires.</div>
+    </div>
+    <div class="col">
+      <ul class="points">
+        <li><b>Enquêtes en cours, affaires jugées et informations judiciaires</b> sur la même carte.</li>
+        <li><b>Condamnés</b> repris des résultats d’audience.</li>
+        <li><b>Filtre par contentieux</b>&nbsp;: stupéfiants seuls, ou tout le parquet.</li>
+        <li><b>Personnes communes à deux contentieux</b> signalées à la hiérarchie.</li>
+        <li><b>Double-clic</b> sur un dossier&nbsp;: la fiche s’ouvre.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="foot"><div class="brand"><svg><use href="#logo"/></svg>SIRAL</div><div>04</div></div>
+</section>
+
+<!-- ═══════════════════════ 5. TOP 10 ═══════════════════════ -->
+<section class="page">
+  <div class="kicker"><span class="num">4</span>Top 10</div>
+  <h1 class="title">Vos dix cibles prioritaires,<br><em>classées par score.</em></h1>
+  <p class="lead">SIRAL calcule un score pour chaque personne de la carte. Le Top 10 fait remonter celles qui pèsent le plus dans l’activité du service, <b>tous contentieux confondus</b>. Vous arrivez à la réunion avec les enquêteurs en sachant qui cibler.</p>
+
+  <div class="row mt6" style="align-items:flex-start">
+    <div style="width:60mm">
+      <div class="shot"><img src="img/top10-panel.jpg" alt="Top 10 des mis en cause"></div>
+      <div class="caption"><b>Top 10</b>&nbsp;: dossiers, contentieux et chefs de chaque personne. Épinglée, elle garde un anneau rouge sur la carte.</div>
+    </div>
+    <div class="col">
+      <div class="shot"><img src="img/top10-fiche.jpg" alt="Fiche d’un mis en cause"></div>
+      <div class="caption"><b>Fiche personne</b>&nbsp;: score composite, camp, rôle, liens avec les autres.</div>
+
+      <div class="subhead" style="margin-top:5mm">Ce qui fait le score</div>
+      <div class="score-list mt3">
+        <div class="sc"><div class="ic"><svg class="icon"><use href="#i-folder"/></svg></div><div><h4>Dossiers</h4><p>Chaque procédure où la personne apparaît.</p></div><span class="w">par dossier</span></div>
+        <div class="sc"><div class="ic"><svg class="icon"><use href="#i-layers"/></svg></div><div><h4>Transversalité</h4><p>Stupéfiants, financier, environnement&nbsp;: chaque contentieux touché compte.</p></div><span class="w">par contentieux</span></div>
+        <div class="sc"><div class="ic"><svg class="icon"><use href="#i-gavel"/></svg></div><div><h4>Chefs d’infraction</h4><p>Pondérés par code NATINF.</p></div><span class="w">NATINF</span></div>
+        <div class="sc"><div class="ic"><svg class="icon"><use href="#i-link"/></svg></div><div><h4>Entourage</h4><p>Liens de renseignement et poids des co-mis en cause.</p></div><span class="w">réseau</span></div>
+        <div class="sc"><div class="ic"><svg class="icon"><use href="#i-clock"/></svg></div><div><h4>Ancienneté</h4><p>Un nom absent depuis des années descend. Une activité continue remonte.</p></div><span class="w">dans le temps</span></div>
+        <div class="sc"><div class="ic"><svg class="icon"><use href="#i-crown"/></svg></div><div><h4>Rôle</h4><p>Chef de réseau ou lieutenant, coché par vous.</p></div><span class="w">+30 / +15</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="usecase mt6">
+    <div class="uc"><h4>Des pondérations à votre main</h4><p>Vous réglez le poids de chaque critère dans les paramètres. Tout le service partage le même barème.</p></div>
+    <div class="uc"><h4>Un score qui s’explique</h4><p>Dossiers, contentieux et chefs s’affichent sous chaque nom. Vous justifiez le classement en réunion.</p></div>
+  </div>
+
+  <div class="foot"><div class="brand"><svg><use href="#logo"/></svg>SIRAL</div><div>05</div></div>
+</section>
+
+<!-- ═══════════════════════ 6. INSTRUCTION ═══════════════════════ -->
+<section class="page">
+  <div class="kicker"><span class="num">5</span>Module instruction</div>
+  <h1 class="title">Les échéances de l’instruction,<br><em>cabinet par cabinet.</em></h1>
+  <p class="lead">Les informations judiciaires du parquet, rangées par cabinet. Pour chaque mis en examen détenu, SIRAL calcule la fin de période de détention et la <b>durée maximale légale</b>. Il décompte le délai de chaque DML et liste les réquisitions à rédiger dans les sept jours.</p>
+
+  <div class="shot mt6" style="position:relative">
+    <img src="img/instr-echeances.jpg" alt="Échéances de l’instruction">
+    <span class="pin" style="left:58.8%;top:5.6%">1</span>
+    <span class="pin" style="left:36.2%;top:26.5%">2</span>
+    <span class="pin" style="left:71%;top:50.6%">3</span>
+    <span class="pin" style="left:31.7%;top:71.3%">4</span>
+  </div>
+  <div class="row mt4">
+    <ul class="legend col" style="grid-template-columns:1fr 1fr;column-gap:6mm">
+      <li><span class="n">1</span><span><b>Six semaines d’échéances</b>&nbsp;: fins de DP, débats JLD, DML, OP du juge.</span></li>
+      <li><span class="n">2</span><span><b>DML</b>&nbsp;: dix jours décomptés dès le dépôt.</span></li>
+      <li><span class="n">3</span><span><b>Fin de période de DP</b> signalée trois semaines avant.</span></li>
+      <li><span class="n">4</span><span><b>Réquisitions à rédiger</b> dans les sept jours.</span></li>
+    </ul>
+  </div>
+
+  <div class="row mt6" style="align-items:flex-start">
+    <div style="width:88mm">
+      <div class="shot"><img src="img/instr-cards.jpg" alt="Dossiers d’un cabinet"></div>
+      <div class="caption"><b>Dossiers du cabinet</b>&nbsp;: mis en examen, mesures de sûreté (DP, CJ, ARSE), rythme du dossier.</div>
+    </div>
+    <div class="col">
+      <div class="shot"><img src="img/instr-timeline-left.jpg" alt="Chronologie d’un dossier d’instruction"></div>
+      <div class="caption"><b>Chronologie</b>&nbsp;: à venir, puis l’historique du dossier.</div>
+    </div>
+  </div>
+
+  <ul class="points mt5" style="grid-template-columns:1fr 1fr;column-gap:8mm">
+    <li><b>Régimes de DP</b> selon l’infraction (art. 145-1 et 145-2 CPP).</li>
+    <li><b>Chef hors saisine</b> signalé face au réquisitoire.</li>
+    <li><b>Dossier qui dort</b> signalé par son rythme.</li>
+    <li><b>175, réquisitoire définitif</b>, orientation prévisible.</li>
+  </ul>
+
+  <div class="foot"><div class="brand"><svg><use href="#logo"/></svg>SIRAL</div><div>06</div></div>
+</section>
+
+<!-- ═══════════════════════ 7. AIR ═══════════════════════ -->
+<section class="page">
+  <div class="kicker"><span class="num">6</span>Module AIR</div>
+  <h1 class="title">Le suivi AIR <em>sort du tableur.</em></h1>
+  <p class="lead">Vous importez les tableaux AEM et du greffe. SIRAL calcule les statuts, signale les mesures qui durent et produit les chiffres du bilan&nbsp;: <b>taux de réussite, charge par référent, évolution du stock</b>.</p>
+
+  <div class="shot mt6"><img src="img/air-kpis.jpg" alt="Indicateurs AIR"></div>
+  <div class="shot mt4"><img src="img/air-annual.jpg" alt="Évolution annuelle du taux de réussite"></div>
+  <div class="caption">Indicateurs et <b>taux de réussite</b> par année de clôture.</div>
+
+  <div class="row mt5">
+    <div class="col">
+      <div class="shot" style="height:41mm"><img src="img/air-types.jpg" alt="Types d’infractions"></div>
+      <div class="caption"><b>Types d’infractions</b> des mesures suivies.</div>
+    </div>
+    <div class="col">
+      <div class="shot" style="height:41mm"><img src="img/air-referents.jpg" alt="Charge par référent"></div>
+      <div class="caption"><b>Charge par référent</b>&nbsp;: mesures en cours et taux de réussite.</div>
+    </div>
+  </div>
+
+  <div class="row mt5" style="align-items:flex-start">
+    <div style="width:116mm">
+      <div class="shot fade" style="height:70mm"><img src="img/air-table.jpg" alt="Tableau des mesures AIR"></div>
+      <div class="caption"><b>Tableau des mesures</b>&nbsp;: filtres par statut, référent et secteur.</div>
+    </div>
+    <div class="col">
+      <ul class="points">
+        <li><b>Mesures de plus de six mois</b> signalées.</li>
+        <li><b>Rencontres avec le procureur</b>, entretiens, carences, visites à domicile.</li>
+        <li><b>Projection</b> à la fin de l’année.</li>
+        <li><b>Rapport AEM</b> exporté en PDF.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="foot"><div class="brand"><svg><use href="#logo"/></svg>SIRAL</div><div>07</div></div>
+</section>
+
+<!-- ═══════════════════════ 8. STATISTIQUES + SÉCURITÉ ═══════════════════════ -->
+<section class="page">
+  <div class="kicker"><span class="num">7</span>Statistiques</div>
+  <h1 class="title">Le bilan de l’année,<br><em>prêt à exporter.</em></h1>
+  <p class="lead">Procédures terminées, orientations, condamnations, peines, saisies et confiscations, déférements&nbsp;: SIRAL compte à partir de vos dossiers, par mois, par service et par infraction. Il compare avec l’année précédente.</p>
+
+  <div class="shot mt5"><img src="img/stats-comparatif.jpg" alt="Comparatif annuel"></div>
+  <div class="shot mt4"><img src="img/stats-row2.jpg" alt="Suivi JIRS et parquet général, ouvertures, déférements"></div>
+  <div class="caption"><b>Suivi JIRS et parquet général</b>, enquêtes ouvertes mois par mois, <b>déférements</b> à leur date réelle. Export PDF du rapport complet.</div>
+
+  <div class="secu">
+    <h2>Conçu pour le secret de l’enquête</h2>
+    <div class="grid4">
+      <div class="it"><div class="ic"><svg class="icon"><use href="#i-lock"/></svg></div><h4>Chiffré de bout en bout</h4><p>AES-256 dans le navigateur. Le serveur ne lit aucune donnée.</p></div>
+      <div class="it"><div class="ic"><svg class="icon"><use href="#i-key"/></svg></div><h4>Clés individuelles</h4><p>Un trousseau par magistrat, cloisonné par contentieux et par tribunal.</p></div>
+      <div class="it"><div class="ic"><svg class="icon"><use href="#i-shield"/></svg></div><h4>Connexion forte</h4><p>Windows Hello, Face ID ou mot de passe. Journal des accès.</p></div>
+      <div class="it"><div class="ic"><svg class="icon"><use href="#i-globe"/></svg></div><h4>Hébergé dans l’UE</h4><p>Sauvegardes versionnées. Poste préparé utilisable hors ligne.</p></div>
+    </div>
+    <div class="contact">
+      <div class="who"><svg><use href="#logo"/></svg><div><b>SIRAL</b>Conçu au parquet d’Amiens par A. Chevalier</div></div>
+      <div style="text-align:right">Démonstration sur demande<br><span style="color:rgba(255,255,255,.5)">Captures réalisées sur des données fictives</span></div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>
