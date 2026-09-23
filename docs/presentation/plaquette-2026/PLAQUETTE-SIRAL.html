@@ -284,6 +284,7 @@ h1.title em { font-style: normal; color: var(--accent); }
 .cover h1 { margin-top: 5mm; font-size: 38pt; }
 .bignum { font-family: "Inter Display", "Inter", sans-serif; font-weight: 800; font-size: 20pt; color: #fff; letter-spacing: -.01em; }
 .bignum small { font-size: 10pt; font-weight: 600; color: rgba(255,255,255,.65); }
+.chip-main { background: rgba(239,68,68,.18) !important; border-color: rgba(239,68,68,.45) !important; color: #fff !important; }
 .stat-list { display: flex; flex-wrap: wrap; gap: 2mm; }
 .stat-list span { font-size: 8pt; font-weight: 600; color: var(--ink); background: #fff; border: .25mm solid var(--line); border-radius: 10mm; padding: 1.2mm 3mm; }
 .stat-list span::before { content: ""; display: inline-block; width: 1.6mm; height: 1.6mm; border-radius: 50%; background: var(--accent); margin-right: 1.6mm; vertical-align: middle; }
@@ -343,15 +344,13 @@ h1.title em { font-style: normal; color: var(--accent); }
   </div>
 
   <div class="cover-kicker">Parquet du tribunal judiciaire d’Amiens</div>
-  <h1><span>Application de suivi</span><span class="l2">de l’action publique</span></h1>
+  <h1><span>Lutte contre la</span><span class="l2">criminalité organisée</span></h1>
 
-  <p class="pitch">Enquêtes et techniques spéciales d’enquête, informations judiciaires, mesures AIR, cartographie des réseaux et statistiques du service, réunies dans un outil unique, sécurisé et partagé entre magistrats, juristes assistants et hiérarchie.</p>
+  <p class="pitch">Application conçue pour le parquet spécialisé dans la lutte contre la criminalité organisée et le trafic de stupéfiants : suivi des enquêtes et des techniques spéciales d’enquête, informations judiciaires, cartographie des réseaux et statistiques. Son architecture s’étend aux autres contentieux du parquet.</p>
 
   <div class="chips">
-    <span class="chip"><i style="background:#ef4444"></i>Criminalité organisée</span>
-    <span class="chip"><i style="background:#3b82f6"></i>Économique et financier</span>
-    <span class="chip"><i style="background:#22c55e"></i>Environnement</span>
-    <span class="chip"><i style="background:#cbd5e1"></i>Contentieux paramétrables</span>
+    <span class="chip chip-main"><i style="background:#ef4444"></i>Criminalité organisée et stupéfiants</span>
+    <span class="chip"><i style="background:#3b82f6"></i>Extensible : économique et financier, environnement…</span>
   </div>
 
   <div class="hero">
@@ -368,8 +367,8 @@ h1.title em { font-style: normal; color: var(--accent); }
 <!-- ═══════════════════════ 2. PRÉSENTATION ═══════════════════════ -->
 <section class="page">
   <div class="kicker"><span class="num">1</span>Présentation générale</div>
-  <h1 class="title">Un outil unique<br><em>pour le suivi du service.</em></h1>
-  <p class="lead">SIRAL centralise le suivi des procédures du parquet spécialisé. Chaque magistrat dispose d’un tableau de bord par contentieux : opérations à venir, actes arrivant à échéance, demandes en attente devant le juge des libertés et de la détention.</p>
+  <h1 class="title">Conçu pour la lutte<br><em>contre les réseaux criminels.</em></h1>
+  <p class="lead">SIRAL répond aux besoins propres à la criminalité organisée : enquêtes longues, techniques spéciales soumises à des délais stricts, réseaux dont les membres reviennent d’un dossier à l’autre. Chaque magistrat dispose d’un tableau de bord : opérations à venir, actes arrivant à échéance, demandes en attente devant le JLD.</p>
 
   <div class="modules">
     <div class="mod"><img class="thumb" src="img/thumb-dashboard.jpg" alt=""><div class="body"><h3><svg class="icon"><use href="#i-dash"/></svg>Tableau de bord</h3><p>Indicateurs, OP à venir et échéances de chaque contentieux.</p></div></div>
@@ -391,7 +390,7 @@ h1.title em { font-style: normal; color: var(--accent); }
   </div>
 
   <div class="facts">
-    <div class="fact"><div class="big">Contentieux ouverts</div><div class="small">Trois contentieux configurés par défaut. L’administrateur en crée d’autres selon l’organisation du parquet. Co-saisine possible.</div></div>
+    <div class="fact"><div class="big">Crim-org d’abord</div><div class="small">Conçue pour la criminalité organisée, l’application accueille d’autres contentieux (économique et financier, environnement…) créés par l’administrateur. Co-saisine possible.</div></div>
     <div class="fact"><div class="big">Poste et mobile</div><div class="small">Accès depuis un navigateur, sur poste de travail ou téléphone. Un poste préparé fonctionne hors connexion.</div></div>
     <div class="fact"><div class="big">Données chiffrées</div><div class="small">Chiffrement de bout en bout. Le serveur ne conserve que des données illisibles.</div></div>
   </div>
@@ -403,7 +402,7 @@ h1.title em { font-style: normal; color: var(--accent); }
 <section class="page">
   <div class="kicker"><span class="num">2</span>Enquêtes et techniques spéciales d’enquête</div>
   <h1 class="title">L’ensemble des autorisations<br><em>en cours, à jour.</em></h1>
-  <p class="lead">L’application conserve toutes les autorisations délivrées : interceptions, géolocalisations, sonorisations, captations, IMSI-catcher, infiltrations. Pour chaque mesure, elle calcule la date de fin, les jours restants et les prolongations encore permises par la loi.</p>
+  <p class="lead">Les techniques spéciales d’enquête sont au cœur des dossiers de criminalité organisée. L’application conserve toutes les autorisations délivrées : interceptions, géolocalisations, sonorisations, captations, IMSI-catcher, infiltrations. Pour chaque mesure, elle calcule la date de fin, les jours restants et les prolongations encore permises par la loi.</p>
 
   <div class="row mt5">
     <div style="width:84mm">
@@ -431,11 +430,11 @@ h1.title em { font-style: normal; color: var(--accent); }
 
   <div class="row mt5" style="align-items:flex-start">
     <div class="col">
-      <div class="shot" style="height:44mm"><img src="img/cr.jpg" alt="Comptes rendus d’enquête"></div>
+      <div class="shot" style="height:38mm"><img src="img/cr.jpg" alt="Comptes rendus d’enquête"></div>
       <div class="caption"><b>Comptes rendus</b> : chaque point d’étape de l’enquêteur est daté et conservé. Le dernier compte rendu s’affiche sur la fiche du dossier ; un retard est signalé.</div>
     </div>
     <div class="col">
-      <div class="shot" style="height:44mm"><img src="img/cloture.jpg" alt="Récapitulatif de clôture"></div>
+      <div class="shot" style="height:38mm"><img src="img/cloture.jpg" alt="Récapitulatif de clôture"></div>
       <div class="caption"><b>Récapitulatif de clôture</b> : l’application génère, en fin d’enquête, le récapitulatif des mesures autorisées, exportable au format Word.</div>
     </div>
   </div>
@@ -446,8 +445,8 @@ h1.title em { font-style: normal; color: var(--accent); }
 <!-- ═══════════════════════ 4. CARTOGRAPHIE ═══════════════════════ -->
 <section class="page dark">
   <div class="kicker"><span class="num">3</span>Cartographie des réseaux</div>
-  <h1 class="title">Les réseaux du ressort,<br><em>sur une seule carte.</em></h1>
-  <p class="lead">Chaque personne citée dans une enquête, une information judiciaire ou un jugement figure sur la carte. Lorsqu’un même nom apparaît dans plusieurs dossiers, l’application les relie. Les passerelles entre équipes et les personnes centrales ressortent d’elles-mêmes.</p>
+  <h1 class="title">Les réseaux criminels du ressort,<br><em>sur une seule carte.</em></h1>
+  <p class="lead">Un réseau de trafic se lit rarement dans un seul dossier. Chaque personne citée dans une enquête, une information judiciaire ou un jugement figure sur la carte ; lorsqu’un même nom apparaît dans plusieurs procédures, l’application les relie. Les têtes de réseau, les lieutenants et les passerelles entre équipes rivales ressortent d’elles-mêmes.</p>
 
   <div class="shot mt5" style="position:relative">
     <img src="img/carto.jpg" alt="Cartographie des réseaux">
@@ -483,7 +482,7 @@ h1.title em { font-style: normal; color: var(--accent); }
 <section class="page">
   <div class="kicker"><span class="num">4</span>Top 10</div>
   <h1 class="title">Les dix mis en cause<br><em>les plus présents.</em></h1>
-  <p class="lead">L’application attribue à chaque personne de la carte un score fondé sur des critères objectifs. Le Top 10 fait apparaître les personnes qui pèsent le plus dans l’activité du service, <b>tous contentieux confondus</b>, pour éclairer les priorités d’action publique et les échanges avec les services enquêteurs.</p>
+  <p class="lead">Face à des réseaux qui se recomposent, le parquet doit savoir qui cibler. L’application attribue à chaque personne de la carte un score fondé sur des critères objectifs. Le Top 10 fait apparaître les personnes qui pèsent le plus dans l’activité du service, <b>tous contentieux confondus</b>, pour éclairer les priorités d’action publique et les échanges avec les services enquêteurs.</p>
 
   <div class="row mt6" style="align-items:flex-start">
     <div style="width:60mm">
