@@ -37,6 +37,7 @@ import { saveSkill, listSkills, readSkill, deleteSkill, safeSkillName, AUTO_SKIL
 import { saveKbEntry, setKbMeta, setKbReflexe, listKb, readKbEntry, searchKb, KB_CATEGORIES, MAX_REFLEXE } from './attache/kb.mjs'
 import { runSubagents } from './attache/subagents.mjs'
 import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
+import { modifierDossierInstruction, elementInstruction, misEnExamenInstruction, COLLECTIONS_INSTRUCTION } from './attache/instruEcriture.mjs'
 import { listDepot, readDepotText, readMailPieceText, rangerDocument, rangerPieceDansKb, ecarterDepot, ZONES } from './attache/depot.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { lireRegistre, recouperRegistres } from './attache/registre.mjs'
@@ -137,6 +138,7 @@ const OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME = new Set([
   'enregistrer_acte', 'acter_prolongation', 'modifier_acte', 'classer_note',
   'ajouter_todo', 'terminer_todo', 'ajouter_natinfs', 'creer_dossier',
   'modifier_dossier', 'archiver_dossier', 'ajouter_mec', 'modifier_mec',
+  'instru_modifier_dossier', 'instru_element', 'instru_mis_en_examen',
   'actualiser_description', 'ranger_document', 'depot_ecarter',
   'routine_enregistrer', 'routine_suspendre', 'routine_supprimer',
   // le devis (chantier_proposer) reste permis : il attend le magistrat.
@@ -676,6 +678,109 @@ const TOOLS = [
       required: ['numero'],
     },
     handler: async (a) => modifierMec(keys, a),
+    write: true,
+  },
+  {
+    name: 'instru_modifier_dossier',
+    description: 'Modifie les champs d\'un dossier d\'INSTRUCTION (module instruction) — mêmes champs que l\'en-tête et l\'aperçu du dossier dans l\'app : nombre de COTES (cotes = valeur absolue, cotesAjouter = incrément, négatif pour corriger), état du règlement, orientation prévisible, juge, service enquêteur, dates d\'ouverture et du RI, suivis JIRS/PG, lien NPP, NARRATIF (description, remplacé ou complété) et bloc-notes « Actes à faire / à demander à la JI » (notesActesJI, remplacé ou complété). Seuls les champs fournis changent. Écriture versionnée (réversible), propagée au magistrat par la synchronisation. RÉSERVÉ à une instruction EXPLICITE du magistrat. Pour la saisine in rem, les personnes, notes, chronologie, débats JLD, OP : instru_element / instru_mis_en_examen.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string', description: 'N° d\'instruction ou de parquet (voir instru_lister)' },
+        cotes: { type: 'integer', description: 'Nombre de cotes (valeur absolue)' },
+        cotesAjouter: { type: 'integer', description: 'Ajoute (ou retire si négatif) des cotes au compteur' },
+        etatReglement: { type: 'string', enum: ['en_cours', '175_recu', 'reqdef_redigees', 'ordonnance_rendue'] },
+        orientationPrevisible: { type: 'string', enum: ['TC', 'CCD', 'Assises', 'TPE', 'CAM', 'non_lieu', 'incertain'] },
+        magistratInstructeur: { type: 'string' },
+        serviceEnqueteur: { type: 'string' },
+        dateOuverture: { type: 'string', description: 'AAAA-MM-JJ' },
+        dateRI: { type: 'string', description: 'AAAA-MM-JJ' },
+        suiviJIRS: { type: 'boolean' },
+        suiviPG: { type: 'boolean' },
+        lienNpp: { type: 'string' },
+        description: { type: 'string', description: 'Narratif — REMPLACE le texte existant' },
+        descriptionAjouter: { type: 'string', description: 'Narratif — ajouté à la suite' },
+        notesActesJI: { type: 'string', description: 'Bloc-notes « Actes à faire / à demander à la JI » — REMPLACE' },
+        notesActesJIAjouter: { type: 'string', description: 'Bloc-notes « Actes à faire / à demander à la JI » — ajouté à la suite' },
+      },
+      required: ['numero'],
+    },
+    handler: async (a) => modifierDossierInstruction(keys, a),
+    write: true,
+  },
+  {
+    name: 'instru_element',
+    description: `Ajoute, modifie ou supprime un élément d'un dossier d'INSTRUCTION. collection :
+- "saisine" = saisine IN REM (champs : qualification*, natinfCode, acte "introductif"|"suppletif", dateActe, faits) ;
+- "suspects" (nom*, role) ; "victimes" (nom*, partieCivile, datePC, notes, surCarto) ;
+- "notesPerso" = notes du dossier (contenu*, date, tags) ;
+- "evenements" = chronologie (type* : lancement_cr | retour_cr | expertise | ipc | apc | interrogatoire_fond | phase_interpellation | 175_rendu | type perso ; date* ; titre ; description ; misEnExamen (nom ou id) ; victime ; categorieExpertise ; expertiseLibelle) ;
+- "debatsJLD" (type* : placement_dp | prolongation_dp | dml | autre ; date* ; heureExacte ; misEnExamen ; requisitionsRedigees ; dateRequisitions ; decision : placement | maintien | remise_en_liberte | cj | arse | autre ; notes) ;
+- "ops" = opérations fixées par le JI (date*, description, service, requisitionsRedigees, dateRequisitions, notes).
+operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire_dossier) — ou le NOM pour suspects/victimes. Seuls les champs fournis changent. Dates AAAA-MM-JJ. NATINF vérifié au référentiel (natinf_chercher). Écriture versionnée (réversible). RÉSERVÉ à une instruction EXPLICITE du magistrat. Pour les MIS EN EXAMEN : instru_mis_en_examen.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string', description: 'N° d\'instruction ou de parquet' },
+        collection: { type: 'string', enum: COLLECTIONS_INSTRUCTION },
+        operation: { type: 'string', enum: ['ajouter', 'modifier', 'supprimer'] },
+        id: { type: 'string', description: 'Élément visé (modifier/supprimer) : id, ou nom pour suspects/victimes' },
+        champs: { type: 'object', description: 'Champs de l\'élément (voir la description par collection)' },
+      },
+      required: ['numero', 'collection', 'operation'],
+    },
+    handler: async (a) => elementInstruction(keys, a),
+    write: true,
+  },
+  {
+    name: 'instru_mis_en_examen',
+    description: 'Ajoute, modifie ou supprime un MIS EN EXAMEN d\'un dossier d\'INSTRUCTION — identité (nom, dateNaissance, lieuNaissance, nationalite, profession, adresse), date de mise en examen, CHEFS (infractionsAjouter : qualification et/ou natinfCode, dateInfraction, lieuInfraction, explication ; infractionsSupprimer : ids ou qualifications), éléments à charge, notes, MESURE DE SÛRETÉ (mesure.type libre | cj | arse | detenu ; pour detenu : regime correctionnel|criminel, dureeMois crée la période de placement — ou, avec prolongation:true, une prolongation à la suite de la dernière période ; dates de fin calculées comme l\'app) et DML (dmlAjouter : dateDepot → échéance +10 jours ouvrables calculée ; dmlModifier : id, statut en_attente|accordee|rejetee, dateRequisitions, notes). depuisSuspect (à l\'ajout) retire la personne des suspects. Cible (modifier/supprimer) : id ou nom. Écriture versionnée (réversible). RÉSERVÉ à une instruction EXPLICITE du magistrat.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string', description: 'N° d\'instruction ou de parquet' },
+        operation: { type: 'string', enum: ['ajouter', 'modifier', 'supprimer'] },
+        id: { type: 'number', description: 'Id du mis en examen (modifier/supprimer)' },
+        cible: { type: 'string', description: 'Ou son nom (rapprochement tolérant)' },
+        nom: { type: 'string' },
+        dateNaissance: { type: 'string' },
+        lieuNaissance: { type: 'string' },
+        nationalite: { type: 'string' },
+        profession: { type: 'string' },
+        adresse: { type: 'string' },
+        dateMiseEnExamen: { type: 'string', description: 'AAAA-MM-JJ (défaut à l\'ajout : aujourd\'hui)' },
+        elementsCharge: { type: 'string', description: 'Synthèse des éléments à charge (REMPLACE)' },
+        notes: { type: 'string' },
+        depuisSuspect: { type: 'string', description: 'À l\'ajout : nom ou id du suspect promu (retiré des suspects)' },
+        infractionsAjouter: {
+          type: 'array',
+          items: { type: 'object', properties: { qualification: { type: 'string' }, natinfCode: { type: 'string' }, dateInfraction: { type: 'string' }, lieuInfraction: { type: 'string' }, explication: { type: 'string' } } },
+        },
+        infractionsSupprimer: { type: 'array', items: { type: 'string' }, description: 'Ids ou qualifications des chefs à retirer' },
+        mesure: {
+          type: 'object',
+          properties: {
+            type: { type: 'string', enum: ['libre', 'cj', 'arse', 'detenu'] },
+            depuis: { type: 'string' },
+            regime: { type: 'string', enum: ['correctionnel', 'criminel'] },
+            casDPId: { type: 'string' },
+            dureeMois: { type: 'integer', description: 'Durée de la période de DP à ajouter' },
+            prolongation: { type: 'boolean', description: 'true = période de prolongation à la suite de la dernière' },
+            dateDebutPeriode: { type: 'string' },
+            ordonnanceJLD: { type: 'string' },
+            dateDebatJLD: { type: 'string' },
+            motifProlongation: { type: 'string' },
+            lieu: { type: 'string', description: 'ARSE : lieu' },
+            notes: { type: 'string' },
+          },
+          required: ['type'],
+        },
+        dmlAjouter: { type: 'object', properties: { dateDepot: { type: 'string' }, notes: { type: 'string' } }, required: ['dateDepot'] },
+        dmlModifier: { type: 'object', properties: { id: { type: 'number' }, statut: { type: 'string', enum: ['en_attente', 'accordee', 'rejetee'] }, dateRequisitions: { type: 'string' }, notes: { type: 'string' } }, required: ['id'] },
+      },
+      required: ['numero', 'operation'],
+    },
+    handler: async (a) => misEnExamenInstruction(keys, a),
     write: true,
   },
   {
@@ -1789,7 +1894,7 @@ const OUTILS_HORS_CONNECTEUR = new Set(['sous_agents', 'poser_question'])
 
 const INSTRUCTIONS_CONNECTEUR = [
   `SIRAL — application métier du parquet (contentieux ${attacheContentieux()}). Tu agis pour le compte du magistrat administrateur, authentifié via OAuth.`,
-  'Points d\'entrée : lister_dossiers (enquêtes) · instru_lister (module instruction) · lire_dossier (détail, sections paginées) · dossier_arborescence puis lire_document (pièces) · pieces_chercher (LOCALISER une information dans les pièces et les fiches sans tout relire) · registre_lire (sommaire pièce par pièce : type, date, personnes, entités, résumé) · registre_recouper (entités partagées entre dossiers, pièces citées) · stats_ecran / stats_synthese / stats_graphique (chiffres et graphiques).',
+  'Points d\'entrée : lister_dossiers (enquêtes) · instru_lister (module instruction ; écritures : instru_modifier_dossier, instru_element, instru_mis_en_examen) · lire_dossier (détail, sections paginées) · dossier_arborescence puis lire_document (pièces) · pieces_chercher (LOCALISER une information dans les pièces et les fiches sans tout relire) · registre_lire (sommaire pièce par pièce : type, date, personnes, entités, résumé) · registre_recouper (entités partagées entre dossiers, pièces citées) · stats_ecran / stats_synthese / stats_graphique (chiffres et graphiques).',
   'STATISTIQUES — le magistrat lit une PAGE « Statistiques » organisée par ANNÉE (sélecteur en haut) et en quatre sections : Statistiques générales · Types d\'infractions · Résultats d\'audience · Statistiques instruction. Ses chiffres sont ceux de cette page.',
   '  1. Toute question sur « mes statistiques », un chiffre affiché, un écart, une année civile → stats_ecran (annee) : il rend la page CARTE PAR CARTE, avec le titre exact de chaque carte, sa valeur et sa règle de calcul. Une période non calendaire (semestre, trimestre, « depuis mars ») → stats_synthese (du/au). Les années disponibles → stats_annees.',
   '  2. NE JAMAIS RECALCULER un chiffre déjà rendu, ni le reconstituer en additionnant des listes de dossiers : les règles de la page sont subtiles (procédures terminées HORS classements et ouvertures d\'information ; orientations comptées 1 par dossier mais 1 par prévenu en CRPC ; RELAXES comptées à part, hors condamnations et hors moyennes de peine, mais leur défèrement reste compté ; déférements comptés à leur date réelle et non à la date d\'audience ; saisies d\'enquête ≠ confiscations d\'audience ; l\'année en cours s\'arrête au mois courant). Un recalcul « de bon sens » donne un autre nombre que l\'écran — c\'est l\'erreur à ne pas commettre. Reprendre la valeur, et citer la carte d\'où elle vient.',

@@ -6,8 +6,8 @@
  * L'attaché y lit les dossiers du cabinet : saisine, mis en examen (avec
  * détention provisoire et DML), débats JLD, opérations, événements — le
  * contexte indispensable au traitement d'une DML ou à la préparation d'un
- * débat. LECTURE SEULE : le module instruction n'est jamais modifié par
- * l'attaché (ses productions passent par « Actes rédigés »).
+ * débat. Les ÉCRITURES (sur instruction explicite du magistrat) vivent dans
+ * instruEcriture.mjs ; les ids rendus ici servent à les cibler.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -137,11 +137,12 @@ export function instructionDossierMarkdown(keys, numero) {
   const parts = []
   parts.push(`# Dossier d'instruction ${d.numeroInstruction || ''}${d.numeroParquet ? ` (parquet ${d.numeroParquet})` : ''}`)
   parts.push(`Juge : ${d.magistratInstructeur || '?'} · ouvert le ${fdate(d.dateOuverture)} · RI du ${fdate(d.dateRI)}${d.serviceEnqueteur ? ` · service : ${d.serviceEnqueteur}` : ''}`)
+  parts.push(`Cotes : ${d.cotesTomes || 0} · règlement : ${d.etatReglement || 'en_cours'}${d.orientationPrevisible ? ` · orientation prévisible : ${d.orientationPrevisible}` : ''}${d.suiviJIRS ? ' · suivi JIRS' : ''}${d.suiviPG ? ' · suivi PG' : ''}${d.archived ? ' · ARCHIVÉ' : ''}`)
   if (d.enquetePreliminaireNumero) parts.push(`Enquête préliminaire d'origine : ${d.enquetePreliminaireNumero} (lisible avec lire_dossier)`)
 
   if (d.saisine?.length) {
     parts.push('\n## Saisine (in rem)')
-    for (const s of d.saisine) parts.push(`- ${s.qualification}${s.natinfCode ? ` (NATINF ${s.natinfCode})` : ''}`)
+    for (const s of d.saisine) parts.push(`- [#${s.id}] ${s.qualification}${s.natinfCode ? ` (NATINF ${s.natinfCode})` : ''} — ${s.acte === 'suppletif' ? 'supplétif' : 'introductif'}${s.dateActe ? ` du ${fdate(s.dateActe)}` : ''}${s.faits ? ` · ${stripHtml(s.faits).slice(0, 300)}` : ''}`)
   }
   if (d.description) parts.push('\n## Narratif\n' + stripHtml(d.description).slice(0, 8000))
 
@@ -149,40 +150,58 @@ export function instructionDossierMarkdown(keys, numero) {
   if (mex.length) {
     parts.push('\n## Mis en examen')
     for (const m of mex) {
-      parts.push(`\n### ${m.nom}${m.dateNaissance ? ` (né(e) ${fdate(m.dateNaissance)})` : ''} — mis en examen le ${fdate(m.dateMiseEnExamen)}`)
+      parts.push(`\n### [#${m.id}] ${m.nom}${m.dateNaissance ? ` (né(e) ${fdate(m.dateNaissance)}${m.lieuNaissance ? ` à ${m.lieuNaissance}` : ''})` : ''} — mis en examen le ${fdate(m.dateMiseEnExamen)}`)
+      const ident = [m.nationalite, m.profession, m.adresse].filter(Boolean).join(' · ')
+      if (ident) parts.push(ident)
       parts.push(`Mesure de sûreté : ${detentionResume(m)}`)
       if (m.mesureSurete?.type === 'detenu' && m.mesureSurete.periodes?.length) {
         parts.push('Périodes de détention provisoire :')
         for (const p of m.mesureSurete.periodes) parts.push(`- ${fdate(p.dateDebut)} → ${fdate(p.dateFin)} (${p.dureeMois} mois)`)
       }
-      if (m.infractions?.length) parts.push('Chefs : ' + m.infractions.map((i) => i.qualification).join(' ; '))
+      if (m.infractions?.length) parts.push('Chefs : ' + m.infractions.map((i) => `[#${i.id}] ${i.qualification}${i.natinfCode ? ` (NATINF ${i.natinfCode})` : ''}`).join(' ; '))
       if (m.dmls?.length) {
         parts.push('DML :')
-        for (const x of m.dmls) parts.push(`- déposée le ${fdate(x.dateDepot)}, échéance ${fdate(x.dateEcheance)} — ${x.statut}${x.dateRequisitions ? ` (réquisitions du ${fdate(x.dateRequisitions)})` : ''}${x.notes ? ` · ${stripHtml(x.notes).slice(0, 200)}` : ''}`)
+        for (const x of m.dmls) parts.push(`- [#${x.id}] déposée le ${fdate(x.dateDepot)}, échéance ${fdate(x.dateEcheance)} — ${x.statut}${x.dateRequisitions ? ` (réquisitions du ${fdate(x.dateRequisitions)})` : ''}${x.notes ? ` · ${stripHtml(x.notes).slice(0, 200)}` : ''}`)
       }
       if (m.elementsCharge) parts.push('Éléments à charge : ' + stripHtml(m.elementsCharge).slice(0, 2000))
       if (m.notes) parts.push('Notes : ' + stripHtml(m.notes).slice(0, 1000))
     }
   }
 
+  if (d.suspects?.length) {
+    parts.push('\n## Suspects')
+    for (const x of d.suspects) parts.push(`- [#${x.id}] ${x.nom}${x.role ? ` — ${x.role}` : ''}`)
+  }
+  if (d.victimes?.length) {
+    parts.push('\n## Victimes')
+    for (const x of d.victimes) parts.push(`- [#${x.id}] ${x.nom}${x.partieCivile ? ` — partie civile${x.datePC ? ` depuis le ${fdate(x.datePC)}` : ''}` : ''}${x.notes ? ` · ${stripHtml(x.notes).slice(0, 300)}` : ''}`)
+  }
+
   if (d.debatsJLD?.length) {
     parts.push('\n## Débats JLD')
     for (const j of [...d.debatsJLD].sort((a, b) => String(a.date).localeCompare(String(b.date)))) {
       const qui = j.misEnExamenId ? mex.find((m) => m.id === j.misEnExamenId)?.nom : null
-      parts.push(`- ${fdate(j.date)} — ${j.type}${qui ? ` (${qui})` : ''}${j.requisitionsRedigees ? ' · réquisitions rédigées' : ' · réquisitions À RÉDIGER'}${j.decision ? ` · décision : ${stripHtml(String(j.decision)).slice(0, 120)}` : ''}`)
+      parts.push(`- [#${j.id}] ${fdate(j.date)} — ${j.type}${qui ? ` (${qui})` : ''}${j.requisitionsRedigees ? ' · réquisitions rédigées' : ' · réquisitions À RÉDIGER'}${j.decision ? ` · décision : ${stripHtml(String(j.decision)).slice(0, 120)}` : ''}`)
     }
   }
 
   if (d.ops?.length) {
     parts.push('\n## Opérations')
-    for (const o of d.ops) parts.push(`- ${fdate(o.date)} — ${stripHtml(o.description || '').slice(0, 200)}${o.service ? ` (${o.service})` : ''}${o.requisitionsRedigees ? ' · réquisitions rédigées' : ''}`)
+    for (const o of d.ops) parts.push(`- [#${o.id}] ${fdate(o.date)} — ${stripHtml(o.description || '').slice(0, 200)}${o.service ? ` (${o.service})` : ''}${o.requisitionsRedigees ? ' · réquisitions rédigées' : ''}`)
   }
 
   if (d.evenements?.length) {
     parts.push('\n## Chronologie (événements)')
     for (const e of [...d.evenements].sort((a, b) => String(a.date).localeCompare(String(b.date)))) {
       const qui = e.misEnExamenId ? mex.find((m) => m.id === e.misEnExamenId)?.nom : null
-      parts.push(`- ${fdate(e.date)} — [${e.type}] ${e.titre || ''}${qui ? ` (${qui})` : ''}${e.description ? ` · ${stripHtml(e.description).slice(0, 300)}` : ''}`)
+      parts.push(`- [#${e.id}] ${fdate(e.date)} — [${e.type}] ${e.titre || ''}${qui ? ` (${qui})` : ''}${e.description ? ` · ${stripHtml(e.description).slice(0, 300)}` : ''}`)
+    }
+  }
+
+  if (d.notesPerso?.length) {
+    parts.push('\n## Notes du dossier')
+    for (const n of [...d.notesPerso].sort((a, b) => String(b.date).localeCompare(String(a.date)))) {
+      parts.push(`- [#${n.id}] ${fdate(n.date)}${n.tags?.length ? ` (${n.tags.join(', ')})` : ''} — ${stripHtml(n.contenu).slice(0, 2000)}`)
     }
   }
 
