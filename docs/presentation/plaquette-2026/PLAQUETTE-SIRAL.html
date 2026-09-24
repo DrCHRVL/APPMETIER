@@ -261,7 +261,7 @@ h1.title em { font-style: normal; color: var(--accent); }
 
 /* ─── sécurité (dernière page) ─── */
 .secu {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 78mm;
+  position: absolute; left: 0; right: 0; bottom: 0; height: 84mm;
   background: linear-gradient(120deg, #262c52, #151935); color: #fff; padding: 8mm 14mm 0 14mm;
 }
 .secu h2 { margin: 0; font-family: "Inter Display", "Inter", sans-serif; font-weight: 800; font-size: 17pt; letter-spacing: -.01em; }
@@ -292,7 +292,7 @@ h1.title em { font-style: normal; color: var(--accent); }
 .page .facts { position: static; margin-top: 6mm; }
 .fact .big { font-size: 13pt; }
 .fact { padding: 4mm 4.5mm; }
-.mod .thumb { height: 32mm; }
+.mod .thumb { height: 25mm; }
 .narrow { width: 148mm; margin-left: auto; margin-right: auto; }
 </style>
 </head>
@@ -346,7 +346,7 @@ h1.title em { font-style: normal; color: var(--accent); }
   <div class="cover-kicker">Parquet du tribunal judiciaire d’Amiens</div>
   <h1><span>Lutte contre la</span><span class="l2">criminalité organisée</span></h1>
 
-  <p class="pitch">Application conçue pour le parquet spécialisé dans la lutte contre la criminalité organisée et le trafic de stupéfiants : suivi des enquêtes et des techniques spéciales d’enquête, informations judiciaires, cartographie des réseaux et statistiques. Son architecture s’étend aux autres contentieux du parquet.</p>
+  <p class="pitch">Application conçue pour le magistrat du parquet affecté à la lutte contre la criminalité organisée et le trafic de stupéfiants : suivi des enquêtes et des techniques spéciales d’enquête, informations judiciaires, cartographie des réseaux et statistiques. Son architecture s’étend aux autres contentieux spécialisés du parquet.</p>
 
   <div class="chips">
     <span class="chip chip-main"><i style="background:#ef4444"></i>Criminalité organisée et stupéfiants</span>
@@ -368,7 +368,7 @@ h1.title em { font-style: normal; color: var(--accent); }
 <section class="page">
   <div class="kicker"><span class="num">1</span>Présentation générale</div>
   <h1 class="title">Conçu pour la lutte<br><em>contre les réseaux criminels.</em></h1>
-  <p class="lead">SIRAL répond aux besoins propres à la criminalité organisée : enquêtes longues, techniques spéciales soumises à des délais stricts, réseaux dont les membres reviennent d’un dossier à l’autre. Chaque magistrat dispose d’un tableau de bord : opérations à venir, actes arrivant à échéance, demandes en attente devant le JLD.</p>
+  <p class="lead">SIRAL répond aux besoins propres à la criminalité organisée : enquêtes longues, jalonnées de nombreux comptes rendus et qui exigent un suivi au plus près des enquêteurs ; techniques spéciales soumises à des délais stricts ; réseaux dont les membres reviennent d’un dossier à l’autre. Chaque magistrat dispose d’un tableau de bord (opérations à venir, actes arrivant à échéance, demandes en attente devant le JLD) et d’une vue sur toutes les enquêtes en cours, avec des marqueurs sur le rythme de chaque enquête et des alertes pour relancer les services.</p>
 
   <div class="modules">
     <div class="mod"><img class="thumb" src="img/thumb-dashboard.jpg" alt=""><div class="body"><h3><svg class="icon"><use href="#i-dash"/></svg>Tableau de bord</h3><p>Indicateurs, OP à venir et échéances de chaque contentieux.</p></div></div>
@@ -390,8 +390,8 @@ h1.title em { font-style: normal; color: var(--accent); }
   </div>
 
   <div class="facts">
-    <div class="fact"><div class="big">Crim-org d’abord</div><div class="small">Conçue pour la criminalité organisée, l’application accueille d’autres contentieux (économique et financier, environnement…) créés par l’administrateur. Co-saisine possible.</div></div>
-    <div class="fact"><div class="big">Poste et mobile</div><div class="small">Accès depuis un navigateur, sur poste de travail ou téléphone. Un poste préparé fonctionne hors connexion.</div></div>
+    <div class="fact"><div class="big">Crim-org d’abord</div><div class="small">D’autres contentieux s’ajoutent selon l’organisation du parquet. Co-saisine possible.</div></div>
+    <div class="fact"><div class="big">Poste et mobile</div><div class="small">Accès par navigateur, sur poste de travail ou téléphone.</div></div>
     <div class="fact"><div class="big">Données chiffrées</div><div class="small">Chiffrement de bout en bout. Le serveur ne conserve que des données illisibles.</div></div>
   </div>
 
@@ -402,7 +402,7 @@ h1.title em { font-style: normal; color: var(--accent); }
 <section class="page">
   <div class="kicker"><span class="num">2</span>Enquêtes et techniques spéciales d’enquête</div>
   <h1 class="title">L’ensemble des autorisations<br><em>en cours, à jour.</em></h1>
-  <p class="lead">Les techniques spéciales d’enquête sont au cœur des dossiers de criminalité organisée. L’application conserve toutes les autorisations délivrées : interceptions, géolocalisations, sonorisations, captations, IMSI-catcher, infiltrations. Pour chaque mesure, elle calcule la date de fin, les jours restants et les prolongations encore permises par la loi.</p>
+  <p class="lead">Les techniques spéciales d’enquête sont au cœur des dossiers de criminalité organisée. L’application conserve toutes les autorisations délivrées (interceptions, géolocalisations, sonorisations, captations, IMSI-catcher, infiltrations) et calcule pour chacune la date de fin, les jours restants et les prolongations encore permises. Les autorisations et les procès-verbaux des enquêteurs sont versés dans le dossier : leur texte est intégré à la base et devient consultable et interrogeable (noms, adresses, numéros de téléphone).</p>
 
   <div class="row mt5">
     <div style="width:84mm">
@@ -419,22 +419,22 @@ h1.title em { font-style: normal; color: var(--accent); }
         <li><span class="n">1</span><span><b>Jours restants</b> et progression depuis la pose.</span></li>
         <li><span class="n">2</span><span><b>Prolongation</b> transmise au JLD : l’acte reste suivi jusqu’à la décision.</span></li>
         <li><span class="n">3</span><span><b>Actions en attente</b> regroupées en tête de rubrique.</span></li>
+        <li><span class="n">4</span><span><b>Rappels pédagogiques</b> : conditions légales et durées maximales affichées au moment de la saisie.</span></li>
       </ul>
-      <div class="shot mt5"><img src="img/attente.jpg" alt="Demandes en attente devant le JLD"></div>
-      <div class="caption"><b>Attente JLD</b> : autorisations et prolongations, avec l’ancienneté de chaque demande.</div>
+      <div class="shot mt4" style="position:relative"><img src="img/acte-legal.jpg" alt="Rappel des conditions légales"><span class="pin" style="left:4%;top:38%">4</span></div>
     </div>
   </div>
 
   <div class="shot mt5"><img src="img/echeances.jpg" alt="Échéances d’actes à sept jours"></div>
-  <div class="caption"><b>Échéances à sept jours</b> sur le tableau de bord, avec signalement des échéances tombant un week-end.</div>
+  <div class="caption"><b>Échéances à sept jours</b> sur le tableau de bord, avec signalement des échéances tombant un week-end. Une file « Attente JLD » recense les demandes en cours et leur ancienneté.</div>
 
   <div class="row mt5" style="align-items:flex-start">
     <div class="col">
-      <div class="shot" style="height:38mm"><img src="img/cr.jpg" alt="Comptes rendus d’enquête"></div>
+      <div class="shot" style="height:30mm"><img src="img/cr.jpg" alt="Comptes rendus d’enquête"></div>
       <div class="caption"><b>Comptes rendus</b> : chaque point d’étape de l’enquêteur est daté et conservé. Le dernier compte rendu s’affiche sur la fiche du dossier ; un retard est signalé.</div>
     </div>
     <div class="col">
-      <div class="shot" style="height:38mm"><img src="img/cloture.jpg" alt="Récapitulatif de clôture"></div>
+      <div class="shot" style="height:30mm"><img src="img/cloture.jpg" alt="Récapitulatif de clôture"></div>
       <div class="caption"><b>Récapitulatif de clôture</b> : l’application génère, en fin d’enquête, le récapitulatif des mesures autorisées, exportable au format Word.</div>
     </div>
   </div>
@@ -482,7 +482,7 @@ h1.title em { font-style: normal; color: var(--accent); }
 <section class="page">
   <div class="kicker"><span class="num">4</span>Top 10</div>
   <h1 class="title">Les dix mis en cause<br><em>les plus présents.</em></h1>
-  <p class="lead">Face à des réseaux qui se recomposent, le parquet doit savoir qui cibler. L’application attribue à chaque personne de la carte un score fondé sur des critères objectifs. Le Top 10 fait apparaître les personnes qui pèsent le plus dans l’activité du service, <b>tous contentieux confondus</b>, pour éclairer les priorités d’action publique et les échanges avec les services enquêteurs.</p>
+  <p class="lead">Face à des réseaux qui se recomposent, le parquet doit savoir qui cibler. L’application attribue à chaque personne de la carte un score fondé sur des critères objectifs, dont la pondération s’ajuste à la politique pénale locale. Le Top 10 fait apparaître les personnes qui pèsent le plus dans l’activité du service, <b>tous contentieux confondus</b>, pour éclairer les priorités d’action publique et les échanges avec les services enquêteurs.</p>
 
   <div class="row mt6" style="align-items:flex-start">
     <div style="width:60mm">
@@ -517,7 +517,7 @@ h1.title em { font-style: normal; color: var(--accent); }
 <section class="page">
   <div class="kicker"><span class="num">5</span>Recoupements et recherche</div>
   <h1 class="title">Les liens entre dossiers,<br><em>détectés et signalés.</em></h1>
-  <p class="lead">L’application compare en continu les dossiers entre eux : même personne, même patronyme, même adresse, même ligne téléphonique, même véhicule, même compte bancaire. Elle signale ces rapprochements, y compris lorsqu’ils figurent seulement dans une pièce versée. Le magistrat vérifie et décide des suites.</p>
+  <p class="lead">Chaque autorisation et chaque procès-verbal versé enrichit la base de l’application. Elle compare ensuite les dossiers entre eux : même personne, même patronyme, même adresse, même ligne téléphonique, même véhicule, même compte bancaire. Elle signale ces rapprochements, y compris lorsque l’information ne figure que dans une pièce versée ou un compte rendu. Le magistrat vérifie et décide des suites.</p>
 
   <div class="row mt6" style="align-items:flex-start">
     <div style="width:92mm">
@@ -534,19 +534,11 @@ h1.title em { font-style: normal; color: var(--accent); }
           <li><b>Opérateurs</b> pour cibler un champ : description, document, numéro.</li>
         </ul>
       </div>
-      <div class="card mt4">
-        <h3><svg class="icon"><use href="#i-link"/></svg>Ce que l’application rapproche</h3>
-        <ul class="points">
-          <li><b>Personnes</b> et <b>patronymes</b> (lien familial possible).</li>
-          <li><b>Téléphones</b>, <b>plaques</b>, <b>adresses</b>, <b>IBAN</b>, <b>IMEI</b>, pseudonymes.</li>
-          <li>Écritures différentes d’une même donnée&nbsp;: «&nbsp;06.39.98…&nbsp;» et «&nbsp;+33&nbsp;6&nbsp;39&nbsp;98…&nbsp;».</li>
-        </ul>
-      </div>
     </div>
   </div>
 
-  <div class="shot fade mt6" style="height:78mm"><img src="img/communs.jpg" alt="Informations communes entre contentieux"></div>
-  <div class="caption"><b>Informations communes entre contentieux</b> : une même personne suivie en criminalité organisée et en matière économique et financière est signalée à la hiérarchie.</div>
+  <div class="row mt6" style="align-items:flex-start"><div style="width:120mm"><div class="shot"><img src="img/recoup.jpg" alt="Recoupements entre dossiers"></div></div>
+    <div class="col"><div class="caption" style="margin-top:0;font-size:8.6pt"><b>Recoupements entre dossiers</b> : une même adresse relevée dans deux comptes rendus, une ligne interceptée dans une enquête et citée dans deux autres, un IBAN commun à un dossier de stupéfiants et à un dossier financier, un véhicule suivi retrouvé sur un autre site. Chaque signal renvoie à la pièce et à l’extrait d’où il provient.</div></div></div>
 
   <div class="foot"><div class="brand"><svg><use href="#logo"/></svg>SIRAL</div><div>06</div></div>
 </section>
@@ -569,6 +561,9 @@ h1.title em { font-style: normal; color: var(--accent); }
     <li><b>Régimes de détention provisoire</b> selon l’infraction (art. 145-1 et 145-2 CPP).</li>
     <li><b>Chef hors saisine</b> signalé au regard du réquisitoire introductif.</li>
     <li><b>Chronologie</b> du dossier : expertises, interrogatoires, commissions rogatoires.</li>
+    <li><b>Notes</b> du magistrat et <b>suspects</b> marqués avant mise en examen.</li>
+    <li><b>Cartographie</b> : mis en examen et suspects rejoignent la carte des réseaux.</li>
+    <li><b>Recoupements</b> : les pièces d’instruction et les noms des mis en examen sont comparés aux enquêtes.</li>
     <li><b>Règlement</b> : avis de fin d’information, réquisitoire définitif, orientation.</li>
   </ul>
 
@@ -579,7 +574,7 @@ h1.title em { font-style: normal; color: var(--accent); }
 <section class="page">
   <div class="kicker"><span class="num">7</span>Module AIR</div>
   <h1 class="title">Le suivi des usagers<br><em>de produits stupéfiants.</em></h1>
-  <p class="lead" style="margin-bottom:0">Le module AIR assure le suivi des consommateurs de produits stupéfiants orientés vers une mesure d’accompagnement. Les données de l’association et du greffe s’importent directement. L’application calcule l’état de chaque mesure, signale celles qui se prolongent et produit les indicateurs du bilan.</p>
+  <p class="lead" style="margin-bottom:0">Le parquet d’Amiens a mis en œuvre un programme local de lutte contre l’usage de stupéfiants, pour traiter le trafic à 360° : les trafiquants comme les usagers. Les usagers orientés en AIR suivent une mesure de soins, avec un suivi par le magistrat et des rendez-vous répétés. Le module AIR assure ce suivi (import des données de l’association et du greffe, état de chaque mesure, indicateurs du bilan) et se désactive dans les tribunaux qui n’ont pas ce programme.</p>
 
   <div class="shot mt5"><img src="img/air-kpis.jpg" alt="Indicateurs AIR"></div>
   <div class="shot mt4" style="height:44mm"><img src="img/air-annual.jpg" alt="Évolution annuelle du taux de réussite"></div>
@@ -596,11 +591,10 @@ h1.title em { font-style: normal; color: var(--accent); }
     </div>
   </div>
 
-  <div class="shot mt5"><img src="img/air-alertes.jpg" alt="Alertes de convocation"></div>
+  <div class="shot fade mt5" style="height:30mm"><img src="img/air-alertes.jpg" alt="Alertes de convocation"></div>
   <div class="caption"><b>Alertes de convocation</b> : mesures à convoquer devant le procureur, retards probables, suivis insuffisants.</div>
 
   <ul class="points mt5" style="grid-template-columns:1fr 1fr;column-gap:8mm">
-        <li><b>Import</b> des tableaux de l’association et du greffe.</li>
         <li><b>Rencontres avec le procureur</b>, entretiens, carences, visites à domicile.</li>
         <li><b>Mesures de plus de six mois</b> signalées.</li>
         <li><b>Projection</b> à la fin de l’année et <b>rapport</b> exporté en PDF.</li>
@@ -618,9 +612,15 @@ h1.title em { font-style: normal; color: var(--accent); }
   <div class="shot mt5"><img src="img/stats-comparatif.jpg" alt="Comparatif annuel"></div>
   <div class="caption"><b>Comparatif annuel</b> : procédures terminées, condamnations, emprisonnement prononcé, amendes, déférements.</div>
 
-  <div class="narrow mt4">
-    <div class="shot"><img src="img/stats-kpis.jpg" alt="Statistiques générales"></div>
-    <div class="caption"><b>Activité</b> : procédures terminées par mois, durée moyenne des enquêtes, actes d’enquête et prolongations, temps de traitement estimé.</div>
+  <div class="row mt4" style="align-items:flex-start;gap:5mm">
+    <div class="col">
+      <div class="shot"><img src="img/stats-kpis.jpg" alt="Statistiques générales"></div>
+      <div class="caption"><b>Activité</b> : procédures terminées par mois, durée moyenne des enquêtes, actes d’enquête et prolongations, temps de traitement estimé.</div>
+    </div>
+    <div style="width:50mm">
+      <div class="shot"><img src="img/stats-deferements.jpg" alt="Évolution des déferements"></div>
+      <div class="caption"><b>Déferements</b> mois par mois, à leur date réelle.</div>
+    </div>
   </div>
 
   <div class="narrow mt4">
@@ -684,8 +684,8 @@ h1.title em { font-style: normal; color: var(--accent); }
       <div class="it"><div class="ic"><svg class="icon"><use href="#i-eye"/></svg></div><h4>Droits par profil</h4><p>Accès limité selon le rôle ; masquage des dossiers sensibles.</p></div>
     </div>
     <div class="contact">
-      <div class="who"><svg><use href="#logo"/></svg><div><b>SIRAL</b>Application développée au parquet du tribunal judiciaire d’Amiens</div></div>
-      <div style="text-align:right">Démonstration sur demande<br><span style="color:rgba(255,255,255,.5)">Captures réalisées sur des données fictives</span></div>
+      <div class="who"><svg><use href="#logo"/></svg><div><b>Conçue et développée par Audran CHEVALIER</b>Substitut du procureur de la République, parquet d’Amiens</div></div>
+      <div style="text-align:right;white-space:nowrap">Démonstration sur demande<br><span style="color:rgba(255,255,255,.5)">Données fictives</span></div>
     </div>
   </div>
 </section>
