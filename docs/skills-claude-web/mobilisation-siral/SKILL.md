@@ -1,11 +1,11 @@
 ---
 name: mobilisation-siral
 description: >
-  Mobiliser le connecteur SIRAL (parquet) : trouver le bon dossier, lire
-  données et pièces, recouper une pièce versée (PV), rédiger et remettre
-  les actes (produire_document). Consignes permanentes (écritures directes)
-  et balayages par lots. Déclencher dès que SIRAL, une enquête ou un acte
-  est en jeu.
+  Mobiliser le connecteur SIRAL : trouver le bon dossier, lire données et
+  pièces, recouper une pièce versée (PV), rédiger et remettre les actes,
+  inscrire les résultats d'audience. Consignes permanentes et balayages par
+  lots. Déclencher dès que SIRAL, une enquête, un acte ou une audience est
+  en jeu.
 ---
 
 # Mobiliser SIRAL depuis Claude web
@@ -138,6 +138,41 @@ de la pièce) — visible dans les comptes-rendus et la chronologie.
 5. Synthèse, note, projet de mail au directeur d'enquête → `remettre_livrable`
    (fil « pendant votre absence », bouton Copier). `terminer_todo` si le
    travail accompli règle un à-faire du dossier.
+
+## Résultats d'audience dictés
+
+Le magistrat dicte l'issue d'un défèrement ou d'une audience : « 2026/000123 :
+DUPONT, MARTIN et DURAND déférés le 24/09. DUPONT et MARTIN en CRPC — 12 mois
+dont 6 avec sursis probatoire, 8 mois ferme et 500 €. Renvoi au 15/10 pour
+les autres. » → `enregistrer_audience`, qui écrit ce qu'écrirait la fenêtre
+« Archiver l'enquête » / « Résultats d'audience » et archive le dossier.
+
+1. Identifier le dossier (étape 1). `lire_dossier` (aperçu) donne les mis en
+   cause — c'est sur cette liste que se résolvent « les autres » — et le
+   résultat déjà enregistré, s'il existe.
+2. Traduire la dictée **personne par personne** : orientation (CRPC, CI,
+   COPJ, CDD ou OI), défèrement et sa date réelle (`dateDefere` racine pour
+   une date commune), décision — `condamnation`, `relaxe` ou `renvoi` (+
+   `dateRenvoi`). Peines en **mois entiers** : « 12 mois dont 6 avec sursis
+   probatoire » = `prisonFermeMois` 6 + `sursisProbatoireMois` 6 ; « 2 ans »
+   = 24. `dateAudience` = jour où la décision a été rendue (une CRPC sur
+   défèrement est en général homologuée le jour même) — une seule par
+   dossier.
+3. **Ambiguïté → une question courte AVANT d'écrire** : qui sont « les
+   autres », la voie d'un renvoyé, une peine sans case dans l'app (TIG seul,
+   jours-amende, stage), une voie que l'app ne connaît pas (CPPV, ordonnance
+   pénale…). Sinon, écrire directement : la dictée vaut instruction.
+4. Un appel **par dossier** ; plusieurs dossiers dictés → plusieurs appels.
+5. Plus tard, « DURAND jugé le 15/10 : 18 mois ferme » → même outil : seules
+   les personnes dictées changent, les autres restent ; `remplacer:true`
+   uniquement pour tout réécrire (exigé pour transformer un classement ou
+   une OI en jugement). Classement sans suite (`issue:"classement"`,
+   `motifClassement`) et ouverture d'information
+   (`issue:"ouverture_information"`) valent pour le dossier entier.
+6. **Récapituler** le tableau enregistré (réponse de l'outil : une ligne par
+   personne), avec les rattachements de noms et les avertissements (saisies
+   non reportées en confiscations, nom hors mis en cause, défèrement sans
+   date…).
 
 ## Régimes d'écriture — proposition (défaut) ou direct (consigne permanente)
 

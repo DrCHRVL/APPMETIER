@@ -197,6 +197,15 @@ export function normaliserStupefiants(
 export interface PendingCondamnation {
   nom: string;
   dateAudiencePending: string;
+  /**
+   * Voie, défèrement et rattachement du renvoyé, quand le renvoi a été
+   * enregistré avec eux (connecteur, scripts/attache/audience.mjs). Absents
+   * des renvois saisis dans la fenêtre, qui ne les demande pas.
+   */
+  typeAudience?: TypeAudience;
+  defere?: boolean;
+  dateDefere?: string;
+  misEnCauseId?: number;
 }
 
 export interface ResultatAudience {
