@@ -38,6 +38,7 @@ import { saveKbEntry, setKbMeta, setKbReflexe, listKb, readKbEntry, searchKb, KB
 import { runSubagents } from './attache/subagents.mjs'
 import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
 import { modifierDossierInstruction, elementInstruction, misEnExamenInstruction, COLLECTIONS_INSTRUCTION } from './attache/instruEcriture.mjs'
+import { enregistrerAudience, resultatAudienceMarkdown, ISSUES_AUDIENCE, DECISIONS_AUDIENCE } from './attache/audience.mjs'
 import { listDepot, readDepotText, readMailPieceText, rangerDocument, rangerPieceDansKb, ecarterDepot, ZONES } from './attache/depot.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { lireRegistre, recouperRegistres } from './attache/registre.mjs'
@@ -138,6 +139,7 @@ const OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME = new Set([
   'enregistrer_acte', 'acter_prolongation', 'modifier_acte', 'classer_note',
   'ajouter_todo', 'terminer_todo', 'ajouter_natinfs', 'creer_dossier',
   'modifier_dossier', 'archiver_dossier', 'ajouter_mec', 'modifier_mec',
+  'enregistrer_audience',
   'instru_modifier_dossier', 'instru_element', 'instru_mis_en_examen',
   'actualiser_description', 'ranger_document', 'depot_ecarter',
   'routine_enregistrer', 'routine_suspendre', 'routine_supprimer',
@@ -172,7 +174,7 @@ const TOOLS = [
   },
   {
     name: 'lire_dossier',
-    description: 'Dossier en markdown COMPACT (aperçu par défaut) : objet, NATINF, mis en cause, actes (id + statut + échéance), à-faire, documents, et un INDEX daté des comptes-rendus. Ne sature jamais la sortie. Le détail se tire à la demande, borné, via `section` : "cr" = CR intégraux PAGINÉS (offset = index d\'un CR vu dans l\'index [#i], limit = nombre par page) ; "fiche" avec `cible` = tout ce qui concerne une personne / une ligne / une cible (MEC, actes, mentions dans les CR) — l\'outil pour retrouver un propriétaire, une date, une échéance précise sans tout relire ; "mec" | "actes" | "documents" = la section seule ; "complet" = tout, CR inclus (à éviter sur un gros dossier). Si le numéro est un dossier d\'INSTRUCTION (n° instruction ou parquet), rend : saisine, mis en examen (détention, DML), débats JLD, opérations, chronologie.',
+    description: 'Dossier en markdown COMPACT (aperçu par défaut) : objet, NATINF, mis en cause, actes (id + statut + échéance), à-faire, documents, un INDEX daté des comptes-rendus et, s\'il existe, le RÉSULTAT D\'AUDIENCE enregistré (personne par personne). Ne sature jamais la sortie. Le détail se tire à la demande, borné, via `section` : "cr" = CR intégraux PAGINÉS (offset = index d\'un CR vu dans l\'index [#i], limit = nombre par page) ; "fiche" avec `cible` = tout ce qui concerne une personne / une ligne / une cible (MEC, actes, mentions dans les CR) — l\'outil pour retrouver un propriétaire, une date, une échéance précise sans tout relire ; "mec" | "actes" | "documents" = la section seule ; "complet" = tout, CR inclus (à éviter sur un gros dossier). Si le numéro est un dossier d\'INSTRUCTION (n° instruction ou parquet), rend : saisine, mis en examen (détention, DML), débats JLD, opérations, chronologie.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -184,9 +186,16 @@ const TOOLS = [
       },
       required: ['numero'],
     },
-    handler: async (a) => dossierMarkdown(keys, a.numero, { section: a.section, cible: a.cible, offset: a.offset, limit: a.limit })
-      ?? instructionDossierMarkdown(keys, a.numero)
-      ?? { erreur: `Dossier ${a.numero} introuvable — voir lister_dossiers (enquêtes) et instru_lister (instruction)` },
+    handler: async (a) => {
+      const md = dossierMarkdown(keys, a.numero, { section: a.section, cible: a.cible, offset: a.offset, limit: a.limit })
+      if (md == null) {
+        return instructionDossierMarkdown(keys, a.numero)
+          ?? { erreur: `Dossier ${a.numero} introuvable — voir lister_dossiers (enquêtes) et instru_lister (instruction)` }
+      }
+      // Le résultat d'audience vit dans son propre coffre : l'aperçu et la vue complète le joignent.
+      const section = String(a.section || 'apercu').toLowerCase()
+      return section === 'apercu' || section === 'complet' ? md + resultatAudienceMarkdown(keys, a.numero) : md
+    },
   },
   {
     name: 'instru_lister',
@@ -678,6 +687,59 @@ const TOOLS = [
       required: ['numero'],
     },
     handler: async (a) => modifierMec(keys, a),
+    write: true,
+  },
+  {
+    name: 'enregistrer_audience',
+    description: `RÉSULTATS D'AUDIENCE d'une enquête — la même saisie que les fenêtres « Archiver l'enquête » et « Résultats d'audience » de l'app, suivie de l'ARCHIVAGE du dossier (comme dans l'app : le résultat clôt l'enquête et entre dans les statistiques).
+Une ligne par PERSONNE dans \`personnes\` :
+- orientation : CRPC, CI, COPJ, CDD ou OI — les seules voies de l'app (une autre, CPPV, ordonnance pénale… : demander au magistrat la case à retenir) ;
+- défèrement : defere + dateDefere, sa date RÉELLE (c'est elle que comptent les statistiques). Sans précision, CRPC, CI et CDD valent défèrement, COPJ et OI non. La racine \`dateDefere\` s'applique aux déférés sans date propre (« X, Y et Z déférés le 24/09 ») ;
+- decision : "condamnation" (peines en MOIS ENTIERS — « 12 mois dont 6 avec sursis probatoire » = prisonFermeMois 6 + sursisProbatoireMois 6, 1 an = 12 ; amende en euros ; interdictions de paraître / de gérer) · "relaxe" · "renvoi" (dateRenvoi = prochaine audience : la personne reste « en attente d'audience »). Une peine sans case dans l'app (TIG seul, jours-amende, stage) : demander au magistrat.
+Des jugés + des renvoyés = résultat PARTIEL (le dossier reste dans les audiences en attente jusqu'au jugement des renvoyés, leur défèrement est compté dès maintenant) ; uniquement des renvoyés = audience à venir.
+dateAudience = date où les décisions ont été rendues (homologation CRPC, jugement) — UNE par dossier, comme dans l'app. issue : "jugement" (défaut avec personnes) | "audience_a_venir" (rien n'est jugé : dateAudience = date de l'audience, reprise pour chaque personne sans dateRenvoi ; sans personne nommée : dateDefere + nombreDeferes) | "classement" (motifClassement) | "ouverture_information". Infractions : natinfCodes, sinon celles du dossier.
+Un résultat existant est COMPLÉTÉ : chaque personne dictée est mise à jour (seuls les champs fournis changent — « DURAND : 18 mois ferme » juge un renvoyé), les autres restent ; remplacer:true réécrit tout (requis pour passer d'un classement ou d'une OI à un jugement, et inversement). Les noms sont rattachés aux mis en cause du dossier (rapprochement tolérant, signalé dans la réponse). reporterSaisies:true reprend les saisies d'enquête en confiscations. Écriture versionnée (réversible).
+RÉSERVÉ à une instruction EXPLICITE du magistrat ; dictée ambiguë (qui est renvoyé, quelle peine, quelle date) → demander AVANT d'écrire. Récapituler ensuite la réponse : résultat, rattachements, avertissements.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string', description: 'Numéro du dossier (enquête)' },
+        issue: { type: 'string', enum: ISSUES_AUDIENCE, description: 'Défaut "jugement" dès qu\'il y a des personnes' },
+        dateAudience: { type: 'string', description: 'AAAA-MM-JJ — jugement : audience où les décisions ont été rendues ; audience_a_venir : date de l\'audience ; classement / OI : date de la décision (défaut aujourd\'hui)' },
+        dateDefere: { type: 'string', description: 'AAAA-MM-JJ — date de défèrement commune, pour les déférés sans date propre' },
+        nombreDeferes: { type: 'integer', description: 'audience_a_venir SANS personne nommée : nombre de déférés' },
+        personnes: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              nom: { type: 'string', description: 'Nom tel que dicté — rattaché au mis en cause du dossier' },
+              decision: { type: 'string', enum: DECISIONS_AUDIENCE },
+              orientation: { type: 'string', enum: ['CRPC', 'CI', 'COPJ', 'CDD', 'OI'] },
+              defere: { type: 'boolean' },
+              dateDefere: { type: 'string', description: 'AAAA-MM-JJ' },
+              dateRenvoi: { type: 'string', description: 'AAAA-MM-JJ — renvoi : date de la prochaine audience' },
+              prisonFermeMois: { type: 'integer' },
+              sursisProbatoireMois: { type: 'integer' },
+              sursisSimpleMois: { type: 'integer' },
+              amende: { type: 'number', description: 'En euros' },
+              interdictionParaitre: { type: 'boolean', description: 'false la retire' },
+              lieuInterdictionParaitre: { type: 'string' },
+              dureeInterdictionParaitreMois: { type: 'integer' },
+              interdictionGerer: { type: 'boolean', description: 'false la retire' },
+              dureeInterdictionGererMois: { type: 'integer' },
+            },
+            required: ['nom'],
+          },
+        },
+        natinfCodes: { type: 'array', items: { type: 'string' }, description: 'Infractions jugées (natinf_chercher) — défaut : celles du résultat existant, sinon du dossier' },
+        motifClassement: { type: 'string' },
+        reporterSaisies: { type: 'boolean', description: 'Reprendre les saisies d\'enquête dans les confiscations (lignes absentes seulement)' },
+        remplacer: { type: 'boolean', description: 'Réécrire le résultat au lieu de le compléter' },
+      },
+      required: ['numero'],
+    },
+    handler: async (a) => enregistrerAudience(keys, a),
     write: true,
   },
   {
@@ -1894,7 +1956,7 @@ const OUTILS_HORS_CONNECTEUR = new Set(['sous_agents', 'poser_question'])
 
 const INSTRUCTIONS_CONNECTEUR = [
   `SIRAL — application métier du parquet (contentieux ${attacheContentieux()}). Tu agis pour le compte du magistrat administrateur, authentifié via OAuth.`,
-  'Points d\'entrée : lister_dossiers (enquêtes) · instru_lister (module instruction ; écritures : instru_modifier_dossier, instru_element, instru_mis_en_examen) · lire_dossier (détail, sections paginées) · dossier_arborescence puis lire_document (pièces) · pieces_chercher (LOCALISER une information dans les pièces et les fiches sans tout relire) · registre_lire (sommaire pièce par pièce : type, date, personnes, entités, résumé) · registre_recouper (entités partagées entre dossiers, pièces citées) · stats_ecran / stats_synthese / stats_graphique (chiffres et graphiques).',
+  'Points d\'entrée : lister_dossiers (enquêtes) · instru_lister (module instruction ; écritures : instru_modifier_dossier, instru_element, instru_mis_en_examen) · lire_dossier (détail, sections paginées) · enregistrer_audience (résultats d\'audience dictés par le magistrat — défèrements, orientations, peines, relaxes, renvois, classement, OI — puis archivage) · dossier_arborescence puis lire_document (pièces) · pieces_chercher (LOCALISER une information dans les pièces et les fiches sans tout relire) · registre_lire (sommaire pièce par pièce : type, date, personnes, entités, résumé) · registre_recouper (entités partagées entre dossiers, pièces citées) · stats_ecran / stats_synthese / stats_graphique (chiffres et graphiques).',
   'STATISTIQUES — le magistrat lit une PAGE « Statistiques » organisée par ANNÉE (sélecteur en haut) et en quatre sections : Statistiques générales · Types d\'infractions · Résultats d\'audience · Statistiques instruction. Ses chiffres sont ceux de cette page.',
   '  1. Toute question sur « mes statistiques », un chiffre affiché, un écart, une année civile → stats_ecran (annee) : il rend la page CARTE PAR CARTE, avec le titre exact de chaque carte, sa valeur et sa règle de calcul. Une période non calendaire (semestre, trimestre, « depuis mars ») → stats_synthese (du/au). Les années disponibles → stats_annees.',
   '  2. NE JAMAIS RECALCULER un chiffre déjà rendu, ni le reconstituer en additionnant des listes de dossiers : les règles de la page sont subtiles (procédures terminées HORS classements et ouvertures d\'information ; orientations comptées 1 par dossier mais 1 par prévenu en CRPC ; RELAXES comptées à part, hors condamnations et hors moyennes de peine, mais leur défèrement reste compté ; déférements comptés à leur date réelle et non à la date d\'audience ; saisies d\'enquête ≠ confiscations d\'audience ; l\'année en cours s\'arrête au mois courant). Un recalcul « de bon sens » donne un autre nombre que l\'écran — c\'est l\'erreur à ne pas commettre. Reprendre la valeur, et citer la carte d\'où elle vient.',

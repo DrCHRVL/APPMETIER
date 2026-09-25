@@ -27,6 +27,8 @@ interface ExtendedCondamnationData extends CondamnationData {
   dateAudiencePending?: string;
   dateDefere?: string;
   isRelaxe?: boolean;
+  /** Renvoi enregistré avec sa voie et son défèrement : ils sont conservés tant qu'il reste en attente. */
+  renvoiDetaille?: boolean;
 }
 
 // Types
@@ -108,17 +110,19 @@ export const AudienceResultModal = ({
     }));
     const pending = (initialData?.pendingCondamnations || []).map(p => ({
       nom: p.nom,
+      misEnCauseId: p.misEnCauseId,
       peinePrison: 0,
       sursisProbatoire: 0,
       sursisSimple: 0,
       peineAmende: 0,
       interdictionParaitre: false,
       interdictionGerer: false,
-      typeAudience: 'CI' as const,
-      defere: true,
-      dateDefere: pendingDateDefere,
+      typeAudience: p.typeAudience || ('CI' as const),
+      defere: p.defere ?? true,
+      dateDefere: p.dateDefere || pendingDateDefere,
       isPending: true,
-      dateAudiencePending: p.dateAudiencePending || ''
+      dateAudiencePending: p.dateAudiencePending || '',
+      renvoiDetaille: p.typeAudience !== undefined || p.defere !== undefined
     }));
     return [...finalized, ...pending];
   };
@@ -333,11 +337,17 @@ export const AudienceResultModal = ({
         )
         .map(c => ({
           ...c,
+          renvoiDetaille: undefined,
           // Filet de sécurité pour les audiences à date lointaine : un déféré
           // sans date reprend celle saisie à l'archivage, sinon les stats le
           // rattacheraient au mois de l'audience et non à celui du défèrement.
           dateDefere: c.defere ? (c.dateDefere || pendingDateDefere || undefined) : c.dateDefere,
         }));
+
+      // Renvoyés dont le défèrement est connu (renvoi enregistré avec lui) :
+      // déférés, ils comptent dès maintenant, au niveau du dossier, jusqu'à
+      // leur jugement — même règle que le connecteur (scripts/attache/audience.mjs).
+      const renvoyesDeferes = pendingCondamnations.filter(c => c.renvoiDetaille && c.defere);
 
       // Vérifier si des défèrements étaient attendus (depuis audience en attente).
       // Une relaxe compte : la personne a bien été déférée, seule la
@@ -345,9 +355,9 @@ export const AudienceResultModal = ({
       const nbDeferesSaisis = condamnationsAEnregistrer.filter(c => c.defere).length;
       const nbDeferesAttendus = initialData?.nombreDeferes;
 
-      if (nbDeferesAttendus && nbDeferesSaisis !== nbDeferesAttendus) {
+      if (nbDeferesAttendus && nbDeferesSaisis + renvoyesDeferes.length !== nbDeferesAttendus) {
         showToast(
-          `Attention : ${nbDeferesAttendus} déférés attendus, ${nbDeferesSaisis} saisis`,
+          `Attention : ${nbDeferesAttendus} déférés attendus, ${nbDeferesSaisis + renvoyesDeferes.length} saisis`,
           'warning'
         );
       }
@@ -371,7 +381,15 @@ export const AudienceResultModal = ({
         hasPartialResults,
         pendingCondamnations: pendingCondamnations.map(c => ({
           nom: c.nom || '',
-          dateAudiencePending: c.dateAudiencePending || ''
+          dateAudiencePending: c.dateAudiencePending || '',
+          // La fenêtre ne montre ni la voie ni le défèrement d'une personne en
+          // attente : s'ils avaient été enregistrés, ils ne doivent pas se perdre.
+          ...(c.renvoiDetaille ? {
+            typeAudience: c.typeAudience,
+            defere: c.defere,
+            ...(c.defere && c.dateDefere ? { dateDefere: c.dateDefere } : {}),
+            ...(c.misEnCauseId != null ? { misEnCauseId: c.misEnCauseId } : {}),
+          } : {}),
         })),
         isPartiallyPending: hasPartialResults,
         // Champs que ce modal n'édite pas : ils doivent survivre à une
@@ -388,8 +406,17 @@ export const AudienceResultModal = ({
         // compter deux fois les mêmes déférés dans les cartes qui lisent
         // `nombreDeferes` en priorité. S'il n'y en a aucune, en revanche, on
         // ne jette pas ce qui avait été saisi à l'archivage.
-        dateDefere: nbDeferesSaisis > 0 ? undefined : initialData?.dateDefere,
-        nombreDeferes: nbDeferesSaisis > 0 ? undefined : initialData?.nombreDeferes
+        // Exception : des renvoyés déférés, sans ligne de condamnation, gardent
+        // le total des déférés au niveau du résultat (règle de l'écran : ce
+        // total prime pour la courbe, et ne compte que le surplus dans les
+        // orientations — aucun double compte).
+        dateDefere: renvoyesDeferes.length > 0
+          ? ([...condamnationsAEnregistrer.filter(c => c.defere).map(c => c.dateDefere), ...renvoyesDeferes.map(c => c.dateDefere)]
+              .filter((d): d is string => Boolean(d)).sort()[0] || pendingDateDefere || undefined)
+          : (nbDeferesSaisis > 0 ? undefined : initialData?.dateDefere),
+        nombreDeferes: renvoyesDeferes.length > 0
+          ? nbDeferesSaisis + renvoyesDeferes.length
+          : (nbDeferesSaisis > 0 ? undefined : initialData?.nombreDeferes)
       };
       
       await onSave(resultat);

@@ -24,12 +24,50 @@ chronologies, statistiques et graphiques, écritures réversibles (actes, CR,
 - « Enregistre l'autorisation d'écoute signée ce matin » → `modifier_acte`
   (écriture versionnée, auditée) ;
 - « Rédige la prolongation et range-la dans le dossier » →
-  `produire_document` (atelier « Actes rédigés », exports officiels).
+  `produire_document` (atelier « Actes rédigés », exports officiels) ;
+- « 2026/000123 : DUPONT, MARTIN et DURAND déférés le 24/09. DUPONT et
+  MARTIN en CRPC — 12 mois dont 6 avec sursis probatoire, 8 mois ferme et
+  500 € d'amende. Renvoi au 15/10 pour DURAND » → `enregistrer_audience`
+  (voir plus bas), puis archivage du dossier.
 
 Deux outils de l'attaché sont volontairement absents du connecteur :
 `sous_agents` (lancerait des runs CLI parallèles sur l'abonnement — Claude
 web orchestre déjà ses lectures) et `poser_question` (vous êtes déjà dans la
 conversation). Les suppressions restent, comme pour l'attaché, manuelles.
+
+## Résultats d'audience dictés
+
+`enregistrer_audience` écrit ce que la fenêtre « Archiver l'enquête » puis
+« Résultats d'audience » écrirait, dans le même coffre `audience` que lit la
+page Statistiques, et archive le dossier comme le fait l'app :
+
+- **une ligne par personne** : orientation (CRPC, CI, COPJ, CDD, OI — les
+  cinq voies de l'app ; une autre, CPPV par exemple, se fait préciser par le
+  magistrat), défèrement à sa **date réelle** (par défaut, CRPC, CI et CDD
+  valent défèrement, COPJ et OI non), et décision : condamnation (prison
+  ferme, sursis probatoire, sursis simple en mois entiers, amende,
+  interdictions de paraître / de gérer), relaxe, ou renvoi à une date ;
+- **jugés + renvoyés** = résultat partiel : le dossier reste dans les
+  « Audiences en attente » ; le défèrement des renvoyés est compté dès
+  maintenant (au niveau du dossier), puis sur leur propre ligne une fois
+  jugés — sans double compte, selon les règles de l'écran ;
+- **uniquement des renvoyés** = audience à venir ; **classement sans suite**
+  et **ouverture d'information** pour le dossier entier ;
+- **compléter plutôt que refaire** : un nouvel appel met à jour les seules
+  personnes dictées (« DURAND jugé : 18 mois ferme » reprend sa voie et son
+  défèrement) ; `remplacer: true` réécrit tout, et il est exigé pour
+  transformer un classement ou une OI en jugement (ou l'inverse) ;
+- les noms dictés sont **rattachés aux mis en cause** du dossier
+  (rapprochement tolérant, toujours signalé) ; les saisies d'enquête sont
+  conservées et, sur demande (`reporterSaisies`), reprises en confiscations ;
+- ce que l'app ne sait pas représenter est **refusé avec son motif** plutôt
+  qu'approché : peine sans case (TIG seul, jours-amende), mois non entiers,
+  orientation inconnue, condamnation sans peine chiffrée.
+
+La réponse récapitule le résultat enregistré (personne par personne), les
+rattachements de noms et les avertissements ; `lire_dossier` affiche le
+résultat en vigueur. Comme toute écriture du connecteur : versionnée
+(Sauvegardes → versions du coffre `audience`) et auditée.
 
 ## Statistiques : les mêmes chiffres qu'à l'écran
 

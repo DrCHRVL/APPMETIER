@@ -37,6 +37,14 @@ l'usage).
   - **gérer les mis en cause** sur demande (`ajouter_mec`, `modifier_mec` —
     rôle, statut, victime ; statut par défaut « actif », comme la saisie
     manuelle) — un nom simplement *détecté* reste une proposition ✓/✗ ;
+  - **enregistrer les résultats d'audience** dictés (`enregistrer_audience`)
+    — « X, Y et Z déférés le 24/09 ; X et Y en CRPC, 12 mois dont 6 avec
+    sursis probatoire et 8 mois ferme ; renvoi au 15/10 pour Z » : une ligne
+    par personne (orientation CRPC/CI/COPJ/CDD/OI, défèrement à sa date
+    réelle, condamnation, relaxe ou renvoi), résultat partiel tant que des
+    renvoyés attendent, classement sans suite ou ouverture d'information —
+    puis archivage du dossier, comme la fenêtre « Archiver l'enquête ». Un
+    résultat existant se **complète** (le renvoyé jugé plus tard) ;
   - **cocher les à-faire** (`terminer_todo`) quand une tâche est faite — y
     compris quand son propre travail vient de l'accomplir ;
   - les **suppressions** (dossier, acte, CR, mis en cause) restent

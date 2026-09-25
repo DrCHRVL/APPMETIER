@@ -1,7 +1,7 @@
 /**
  * SIRAL — outils de l'attaché IA qui MODIFIENT les données d'un dossier
  * (actes, comptes-rendus, mis en cause, NATINF, description, à-faire, cotes,
- * création de dossier). Sert à déclencher une synchronisation + rafraîchissement
+ * création de dossier, résultats d'audience et archivage). Sert à déclencher une synchronisation + rafraîchissement
  * IMMÉDIAT dès qu'un run de chat vient d'écrire, plutôt que d'attendre le cycle
  * de sync périodique (2 min). Les outils en lecture seule n'y figurent pas.
  *
@@ -21,6 +21,7 @@ export const ATTACHE_DOSSIER_WRITE_TOOLS: ReadonlySet<string> = new Set([
   'archiver_dossier',
   'ajouter_mec',
   'modifier_mec',
+  'enregistrer_audience',
   'actualiser_description',
   'cotes_enregistrer',
 ]);
