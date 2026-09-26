@@ -50,7 +50,11 @@ function normalizePhone(phone: string): string {
   if (digits.startsWith('+33')) digits = '0' + digits.slice(3);
   if (digits.startsWith('0033')) digits = '0' + digits.slice(4);
   // Garder uniquement les chiffres
-  return digits.replace(/[^0-9]/g, '');
+  digits = digits.replace(/[^0-9]/g, '');
+  // Numéro français à 9 chiffres (zéro initial omis) → 10 chiffres, afin que la
+  // comparaison EXACTE rapproche « 612345678 » et « 0612345678 ».
+  if (digits.length === 9) digits = '0' + digits;
+  return digits;
 }
 
 /** Normalise une immatriculation : lettres+chiffres sans séparateurs */
@@ -235,7 +239,12 @@ export function findCrossMatches(
           const normB = normalizePhone(telB);
           if (normB.length < 8) continue;
 
-          const sim = similarity(normA, normB);
+          // Comparaison EXACTE (après canonicalisation) et non Levenshtein : sur
+          // un numéro à 10 chiffres, un seul chiffre différent donne une
+          // similarité de 0,90 (≥ seuil) et rapprochait donc deux abonnés
+          // distincts — un faux recoupement. Les écarts de format (+33, zéro
+          // initial, espaces) sont déjà absorbés par normalizePhone.
+          const sim = normA === normB ? 1 : 0;
           if (sim >= MIN_PHONE_SIMILARITY) {
             matches.push({
               type: 'telephone',

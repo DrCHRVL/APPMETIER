@@ -46,7 +46,6 @@ export const useAudience = () => {
   const deleteResultat = useAudienceStore(s => s.deleteResultat);
   const getResultat = useAudienceStore(s => s.getResultat);
   const hasResultat = useAudienceStore(s => s.hasResultat);
-  const deleteAudienceResultat = useAudienceStore(s => s.deleteResultat);
 
   return {
     audienceState: { resultats },
@@ -54,7 +53,8 @@ export const useAudience = () => {
     deleteResultat,
     getResultat,
     hasResultat,
-    deleteAudienceResultat,
+    // Alias rétro-compatible : même méthode que deleteResultat.
+    deleteAudienceResultat: deleteResultat,
     isLoading,
     toggleDebugMode: () => {
       if (typeof window !== 'undefined') {

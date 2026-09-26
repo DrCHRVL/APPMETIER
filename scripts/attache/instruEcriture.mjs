@@ -14,7 +14,7 @@
  * toute écriture est réversible.
  */
 import fs from 'node:fs'
-import { attacheTj, tjDataDir, readVault, writeVault } from './store.mjs'
+import { attacheTj, tjDataDir, readVault, writeVault, withFileLock } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { natinfEntry } from './natinf.mjs'
 
@@ -74,7 +74,8 @@ function natinfRefOf(code) {
 
 /** Même calcul que utils/instructionUtils.ts (10 jours ouvrables, UTC). */
 export function calculateDMLEcheance(dateDepot) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateDepot)
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateDepot ?? ''))
+  if (!m) throw new Error(`date attendue au format AAAA-MM-JJ (reçu « ${dateDepot} »)`)
   const date = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
   let count = 0
   while (count < 10) {
@@ -87,7 +88,8 @@ export function calculateDMLEcheance(dateDepot) {
 
 /** Même calcul que utils/instructionUtils.ts (de date à date, repli fin de mois). */
 export function calculatePeriodeDPEnd(dateDebut, dureeMois) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateDebut)
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateDebut ?? ''))
+  if (!m) throw new Error(`date attendue au format AAAA-MM-JJ (reçu « ${dateDebut} »)`)
   const year = Number(m[1])
   const day = Number(m[3])
   const monthIdx = Number(m[2]) - 1 + dureeMois
@@ -117,6 +119,15 @@ function loadVaults(keys) {
  */
 export async function mutateInstruction(keys, numero, fn) {
   if (!keys?.global) throw new Error('Trousseau sans clé globale — remise des clés requise')
+  // Sérialisé : un même coffre `instructions-<user>` peut porter plusieurs
+  // dossiers, et cet appel relit puis réécrit le coffre ENTIER. Deux appels
+  // parallèles (deux dossiers du même coffre) liraient tous deux l'état
+  // ancien et le dernier écraserait la modification de l'autre — même hasard
+  // que enregistrerAudience, qui se protège déjà par withFileLock.
+  return withFileLock('instru:write', () => mutateInstructionLocked(keys, numero, fn))
+}
+
+async function mutateInstructionLocked(keys, numero, fn) {
   const vaults = loadVaults(keys)
   const hits = []
   for (const v of vaults) {

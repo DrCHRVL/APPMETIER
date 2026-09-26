@@ -922,7 +922,18 @@ class BackupManager {
     try {
       let isIntact = true;
       const checkedKeys: string[] = [];
-      
+
+      // Les données importantes sont stockées PAR CONTENTIEUX sous
+      // ctx_<id>_<suffixe> (cf. MAIN_DATA_KEYS) : comparer la clé entière à
+      // STORAGE_KEYS (noms « nus ») ne matchait jamais, si bien que les
+      // enquêtes / alertes / tags n'étaient en réalité jamais contrôlées.
+      // On reconnaît désormais le suffixe. Types de référence : cf.
+      // ContentieuxData dans contentieuxManager.ts.
+      const ARRAY_SUFFIXES = ['enquetes', 'customTags', 'alertRules', 'alerts', 'visualAlertRules'];
+      const OBJECT_SUFFIXES = ['alertValidations', 'audienceResultats'];
+      const matchesSuffix = (names: string[], key: string) =>
+        names.some(n => key === n || key.endsWith(`_${n}`));
+
       for (const key of BackupManager.MAIN_DATA_KEYS) {
         const data = await SiralBridge.getData(key, null);
         
@@ -933,24 +944,20 @@ class BackupManager {
         
         checkedKeys.push(key);
         
-        if (key === APP_CONFIG.STORAGE_KEYS.ENQUETES || key === APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS) {
+        const expectArray =
+          key === APP_CONFIG.STORAGE_KEYS.AIR_MESURES ||
+          key === APP_CONFIG.STORAGE_KEYS.SAVE_HISTORY ||
+          key === APP_CONFIG.STORAGE_KEYS.INSTRUCTIONS ||
+          matchesSuffix(ARRAY_SUFFIXES, key);
+
+        if (expectArray) {
           if (!Array.isArray(data)) {
             console.error(`❌ Data integrity check failed: ${key} is not an array`);
             isIntact = false;
           }
-        } else if (key === APP_CONFIG.STORAGE_KEYS.ALERT_RULES) {
-          if (!Array.isArray(data)) {
-            console.error('❌ Data integrity check failed: Alert rules is not an array');
-            isIntact = false;
-          }
-        } else if (key === APP_CONFIG.STORAGE_KEYS.CUSTOM_TAGS || key === APP_CONFIG.STORAGE_KEYS.AUDIENCE_RESULTATS) {
+        } else if (matchesSuffix(OBJECT_SUFFIXES, key)) {
           if (typeof data !== 'object' || data === null) {
             console.error(`❌ Data integrity check failed: ${key} is not an object`);
-            isIntact = false;
-          }
-        } else if (key === APP_CONFIG.STORAGE_KEYS.SAVE_HISTORY || key === APP_CONFIG.STORAGE_KEYS.AIR_MESURES) {
-          if (!Array.isArray(data)) {
-            console.error(`❌ Data integrity check failed: ${key} is not an array`);
             isIntact = false;
           }
         }

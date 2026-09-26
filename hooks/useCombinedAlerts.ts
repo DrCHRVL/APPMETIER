@@ -487,8 +487,15 @@ export const useCombinedAlerts = (enquetes: Enquete[], mesuresAIR: AIRMesure[], 
     [alerts]
   );
 
+  // Mémoïsé comme enqueteAlerts/airAlerts : sinon chaque rendu renvoyait un
+  // nouveau tableau, référence instable pour les consommateurs.
+  const activeAlerts = useMemo(() =>
+    alerts.filter(alert => alert.status === 'active'),
+    [alerts]
+  );
+
   return {
-    alerts: alerts.filter(alert => alert.status === 'active'),
+    alerts: activeAlerts,
     enqueteAlerts,
     airAlerts,
     alertRules,
