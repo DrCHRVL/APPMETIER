@@ -309,12 +309,15 @@ export async function appendEncryptedLine(file, entry) {
 export function readEncryptedLines(file, max = 500) {
   const p = attacheDir(file)
   if (!fs.existsSync(p)) return []
-  const lines = fs.readFileSync(p, 'utf8').split('\n').filter(Boolean)
+  // On ne garde que les `max` dernières lignes : on les découpe AVANT de parser
+  // pour ne pas désérialiser des dizaines de milliers de lignes destinées à
+  // être jetées (le journal d'usage grossit sans borne).
+  const lines = fs.readFileSync(p, 'utf8').split('\n').filter(Boolean).slice(-max)
   const out = []
   for (const line of lines) {
     try { out.push(JSON.parse(line)) } catch {}
   }
-  return out.slice(-max)
+  return out
 }
 
 // ── État non sensible du service (relève mail, santé) ──

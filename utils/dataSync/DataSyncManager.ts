@@ -208,8 +208,11 @@ export class DataSyncManager {
         );
         // Marquer pour que performSync puisse décider d'écraser le serveur en cas de corruption
         this.selfCausedCorruption = true;
-        // Nettoyer la sentinelle maintenant (elle sera réécrite si on re-push)
-        await SiralBridge.setData(DataSyncManager.SENTINEL_KEY, null);
+        // Nettoyer la sentinelle maintenant (elle sera réécrite si on re-push).
+        // Via clearData : setData(key, null) est refusé par le garde-fou
+        // anti-érosion (écrasement par une valeur vide), donc la sentinelle
+        // resterait sinon en place indéfiniment.
+        await SiralBridge.clearData(DataSyncManager.SENTINEL_KEY);
       }
     } catch {
       // Pas bloquant
@@ -300,6 +303,19 @@ export class DataSyncManager {
    * 🆕 FUSION INTELLIGENTE - Effectue une synchronisation complète
    */
   private async performSync(): Promise<SyncResult> {
+    // Garde de ré-entrance : les appelants (triggerSync, tick auto,
+    // triggerPostSaveSync) testent isSync AVANT leur await checkServerAccess(),
+    // si bien que deux déclencheurs concurrents peuvent tous deux atteindre
+    // performSync et lancer deux push simultanés (double backup, sentinelle
+    // posée/levée en désordre). On resérialise ici, à l'entrée réelle.
+    if (this.isSync) {
+      return {
+        success: false,
+        timestamp: new Date().toISOString(),
+        action: 'error',
+        error: 'Synchronisation déjà en cours'
+      };
+    }
     this.isSync = true;
     this.lastSyncAttempt = new Date().toISOString();
     this.notifyStatusChange();
@@ -557,61 +573,8 @@ export class DataSyncManager {
   }
 
 
-  // Durée de rétention des IDs supprimés : 90 jours
-  // Après ce délai, tous les collègues ont forcément syncé au moins une fois
-  private static readonly DELETED_IDS_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
-
   // Nombre maximum de backups serveur conservés
   private static readonly MAX_SERVER_BACKUPS = 5;
-
-  /** Lit les entrées supprimées depuis le stockage local (format {id, deletedAt}). */
-  private async loadDeletedEntries(): Promise<Array<{ id: number; deletedAt: string }>> {
-    const raw = await SiralBridge.getData<Array<{ id: number; deletedAt: string } | number>>(
-      'deleted_enquete_ids',
-      []
-    );
-    if (!Array.isArray(raw)) return [];
-    // Rétrocompatibilité : anciens enregistrements stockés comme simples nombres
-    return raw.map(e => (typeof e === 'number' ? { id: e, deletedAt: new Date(0).toISOString() } : e));
-  }
-
-  /** Sauvegarde les IDs supprimés en associant un timestamp et en purgent les entrées trop anciennes. */
-  private async saveDeletedEntries(ids: number[]): Promise<void> {
-    const pruneThreshold = Date.now() - DataSyncManager.DELETED_IDS_RETENTION_MS;
-    const existing = await this.loadDeletedEntries();
-    const existingMap = new Map(existing.map(e => [e.id, e.deletedAt]));
-    const now = new Date().toISOString();
-
-    const entries = ids
-      .map(id => ({ id, deletedAt: existingMap.get(id) ?? now }))
-      .filter(e => new Date(e.deletedAt).getTime() > pruneThreshold);
-
-    await SiralBridge.setData('deleted_enquete_ids', entries);
-  }
-
-  /** Lecture/écriture générique d'une liste d'IDs supprimés avec purge des anciennes entrées. */
-  private async loadDeletedIdEntries(key: string): Promise<Array<{ id: number; deletedAt: string }>> {
-    const raw = await SiralBridge.getData<Array<{ id: number; deletedAt: string }>>(key, []);
-    return Array.isArray(raw) ? raw : [];
-  }
-
-  private async saveDeletedIdEntries(key: string, ids: number[]): Promise<void> {
-    const pruneThreshold = Date.now() - DataSyncManager.DELETED_IDS_RETENTION_MS;
-    const existing = await this.loadDeletedIdEntries(key);
-    const existingMap = new Map(existing.map(e => [e.id, e.deletedAt]));
-    const now = new Date().toISOString();
-    const entries = ids
-      .map(id => ({ id, deletedAt: existingMap.get(id) ?? now }))
-      .filter(e => new Date(e.deletedAt).getTime() > pruneThreshold);
-    await SiralBridge.setData(key, entries);
-  }
-
-  private async loadDeletedActeEntries()     { return this.loadDeletedIdEntries('deleted_acte_ids'); }
-  private async saveDeletedActeEntries(ids: number[]) { return this.saveDeletedIdEntries('deleted_acte_ids', ids); }
-  private async loadDeletedCREntries()        { return this.loadDeletedIdEntries('deleted_cr_ids'); }
-  private async saveDeletedCREntries(ids: number[])   { return this.saveDeletedIdEntries('deleted_cr_ids', ids); }
-  private async loadDeletedMECEntries()       { return this.loadDeletedIdEntries('deleted_mec_ids'); }
-  private async saveDeletedMECEntries(ids: number[])  { return this.saveDeletedIdEntries('deleted_mec_ids', ids); }
 
   private async getLocalData(): Promise<SyncData> {
     const enquetes = await SiralBridge.getData('enquetes', []);
@@ -743,6 +706,10 @@ export class DataSyncManager {
       timestamp: new Date().toISOString(),
       user: this.currentUser
     });
+    // Forcer l'écriture disque immédiate : setData est temporisé (2,5 s) et un
+    // push nominal se termine avant, si bien que la sentinelle ne serait jamais
+    // persistée — donc jamais détectée en cas de plantage pendant l'écriture.
+    await SiralBridge.flush(DataSyncManager.SENTINEL_KEY);
 
     try {
       const metadata: SyncMetadata = {
@@ -758,8 +725,9 @@ export class DataSyncManager {
         throw new Error('Échec envoi vers serveur');
       }
 
-      // Écriture réussie : lever la sentinelle
-      await SiralBridge.setData(DataSyncManager.SENTINEL_KEY, null);
+      // Écriture réussie : lever la sentinelle (via clearData, cf. plus haut :
+      // setData(key, null) serait refusé par le garde-fou anti-érosion).
+      await SiralBridge.clearData(DataSyncManager.SENTINEL_KEY);
       this.selfCausedCorruption = false;
     } catch (error) {
       // La sentinelle reste en place : elle sera détectée au prochain démarrage
