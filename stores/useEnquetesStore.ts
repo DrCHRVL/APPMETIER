@@ -689,17 +689,29 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       return result;
     }
 
-    // Enquête PARTAGÉE (co-saisine) : l'acte doit naître dans le contentieux
-    // d'ORIGINE — même mécanique qu'ajoutCR. Sans cela, la validation
-    // marquait l'acte « traité » sans jamais créer l'acte de suivi.
-    const shared = findEnqueteParNumero(get().sharedEnquetes, numero);
-    if (!shared?.contentieuxOrigine) return { action: 'rien', raison: 'enquete_introuvable' };
+    // Enquête d'un AUTRE contentieux — PARTAGÉE (co-saisine), ou simplement pas
+    // celui affiché : l'atelier des actes vit sur la page « Assistant de
+    // justice », ouverte quel que soit le contentieux courant. L'acte doit
+    // naître dans le contentieux d'ORIGINE — même mécanique qu'ajoutCR. Sans
+    // cela, la validation marquait l'acte « traité » sans jamais créer l'acte
+    // de suivi.
     const manager = ContentieuxManager.getInstance();
-    const originEnquetes = manager.getEnquetes(shared.contentieuxOrigine);
+    const shared = findEnqueteParNumero(get().sharedEnquetes, numero);
+    let cible = shared?.contentieuxOrigine ? { ctx: shared.contentieuxOrigine, id: shared.id } : null;
+    if (!cible) {
+      for (const [ctx, list] of manager.getAllEnquetes()) {
+        if (ctx === get().contentieuxId || manager.getSyncMode(ctx) === 'read_only') continue;
+        const e = findEnqueteParNumero(list, numero);
+        if (e) { cible = { ctx, id: e.id }; break; }
+      }
+    }
+    if (!cible) return { action: 'rien', raison: 'enquete_introuvable' };
+    const { ctx: originId, id: cibleId } = cible;
+    const originEnquetes = manager.getEnquetes(originId);
     let result: ProductionActeResult = { action: 'rien', raison: 'enquete_introuvable' };
     let changed = false;
     const updated = originEnquetes.map(e => {
-      if (e.id !== shared.id) return e;
+      if (e.id !== cibleId) return e;
       const applied = appliquerProductionActe(e, ref, validated);
       result = applied.result;
       if (applied.enquete === e) return e;
@@ -712,8 +724,8 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       return appendModifications(applied.enquete, [{ type: 'general_info_updated', label }]);
     });
     if (changed) {
-      manager.setEnquetes(shared.contentieuxOrigine, updated);
-      persistOriginContentieux(shared.contentieuxOrigine, updated);
+      manager.setEnquetes(originId, updated);
+      persistOriginContentieux(originId, updated);
       get().loadSharedEnquetes();
     }
     return result;

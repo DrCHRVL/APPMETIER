@@ -81,10 +81,7 @@ export function ChronologieSection({ numero }: { numero: string }) {
       {/* En-tête repliable */}
       <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left">
         <History className="h-4 w-4 text-indigo-600" />
-        <span className="flex-1 text-sm font-semibold text-gray-800">
-          Chronologie
-          <span className="ml-2 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-600">Attaché · vous seul</span>
-        </span>
+        <span className="flex-1 text-sm font-semibold text-gray-800">Chronologie</span>
         {open ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
       </button>
 

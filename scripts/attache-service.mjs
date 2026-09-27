@@ -16,7 +16,7 @@
  */
 import http from 'node:http'
 import crypto from 'node:crypto'
-import { loadMasterKey, decryptJson } from './attache/crypto.mjs'
+import { loadMasterKey, decryptJson, encryptJson } from './attache/crypto.mjs'
 import { loadKeyring, grantKeyring, revokeKeyring, keyringStatus, allowedScopes } from './attache/keyring.mjs'
 import { handleConnectorMessage } from './attache-mcp.mjs'
 import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
@@ -40,7 +40,7 @@ import { analyseDocuments } from './attache/analyse.mjs'
 import { analyserTrame } from './attache/analyseTrame.mjs'
 import { classerTrames, classerKb, classerSkills, suggererAssociations } from './attache/classer.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
-import { listEnvelopesDossier, writeEnvelope, deleteProduction, readProduction } from './attache/productions.mjs'
+import { listEnvelopesDossier, writeEnvelope, deleteProduction, readProduction, sommaireProductions } from './attache/productions.mjs'
 import { recordLearningSignal, consolidationDue, consolidationPrompt, learningStatus, learningState, latestSignalTs } from './attache/apprentissage.mjs'
 import { corpusActesValides, etudeDue, etudePrompt, etudeState, etudeStatus } from './attache/etude.mjs'
 import { MEMORY_BUDGET } from './attache/memory.mjs'
@@ -1402,6 +1402,15 @@ const server = http.createServer(async (req, res) => {
       // de l'enquête « 85103/843/2026 - GRIVESNES 2 » voit aussi les actes
       // rangés sous « 85103/843/2026 » (même dossier, écriture courte).
       return json(res, 200, { productions: listEnvelopesDossier(keys, url.searchParams.get('numero') || '') })
+    }
+
+    if (route === 'GET /productions/sommaire') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      // Page « Assistant de justice » : chaque dossier qui a des actes. Chiffré
+      // (clé globale) — le navigateur admin le déchiffre, l'app ne voit pas la
+      // liste des dossiers en clair.
+      return json(res, 200, { envelope: encryptJson(keys.global, { dossiers: sommaireProductions(keys) }) })
     }
 
     if (route === 'PUT /production') {

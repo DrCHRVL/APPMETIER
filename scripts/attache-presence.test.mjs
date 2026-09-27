@@ -41,7 +41,7 @@ transpile('lib/server/store.ts', 'store.mjs')
 transpile('lib/server/auth.ts', 'auth.mjs')
 transpile('utils/numeroDossier.ts', 'numeroDossier.mjs')
 transpile('lib/server/attache.ts', 'attache.mjs')
-const { readProductionEnvelopes, readIaMasquee, writeIaMasquee, attacheDiagnostic } = await import(path.join(TMP, 'attache.mjs'))
+const { readProductionEnvelopes, readProductionDossiers, readIaMasquee, writeIaMasquee, attacheDiagnostic } = await import(path.join(TMP, 'attache.mjs'))
 
 let failures = 0
 const check = (nom, cond, detail = '') => {
@@ -90,6 +90,14 @@ check('« _hors-dossier » ne lit que son propre répertoire',
 fs.writeFileSync(path.join(racine, 'note.txt'), 'parasite')
 check('un fichier isolé à la racine ne casse rien',
   readProductionEnvelopes('85103/843/2026 - GRIVESNES 2').length === 2)
+
+// La fiche enquête n'a plus de section « Actes rédigés » : c'est ce sommaire
+// qui, service endormi, nomme les dossiers de la page « Assistant de justice ».
+const sommaire = readProductionDossiers()
+check('sommaire de repli : un échantillon par répertoire de dossier, hors dossier exclu',
+  sommaire.length === 3 && sommaire.every((d) => d.nb === 1 && d.echantillon?.encrypted === true)
+  && !sommaire.some((d) => d.echantillon.ct === '778899aact'),
+  JSON.stringify(sommaire))
 
 console.log('\nInterrupteur « fonctionnalités IA » (tenu par l\'app, service éteint)')
 

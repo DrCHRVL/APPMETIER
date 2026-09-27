@@ -19,7 +19,7 @@ import path from 'node:path'
 import { attacheDir, ensureDir, atomicWrite, readJson, docServerKey, withFileLock } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { normNumero, numerosProches } from './numero.mjs'
-import { resolveEnquete } from './dossier.mjs'
+import { resolveEnquete, loadContentieux, findEnquete } from './dossier.mjs'
 import { diffTexte } from '../../lib/attache/diffCore.mjs'
 
 // « fiche » : fiche factuelle produite par un CHANTIER d'analyse profonde
@@ -340,4 +340,47 @@ export function listProductions(keys, numero) {
     .filter(Boolean)
     .map(({ contenu, ...meta }) => ({ ...meta, taille: (contenu || '').length }))
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+}
+
+/**
+ * Sommaire des actes rédigés de TOUS les dossiers : la page « Assistant de
+ * justice » porte seule l'atelier (la fiche enquête n'a plus de section
+ * « Actes rédigés ») et y liste chaque dossier qui en a. Par dossier : actes en
+ * attente, actes traités (validés ou refusés), productions de chantier (tenues
+ * à part des actes), dernier mouvement. Aucun texte.
+ *
+ * Regroupé par numéro CANONIQUE : un acte rangé sous une écriture variante
+ * compte pour l'enquête telle qu'elle existe dans SIRAL — là où l'atelier du
+ * dossier (listEnvelopesDossier) l'affiche. Un numéro sans enquête reste listé
+ * tel quel (l'acte n'est jamais perdu de vue). Pseudo-dossiers exclus :
+ * « _hors-dossier » a sa propre section.
+ */
+export function sommaireProductions(keys) {
+  const root = productionsRoot()
+  if (!fs.existsSync(root)) return []
+  let data = { enquetes: [] }
+  try { data = loadContentieux(keys).data || data } catch { /* trousseau sans le contentieux : numéros tels quels */ }
+  const canonique = new Map()
+  const parDossier = new Map()
+  for (const d of fs.readdirSync(root)) {
+    if (d.startsWith('.')) continue
+    try { if (!fs.statSync(path.join(root, d)).isDirectory()) continue } catch { continue }
+    for (const { envelope } of listEnvelopesIn(d)) {
+      let rec
+      try { rec = decryptJson(keys.global, envelope) } catch { continue }
+      const brut = String(rec?.numero || '').trim()
+      if (!brut || isSpecial(brut)) continue
+      if (!canonique.has(brut)) canonique.set(brut, String(findEnquete(data, brut)?.numero || brut))
+      const numero = canonique.get(brut)
+      let s = parDossier.get(numero)
+      if (!s) { s = { numero, enAttente: 0, traites: 0, chantier: 0, maj: '' }; parDossier.set(numero, s) }
+      if (String(rec.source || '').startsWith('chantier:')) s.chantier++
+      else if (rec.traite || rec.refuse) s.traites++
+      else s.enAttente++
+      if (String(rec.updatedAt || '') > s.maj) s.maj = String(rec.updatedAt)
+    }
+  }
+  // Les dossiers qui attendent une décision d'abord, puis le plus récent.
+  return [...parDossier.values()].sort((a, b) =>
+    (Number(b.enAttente > 0) - Number(a.enAttente > 0)) || b.maj.localeCompare(a.maj))
 }

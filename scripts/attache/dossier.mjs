@@ -108,7 +108,7 @@ function findEnqueteStrict(data, numero) {
  * et « …GRIVESNES 2 ») : la plus vraisemblable — égalité normalisée d'abord,
  * dossier non archivé ensuite, puis activité la plus récente.
  */
-function findEnquete(data, numero) {
+export function findEnquete(data, numero) {
   const strict = findEnqueteStrict(data, numero)
   if (strict) return strict
   const list = data.enquetes || []

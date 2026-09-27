@@ -3,7 +3,8 @@
 /**
  * SIRAL — Attaché de justice · atelier des actes rédigés.
  *
- * Section du détail d'un dossier (admin only, auto-masquée) : la liste des
+ * Atelier d'un dossier (admin only, auto-masqué) — page « Assistant de
+ * justice » (par dossier, hors dossier, chantiers) et fiche d'instruction : la liste des
  * actes que l'attaché a rédigés (réquisitions, demandes de prolongation JLD,
  * saisines, projets de réponse — suivant les trames). Le magistrat :
  *  - les visionne et les édite légèrement à la main (textarea) puis enregistre ;
@@ -547,7 +548,9 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
                 const isOpen = expanded === p.id;
                 return (
                   <div key={p.id} className={`rounded-lg border ${p.refuse ? 'border-amber-200 bg-amber-50/40' : p.traite ? 'border-gray-100 bg-gray-50/60' : 'border-gray-200'}`}>
-                    <div className="flex items-center gap-2 px-3 py-2">
+                    {/* Téléphone : le titre prend sa propre ligne — sinon badges et
+                        boutons l'écrasent jusqu'à le faire disparaître. */}
+                    <div className="flex flex-wrap items-center gap-2 px-3 py-2">
                       <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-gray-500">{TYPE_LABEL[p.type] || 'Acte'}</span>
                       {estDeChantier(p) && (
                         <span
@@ -565,7 +568,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
                           <Loader2 className="h-2.5 w-2.5 animate-spin" />En cours
                         </span>
                       )}
-                      <button onClick={() => setExpanded(isOpen ? null : p.id)} className="min-w-0 flex-1 truncate text-left text-[12.5px] font-semibold text-gray-800 hover:text-gray-900">
+                      <button onClick={() => setExpanded(isOpen ? null : p.id)} className="min-w-0 flex-1 truncate text-left text-[12.5px] font-semibold text-gray-800 hover:text-gray-900 max-sm:order-first max-sm:basis-full">
                         {p.titre}
                       </button>
                       {/* Indicateur DISCRET de la trame suivie, visible d'un coup d'œil même acte replié (le détail complet reste en bas quand l'acte est déplié). */}
@@ -745,7 +748,7 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
                         {isRunning(p.id) && (
                           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px] text-[#2B5746]">
                             <Loader2 className="h-3 w-3 animate-spin" />
-                            <span>{runKindOf(p.id) === 'retouche' ? 'Retouche' : 'Nouvelle rédaction'} en cours — le travail continue en arrière-plan même si vous quittez l'enquête ; vous serez prévenu à la fin.</span>
+                            <span>{runKindOf(p.id) === 'retouche' ? 'Retouche' : 'Nouvelle rédaction'} en cours — le travail continue en arrière-plan même si vous quittez cette page ; vous serez prévenu à la fin.</span>
                             {aiTools.length > 0 && <span className="text-gray-400">{aiTools.join(' · ')}</span>}
                           </div>
                         )}
