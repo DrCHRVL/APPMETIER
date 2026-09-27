@@ -143,7 +143,11 @@ async function hashKey(raw: string): Promise<string> {
 /** Résumé assez long pour être coupé par le clamp (2 lignes) → dépliable. */
 const resumeIsLong = (s?: string) => !!s && (s.length > 110 || s.includes('\n'));
 
-export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: string) => void }) {
+export function AbsenceJournal({ onOpenDossier, serviceDuDossier }: {
+  onOpenDossier?: (numero: string) => void;
+  /** Service d'enquête d'un dossier — 2ᵉ segment du nom de fichier exporté. */
+  serviceDuDossier?: (numero: string) => string | undefined;
+}) {
   const iaMasquee = useIaMasquee();
   const [available, setAvailable] = useState(false);
   const [cards, setCards] = useState<Card[]>([]);
@@ -570,19 +574,19 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
                   const isNew = c.ts > seenTs;
                   const k = cardKey(c);
                   const isExpanded = expandedKey === k;
-                  // Clic : dossier réel → ouvre l'EnquêteDetail (l'acte rédigé y
-                  // est dans « Actes rédigés »). Hors dossier avec document →
-                  // ouvre le document. Sinon, non cliquable.
-                  const canOpenDossier = !!onOpenDossier && !!c.numero && c.numero !== '_hors-dossier';
-                  const onCardClick = canOpenDossier
-                    ? () => onOpenDossier!(c.numero!)
-                    : isDoc
-                      ? () => setPopup({ numero: c.numero || '_hors-dossier', prodId: c.prodId! })
+                  // Clic : carte reliée à un document → ouvre le document (la
+                  // fiche enquête n'a plus de section « Actes rédigés »). Sinon,
+                  // dossier réel → ouvre sa fiche. Sinon, non cliquable.
+                  const canOpenDossier = !isDoc && !!onOpenDossier && !!c.numero && c.numero !== '_hors-dossier';
+                  const onCardClick = isDoc
+                    ? () => setPopup({ numero: c.numero || '_hors-dossier', prodId: c.prodId! })
+                    : canOpenDossier
+                      ? () => onOpenDossier!(c.numero!)
                       : undefined;
                   return (
                     <div key={k} className={`flex items-start gap-2.5 px-3 py-2.5 ${onCardClick ? 'cursor-pointer hover:bg-gray-50' : ''}`}
                       onClick={onCardClick}
-                      title={canOpenDossier ? 'Ouvrir la fiche du dossier (acte rédigé dans « Actes rédigés »)' : undefined}
+                      title={canOpenDossier ? 'Ouvrir la fiche du dossier' : undefined}
                     >
                       <span className="mt-0.5 text-[15px] leading-none">{FEED_ICONS[c.type] || '•'}</span>
                       <div className="min-w-0 flex-1">
@@ -645,6 +649,7 @@ export function AbsenceJournal({ onOpenDossier }: { onOpenDossier?: (numero: str
         <ProductionPopup
           numero={popup.numero}
           prodId={popup.prodId}
+          service={serviceDuDossier?.(popup.numero)}
           onClose={() => { setPopup(null); reload(); }}
           onChanged={reload}
         />

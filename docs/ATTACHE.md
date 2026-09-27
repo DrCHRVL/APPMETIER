@@ -932,8 +932,10 @@ l'usage).
   **mémoire légère** (petit markdown plafonné) que l'attaché relit au début
   de chaque échange et enrichit d'une ligne quand du neuf apparaît —
   consultable et éditable via l'icône livre du chat.
-- **Atelier des actes rédigés** : section « Actes rédigés » dans le détail
-  d'un dossier (admin only). L'attaché y range les actes qu'il rédige
+- **Atelier des actes rédigés** : page « Assistant de justice », section
+  « Actes rédigés — par dossier » — une ligne par dossier qui a des actes
+  (ceux en attente d'une décision d'abord), dépliée en l'atelier du dossier ;
+  la fiche enquête n'en a plus (admin only). L'attaché y range les actes qu'il rédige
   (réquisition, demande de prolongation JLD, saisine, projet de réponse —
   suivant les trames, via l'outil `produire_document`, en reprenant les
   **NATINF enregistrés du dossier**). **La destination désignée par le
@@ -1177,7 +1179,7 @@ IA »**. Coché, l'application redevient exactement celle d'avant l'attaché :
 |---|---|
 | entrée de menu « Assistant de justice » et sa page | l'onglet Paramètres → Attaché IA |
 | raccourci de la barre du haut, panneau latéral, pastille de chantier | le service, qui poursuit son travail de fond |
-| « Actes rédigés » des fiches dossier et hors dossier | les actes eux-mêmes, intacts sur le serveur |
+| « Actes rédigés » (par dossier et hors dossier) | les actes eux-mêmes, intacts sur le serveur |
 | chat de dossier et chat carto | |
 | propositions de renseignement, barre de propositions, chronologie | |
 | « Détecter les camps (attaché) » et « Enrichir (attaché) » de la cartographie | |

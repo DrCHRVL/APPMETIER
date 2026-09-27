@@ -2,18 +2,31 @@
  * Actes rédigés d'un dossier (« Atelier ») — enveloppes chiffrées déchiffrées
  * par le navigateur de l'administrateur. Admin du TJ confié uniquement.
  * GET  ?numero=      → liste des productions (enveloppes)
+ * GET  ?sommaire=1   → dossiers ayant des actes, en une enveloppe (page « Assistant de justice »)
  * PUT  {numero,id,envelope} → édition manuelle (navigateur chiffre, service stocke)
  * DELETE ?numero=&id= → suppression (réversible côté service)
  */
 import { handle, jsonResponse } from '@/lib/server/auth'
-import { requireAttacheAdmin, attacheFetch, readProductionEnvelopes } from '@/lib/server/attache'
+import { requireAttacheAdmin, attacheFetch, readProductionEnvelopes, readProductionDossiers } from '@/lib/server/attache'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: Request) {
   return handle(async () => {
     requireAttacheAdmin(req)
-    const numero = new URL(req.url).searchParams.get('numero') || ''
+    const params = new URL(req.url).searchParams
+    // Sommaire de tous les dossiers. Service endormi : un échantillon par
+    // répertoire, que le navigateur déchiffre pour nommer le dossier — les actes
+    // restent consultables en lecture seule, comme ci-dessous.
+    if (params.get('sommaire')) {
+      const res = await attacheFetch('/productions/sommaire')
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok && (data as { injoignable?: boolean })?.injoignable) {
+        return jsonResponse({ dossiers: readProductionDossiers(), degrade: true }, { status: 200 })
+      }
+      return jsonResponse(data, { status: res.status })
+    }
+    const numero = params.get('numero') || ''
     const res = await attacheFetch('/productions?numero=' + encodeURIComponent(numero))
     const data = await res.json().catch(() => ({ productions: [] }))
     // Service endormi : les enveloppes sont sur le volume partagé, l'app les

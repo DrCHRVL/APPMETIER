@@ -1434,10 +1434,9 @@ function AppContent() {
   }, []);
 
   // Ouvre la fiche d'un dossier depuis son NUMÉRO (raccourci « Assistant de
-  // justice » : un clic sur une carte du journal ouvre
-  // directement l'EnquêteDetail — où l'acte rédigé se retrouve dans la section
-  // « Actes rédigés », éditable/exportable). Cherche dans tous les contentieux,
-  // puis dans les instructions.
+  // justice » : un clic sur une carte d'information du journal ouvre
+  // directement l'EnquêteDetail ; une carte d'acte rédigé, elle, ouvre l'acte).
+  // Cherche dans tous les contentieux, puis dans les instructions.
   const handleOpenDossierByNumero = useCallback((numero: string) => {
     if (!normNumero(numero)) return;
     for (const [ctxId, list] of overboardData) {
@@ -1478,6 +1477,16 @@ function AppContent() {
       })
       .catch(() => showToast(`Dossier « ${numero} » introuvable dans vos enquêtes`, 'info'));
   }, [overboardData, activeContentieux, instructions, showToast, setActiveContentieux, setCurrentView, openLiveEnqueteWhenReady, setSelectedInstruction, setIsEditingInstruction]);
+  // Service d'enquête d'un dossier (2ᵉ segment du nom de fichier des actes
+  // exportés) — même règle que la fiche enquête, qui le fournissait tant que
+  // les actes rédigés y vivaient. Tous contentieux confondus.
+  const serviceDuDossier = useCallback((numero: string) => {
+    for (const [, list] of enquetesForSearch) {
+      const e = findEnqueteParNumero(list, numero);
+      if (e) return e.tags?.find((t) => t.category === 'services')?.value || e.services?.find((s) => s && s.trim());
+    }
+    return undefined;
+  }, [enquetesForSearch]);
   // Ouvre l'autre dossier d'un recoupement. On referme la fiche courante :
   // deux fiches superposées désorientent plus qu'elles n'aident.
   const handleOuvrirDossierRecoupement = useCallback((signal: Recoupement, dossierKey: string) => {
@@ -2051,7 +2060,7 @@ return (
 
           {/* Assistant de justice (attaché IA) — page dédiée, admin uniquement */}
           {baseView === 'assistant' && iaVisible && (
-            <AssistantJusticePage onOpenDossier={handleOpenDossierByNumero} serviceInjoignable={attacheInjoignable} />
+            <AssistantJusticePage onOpenDossier={handleOpenDossierByNumero} serviceDuDossier={serviceDuDossier} serviceInjoignable={attacheInjoignable} />
           )}
 
           {baseView === 'enquetes' && (

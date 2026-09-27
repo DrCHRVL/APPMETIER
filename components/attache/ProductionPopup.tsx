@@ -11,8 +11,8 @@
  *  - l'EXPORT PDF / Word au gabarit officiel ;
  *  - la VALIDATION (l'acte est marqué traité).
  *
- * C'est la MÊME production que celle de la fiche dossier (« Actes rédigés ») :
- * une modification ici s'y répercute, et inversement — source unique, aucune
+ * C'est la MÊME production que celle de l'atelier « Actes rédigés » : une
+ * modification ici s'y répercute, et inversement — source unique, aucune
  * copie. Chiffrement E2E : le navigateur déchiffre pour afficher, rechiffre à
  * l'enregistrement ; l'app ne voit jamais le texte en clair.
  */
@@ -366,7 +366,7 @@ export function ProductionPopup({ numero, prodId, service, onClose, onChanged }:
         )}
 
         <div className="border-t border-amber-100 bg-amber-50 px-4 py-2 text-[11px] text-amber-800">
-          🔗 Même document que dans la fiche dossier (« Actes rédigés ») — une modification ici s'y répercute.
+          🔗 Même document que dans « Actes rédigés » — une modification ici s'y répercute.
         </div>
       </div>
     </div>

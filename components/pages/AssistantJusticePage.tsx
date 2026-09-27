@@ -5,9 +5,10 @@
  *
  * Regroupe, HORS du tableau de bord, tout ce que l'attaché IA prépare pour le
  * magistrat : les propositions à trancher, le journal (« Pendant votre
- * absence »), les actes rédigés hors dossier et la boîte dédiée. Le tableau de
- * bord retrouve ainsi sa lisibilité (indicateurs, OP, échéances, agenda) ;
- * l'assistant vit sur sa propre page.
+ * absence »), les actes rédigés — par dossier (la fiche enquête n'en a plus)
+ * et hors dossier — et la boîte dédiée. Le tableau de bord retrouve ainsi sa
+ * lisibilité (indicateurs, OP, échéances, agenda) ; l'assistant vit sur sa
+ * propre page.
  *
  * Le « brief du majordome » (balayage matinal de tous les dossiers, un
  * sous-agent par dossier) a été RETIRÉ : premier poste de dépense du forfait
@@ -23,6 +24,7 @@ import { Scale, AlertTriangle } from 'lucide-react';
 import { AbsenceJournal } from '@/components/attache/AbsenceJournal';
 import { InboxWidget } from '@/components/attache/InboxWidget';
 import { ProductionsSection } from '@/components/attache/ProductionsSection';
+import { ActesRedigesDossiers } from '@/components/attache/ActesRedigesDossiers';
 import { NouveauxDossiersPropositions } from '@/components/attache/NouveauxDossiersPropositions';
 import { ChantiersSection } from '@/components/attache/ChantiersSection';
 
@@ -30,8 +32,10 @@ import { ChantiersSection } from '@/components/attache/ChantiersSection';
  * rechargement en boucle du bandeau, qui compare `kinds` par valeur). */
 const A_VALIDER_KINDS = ['dossier', 'dossier_carto', 'mec_carto', 'lien'] as const;
 
-export const AssistantJusticePage = ({ onOpenDossier, serviceInjoignable }: {
+export const AssistantJusticePage = ({ onOpenDossier, serviceDuDossier, serviceInjoignable }: {
   onOpenDossier?: (numero: string) => void;
+  /** Service d'enquête d'un dossier — 2ᵉ segment du nom de fichier des actes exportés. */
+  serviceDuDossier?: (numero: string) => string | undefined;
   /** Le service attaché ne répond plus : la page reste, mais dit pourquoi elle est vide. */
   serviceInjoignable?: boolean;
 }) => {
@@ -85,7 +89,10 @@ export const AssistantJusticePage = ({ onOpenDossier, serviceInjoignable }: {
       <ChantiersSection />
 
       {/* Journal « pendant votre absence » — actions préparées, documents rédigés */}
-      <AbsenceJournal onOpenDossier={onOpenDossier} />
+      <AbsenceJournal onOpenDossier={onOpenDossier} serviceDuDossier={serviceDuDossier} />
+
+      {/* Actes rédigés de chaque dossier — la fiche enquête n'en a plus. */}
+      <ActesRedigesDossiers serviceDuDossier={serviceDuDossier} />
 
       {/* Actes rédigés HORS DOSSIER : demandes arrivées par mail sans procédure
           correspondante, traitées sur consigne — invisible tant qu'il n'y en a aucun. */}

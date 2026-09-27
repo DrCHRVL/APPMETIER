@@ -29,7 +29,6 @@ import { ChronologieSection } from '../attache/ChronologieSection';
 import { PropositionsBar } from '../attache/PropositionsBar';
 import { FluxBandeau } from '../attache/FluxBandeau';
 import { FloatingDossierChat } from '../attache/FloatingDossierChat';
-import { ProductionsSection } from '../attache/ProductionsSection';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
 import { RefreshStatus } from '../ui/RefreshIconButton';
@@ -485,16 +484,10 @@ const EnqueteDetailModalImpl = ({
             {/* Où en est l'attaché sur ce dossier (pièce en file, analyse en
                 cours, CR rédigé ou rien de neuf), puis ses propositions en
                 attente (✓/✗) et la chronologie probatoire — admin uniquement,
-                auto-masqués sinon. */}
+                auto-masqués sinon. Les actes rédigés, eux, vivent sur la page
+                « Assistant de justice ». */}
             {isAdmin() && <FluxBandeau numero={enquete.numero} />}
             {isAdmin() && <PropositionsBar numero={enquete.numero} reloadToken={propositionsToken} />}
-            {isAdmin() && (
-              <ProductionsSection
-                numero={enquete.numero}
-                service={enquete.tags?.find((t) => t.category === 'services')?.value
-                  || enquete.services?.find((s) => s && s.trim())}
-              />
-            )}
             {isAdmin() && <ChronologieSection numero={enquete.numero} />}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">

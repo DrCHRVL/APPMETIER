@@ -236,6 +236,31 @@ export function readProductionEnvelopes(numero: string): Array<{ id: string, env
   return out
 }
 
+/**
+ * Repli du SOMMAIRE des actes par dossier (page « Assistant de justice »), même
+ * logique : sans clé, l'app ne sait pas à quel dossier appartient un
+ * répertoire. Elle rend donc, par répertoire, le nombre d'actes et UNE
+ * enveloppe échantillon — le navigateur la déchiffre pour nommer le dossier.
+ * Pseudo-dossiers (clé « e_… », dont « _hors-dossier ») exclus : section propre.
+ */
+export function readProductionDossiers(): Array<{ nb: number, echantillon: AttacheEnvelope }> {
+  const root = attacheDir('productions')
+  if (!fs.existsSync(root)) return []
+  const out: Array<{ nb: number, echantillon: AttacheEnvelope }> = []
+  for (const d of fs.readdirSync(root)) {
+    if (d.startsWith('.') || d.startsWith('e_')) continue
+    const dir = path.join(root, d)
+    let fichiers: string[]
+    try {
+      if (!fs.statSync(dir).isDirectory()) continue
+      fichiers = fs.readdirSync(dir).filter((f) => f.endsWith('.json') && !f.startsWith('.'))
+    } catch { continue }
+    const echantillon = fichiers.length ? readJson<AttacheEnvelope | null>(path.join(dir, fichiers[0]), null) : null
+    if (echantillon) out.push({ nb: fichiers.length, echantillon })
+  }
+  return out
+}
+
 // ── Statuts des questions posées par l'attaché (répondu / ignoré) ──
 // Fichier en clair MAIS indexé par des ids opaques (qid aléatoires) : aucun
 // contenu n'y transite — l'app peut donc les écrire sans détenir de clé.
