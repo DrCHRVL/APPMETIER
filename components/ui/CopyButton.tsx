@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { copyPlainToClipboard } from '@/utils/richTextExport';
 import { useToast } from '@/contexts/ToastContext';
@@ -39,6 +39,11 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
 }) => {
   const { showToast } = useToast();
   const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+  }, []);
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -52,7 +57,8 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
     if (ok) {
       setCopied(true);
       if (successMessage) showToast(successMessage, 'success');
-      window.setTimeout(() => setCopied(false), 1500);
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+      resetTimer.current = setTimeout(() => setCopied(false), 1500);
     } else if (successMessage) {
       showToast('Copie impossible', 'error');
     }

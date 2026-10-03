@@ -313,10 +313,10 @@ export const motivationRenforceeRequise = (mex: MisEnExamen): boolean => {
 export const getRythmeJugeJours = (dossier: DossierInstruction): number | null => {
   const dates: number[] = [];
 
-  for (const op of dossier.ops) dates.push(new Date(op.date).getTime());
-  for (const debat of dossier.debatsJLD) dates.push(new Date(debat.date).getTime());
-  for (const v of dossier.verifications) dates.push(new Date(v.date).getTime());
-  for (const n of dossier.notesPerso) dates.push(new Date(n.date).getTime());
+  for (const op of dossier.ops ?? []) dates.push(new Date(op.date).getTime());
+  for (const debat of dossier.debatsJLD ?? []) dates.push(new Date(debat.date).getTime());
+  for (const v of dossier.verifications ?? []) dates.push(new Date(v.date).getTime());
+  for (const n of dossier.notesPerso ?? []) dates.push(new Date(n.date).getTime());
   for (const mex of dossier.misEnExamen) {
     if (mex.mesureSurete.type === 'detenu') {
       for (const p of mex.mesureSurete.periodes ?? []) dates.push(new Date(p.dateDebut).getTime());
