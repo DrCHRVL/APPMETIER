@@ -136,8 +136,15 @@ function readBundle(): OfflineBundle | null {
   }
 }
 
-function writeBundle(b: OfflineBundle): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(b))
+function writeBundle(b: OfflineBundle): boolean {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(b))
+    return true
+  } catch {
+    // Quota dépassé ou stockage indisponible (mode privé) : la copie hors
+    // ligne n'est pas rafraîchie, mais on ne casse pas le flux de déverrouillage.
+    return false
+  }
 }
 
 /** Métadonnées du poste préparé (sans secret) — pour l'UI. */
