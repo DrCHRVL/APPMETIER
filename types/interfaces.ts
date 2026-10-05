@@ -330,6 +330,8 @@ export interface Enquete extends NewEnqueteData {
   overboardPins?: import('@/types/userTypes').OverboardPin[];
   // Dissimulation aux utilisateurs JA
   hiddenFromJA?: boolean;
+  // Magistrat référent du dossier (windowsUsername) — pastille + filtre
+  magistratReferent?: string;
   // Co-saisine : partage de l'enquête avec d'autres contentieux
   sharedWith?: string[];        // IDs des contentieux avec lesquels l'enquête est partagée
   contentieuxOrigine?: string;  // ID du contentieux propriétaire (celui qui stocke l'enquête)

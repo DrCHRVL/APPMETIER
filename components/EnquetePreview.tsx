@@ -26,6 +26,7 @@ import { useUser } from '@/contexts/UserContext';
 import { getLastCR } from '@/utils/compteRenduUtils';
 import { getProlongationRequestDate, getAutorisationRequestDate, isActeEnAttenteDePose } from '@/utils/acteUtils';
 import { OverboardPin } from '@/types/userTypes';
+import { MagistratBadge } from './MagistratBadge';
 
 interface EnquetePreviewProps {
   enquete: Enquete;
@@ -39,6 +40,7 @@ interface EnquetePreviewProps {
   onDelete?: () => void;
   onUnarchive?: () => void;
   onToggleSuivi?: (id: number, type: 'JIRS' | 'PG') => void;
+  onSetMagistrat?: (id: number, windowsUsername: string | undefined) => void;
   onStartEnquete?: (id: number, date: string) => void;
   onToggleOverboardPin?: (enqueteId: number) => void;
   onToggleHideFromJA?: (enqueteId: number) => void;
@@ -65,6 +67,7 @@ export const EnquetePreview = React.memo(({
   onDelete,
   onUnarchive,
   onToggleSuivi,
+  onSetMagistrat,
   onStartEnquete,
   alerts,
   onValidateAlert, 
@@ -425,6 +428,11 @@ return (
               </div>
             </Button>
           )}
+          <MagistratBadge
+            magistratReferent={enquete.magistratReferent}
+            contentieuxId={contentieuxId}
+            onChange={onSetMagistrat ? (u) => onSetMagistrat(enquete.id, u) : undefined}
+          />
           {onToggleSuivi && (
             <>
               <Button

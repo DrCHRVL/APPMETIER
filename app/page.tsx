@@ -288,6 +288,8 @@ function AppContent() {
   const [showNewInstructionModal, setShowNewInstructionModal] = useState(false);
   const [showAlertsModal, setShowAlertsModal] = useState(false);
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
+  // Filtre magistrat référent : '' = tous, '__none__' = non attribués, sinon windowsUsername
+  const [magistratFilter, setMagistratFilter] = useState('');
   const [sortOrder, setSortOrder] = useState('date-desc');
   const [isSaving, setIsSaving] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -1294,15 +1296,19 @@ function AppContent() {
 
   // Fusion des résultats métadonnées + contenu documents
   const mergedFilteredEnquetes = useMemo(() => {
-    if (!documentMatchIds.size) return filteredAndSortedEnquetes;
+    const matchesMagistrat = (e: Enquete) =>
+      !magistratFilter ||
+      (magistratFilter === '__none__' ? !e.magistratReferent : e.magistratReferent === magistratFilter);
+
+    if (!documentMatchIds.size) return filteredAndSortedEnquetes.filter(matchesMagistrat);
 
     const metadataIds = new Set(filteredAndSortedEnquetes.map(e => e.id));
     const docOnlyMatches = enquetes.filter(
       e => documentMatchIds.has(e.id) && !metadataIds.has(e.id)
     );
 
-    return [...filteredAndSortedEnquetes, ...docOnlyMatches];
-  }, [filteredAndSortedEnquetes, documentMatchIds, enquetes]);
+    return [...filteredAndSortedEnquetes, ...docOnlyMatches].filter(matchesMagistrat);
+  }, [filteredAndSortedEnquetes, documentMatchIds, enquetes, magistratFilter]);
 
   // Déterminer si l'utilisateur est JA pour le contentieux actif
   const isJAForCurrentCtx = useMemo(() => {
@@ -1646,6 +1652,9 @@ function AppContent() {
       ? etags.filter((tag: any) => !(tag.category === 'suivi' && tag.value === type))
       : [...etags, { id: tagId, value: type, category: 'suivi' as const }];
     handleUpdateEnquete(enqueteId, { tags: newTags });
+  }, [handleUpdateEnquete]);
+  const handleSetMagistrat = useCallback((enqueteId: number, windowsUsername: string | undefined) => {
+    handleUpdateEnquete(enqueteId, { magistratReferent: windowsUsername });
   }, [handleUpdateEnquete]);
   const handleActeRequest = useCallback((acteId: number, type: 'acte' | 'ecoute' | 'geoloc', enqueteId: number, modal: 'prolongation' | 'pose' | 'validation') => {
     setSelectedActe({ id: acteId, type, enqueteId });
@@ -2039,6 +2048,12 @@ return (
             sections={sectionsList}
             onSetSectionsOrder={setSectionsOrder}
             infractionTags={infractionFilterTags}
+            {...(baseView === 'enquetes' && {
+              contentieuxId: currentContentieuxId,
+              currentUsername: user?.windowsUsername,
+              magistratFilter,
+              onMagistratFilterChange: setMagistratFilter,
+            })}
           />
         )}
 
@@ -2110,6 +2125,7 @@ return (
                       onEdit={handleEditEnquete}
                       onArchive={handleArchiveEnquete}
                       onToggleSuivi={handleToggleSuivi}
+                      onSetMagistrat={handleSetMagistrat}
                       onStartEnquete={handleStartEnquete}
                       onToggleOverboardPin={showOverboardPin ? handleToggleOverboardPin : undefined}
                       onToggleHideFromJA={showHideFromJA ? handleToggleHideFromJA : undefined}

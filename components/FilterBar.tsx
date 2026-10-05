@@ -9,6 +9,7 @@ import { Filter, ChevronDown, ChevronUp, X, Flag, LayoutGrid } from 'lucide-reac
 import { Badge } from './ui/badge';
 import { useTags } from '@/hooks/useTags';
 import { SectionOrderModal } from './modals/SectionOrderModal';
+import { getMagistratsForContentieux } from '@/utils/magistrats';
 
 interface FilterBarProps {
   selectedTags: Tag[];
@@ -22,6 +23,11 @@ interface FilterBarProps {
   /** Liste évolutive des infractions à filtrer (remplace le référentiel de
    *  tags d'infraction historique). */
   infractionTags?: Tag[];
+  /** Filtre magistrat référent (affiché seulement si fourni). */
+  contentieuxId?: string;
+  currentUsername?: string;
+  magistratFilter?: string;
+  onMagistratFilterChange?: (value: string) => void;
 }
 
 export const FilterBar = ({
@@ -33,7 +39,11 @@ export const FilterBar = ({
   activeSections = [],
   sections = [],
   onSetSectionsOrder,
-  infractionTags
+  infractionTags,
+  contentieuxId,
+  currentUsername,
+  magistratFilter = '',
+  onMagistratFilterChange
 }: FilterBarProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSectionOrder, setShowSectionOrder] = useState(false);
@@ -41,6 +51,7 @@ export const FilterBar = ({
 
   const isSuiviJIRSSelected = selectedTags.some(tag => tag.id === 'suivi_jirs');
   const isSuiviPGSelected = selectedTags.some(tag => tag.id === 'suivi_pg');
+  const magistrats = onMagistratFilterChange && contentieuxId ? getMagistratsForContentieux(contentieuxId) : [];
 
   return (
     <div className="bg-white" style={{ borderBottom: '1px solid hsl(214 25% 88%)' }}>
@@ -117,6 +128,22 @@ export const FilterBar = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {magistrats.length > 0 && (
+              <Select
+                value={magistratFilter}
+                onChange={(e) => onMagistratFilterChange?.(e.target.value)}
+                className={`w-40 h-7 text-xs rounded-lg ${magistratFilter ? 'text-emerald-700 bg-emerald-50' : ''}`}
+                title="Filtrer par magistrat référent"
+              >
+                <option value="">Tous les magistrats</option>
+                {magistrats.map(m => (
+                  <option key={m.windowsUsername} value={m.windowsUsername}>
+                    {m.windowsUsername === currentUsername ? `Mes dossiers (${m.displayName})` : m.displayName}
+                  </option>
+                ))}
+                <option value="__none__">Non attribués</option>
+              </Select>
+            )}
             <span className="text-xs text-gray-500 font-medium">Trier par :</span>
             <Select
               value={sortOrder}
