@@ -225,6 +225,14 @@ ok(interrompu === null, 'le calcul s’interrompt sur demande, sans rendre de si
 // pris au milieu de « signalement »).
 // ──────────────────────────────────────────────
 
+console.log('\nAdresses — un type de voie ne se lit pas au milieu d’un mot accentué :')
+
+const adresses = (texte) => extractValues(texte).filter(v => v.kind === 'adresse').map(v => v.canon)
+ok(adresses('Lieux de stockage des matières stupéfiantes. Par ailleurs, la poursuite…').length === 0,
+  '« matières stupéfiantes » n’est pas la « residence stupefiantes »',
+  adresses('Lieux de stockage des matières stupéfiantes. Par ailleurs, la poursuite…'))
+ok(adresses('Il se rend au 16 rue Balzac.').join() === '16 rue balzac', 'une vraie adresse est toujours lue')
+
 const comptes = (texte) => extractValues(texte).filter(v => v.kind === 'compte').map(v => v.valeur)
 
 console.log('\nPseudos — ce que la veille ne doit PAS inventer :')

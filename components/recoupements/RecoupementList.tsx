@@ -26,7 +26,7 @@ import {
 import type { Recoupement, RecoupementKind } from '@/types/recoupementTypes';
 import { LIBELLE_KIND } from '@/utils/recoupements/engine';
 import {
-  analyserSignal, type LienExistant, type PropositionLien, type Provenance,
+  analyserSignal, type ExtraitSource, type LienExistant, type PropositionLien, type Provenance,
 } from '@/utils/recoupements/liens';
 
 const ICONE: Record<RecoupementKind, React.ElementType> = {
@@ -71,6 +71,73 @@ function libelleProvenance(p: Provenance): string {
   const detail = (p.detail || '').trim();
   if (!detail || p.libelle === 'mis en cause') return p.libelle;
   return detail.length > 46 ? `${detail.slice(0, 45)}…` : detail;
+}
+
+/** Minuscule sans accent, caractère pour caractère : les positions trouvées
+ *  dans le texte plié valent dans le texte d'origine. */
+function plier(texte: string): string {
+  return texte.split('').map(c => (c.normalize('NFD')[0] || c).toLowerCase()[0] || c).join('');
+}
+
+const echapper = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Où la valeur commune apparaît dans l'extrait : la valeur entière si elle y
+ * est (casse, accents et espacement indifférents), sinon chacun de ses mots —
+ * l'ordre Nom/Prénom varie d'une pièce à l'autre.
+ */
+function plagesValeur(texte: string, valeur: string): Array<[number, number]> {
+  const plie = plier(texte);
+  const chercher = (motif: string): Array<[number, number]> => {
+    const mots = plier(motif).split(/\s+/).filter(Boolean).map(echapper);
+    if (mots.length === 0) return [];
+    const re = new RegExp(`(?<![a-z0-9])${mots.join('\\s+')}(?![a-z0-9])`, 'g');
+    return Array.from(plie.matchAll(re), m => [m.index!, m.index! + m[0].length] as [number, number]);
+  };
+  const entiere = chercher(valeur);
+  if (entiere.length > 0) return entiere;
+  return plier(valeur).split(/\s+/).filter(m => m.length >= 3)
+    .flatMap(chercher)
+    .sort((a, b) => a[0] - b[0])
+    .filter((p, i, t) => i === 0 || p[0] >= t[i - 1][1]);
+}
+
+/** La phrase qui porte la valeur, découpée dans l'extrait. */
+function phraseAutour(texte: string, debut: number, fin: number): [number, number] {
+  let depart = 0;
+  for (const m of texte.slice(0, debut).matchAll(/[.!?]\s+(?=[A-ZÀ-Ý«"])/g)) {
+    depart = m.index! + m[0].length;
+  }
+  const suite = texte.slice(fin).search(/[.!?](?=\s+[A-ZÀ-Ý«"]|\s*$)/);
+  return [depart, suite >= 0 ? fin + suite + 1 : texte.length];
+}
+
+/** L'extrait réduit à sa phrase, la valeur commune en exergue, la source entre parenthèses. */
+function ExtraitSurligne({ extrait }: { extrait: ExtraitSource }) {
+  const { texte, valeur, source } = extrait;
+  const plages = plagesValeur(texte, valeur);
+  const [debut, fin] = plages.length > 0
+    ? phraseAutour(texte, plages[0][0], plages[plages.length - 1][1])
+    : [0, texte.length];
+  const morceaux: React.ReactNode[] = [];
+  let curseur = debut;
+  plages.forEach(([a, b], i) => {
+    if (a > curseur) morceaux.push(texte.slice(curseur, a));
+    morceaux.push(
+      <mark key={i} className="rounded-sm bg-red-50 px-0.5 font-bold not-italic text-red-500">
+        {texte.slice(a, b)}
+      </mark>
+    );
+    curseur = b;
+  });
+  if (curseur < fin) morceaux.push(texte.slice(curseur, fin));
+
+  return (
+    <p className="mt-0.5 border-l-2 border-red-200 pl-2 italic text-gray-600">
+      {morceaux}
+      <span className="ml-1 not-italic text-gray-400">({source})</span>
+    </p>
+  );
 }
 
 export interface RecoupementListProps {
@@ -243,7 +310,10 @@ function SignalLigne({
 
       {ouvert && (
         <div className="mt-1.5 space-y-2 pl-6">
-          {analyse.parDossier.map(d => (
+          {/* Ce dossier d'abord : on lit sa phrase, puis celle de l'autre. */}
+          {[...analyse.parDossier]
+            .sort((a, b) => Number(b.key === dossierCourant) - Number(a.key === dossierCourant))
+            .map(d => (
             <DossierBloc
               key={d.key}
               resume={d}
@@ -347,11 +417,7 @@ function DossierBloc({
         ))}
       </p>
 
-      {extraits.map((extrait, i) => (
-        <p key={i} className="mt-0.5 border-l-2 border-gray-200 pl-2 italic text-gray-500">
-          {extrait}
-        </p>
-      ))}
+      {extraits.map((extrait, i) => <ExtraitSurligne key={i} extrait={extrait} />)}
       {reste > 0 && (
         <button
           type="button"
