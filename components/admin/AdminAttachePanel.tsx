@@ -21,6 +21,7 @@ import { diffTexte } from '@/lib/attache/diffCore.mjs';
 import { AttacheKbSection } from './AttacheKbSection';
 import { TramesFormePanel } from './TramesFormePanel';
 import { AttacheConsignesSection } from './AttacheConsignesSection';
+import { AttacheDescriptionPromptSection } from './AttacheDescriptionPromptSection';
 import { useIaVisibiliteStore } from '@/stores/useIaVisibiliteStore';
 
 type AnyFn = (...args: unknown[]) => Promise<any>;
@@ -2374,6 +2375,9 @@ export function AdminAttachePanel() {
           </p>
         )}
       </div>
+
+      {/* Prompt de rédaction des descriptions — édition directe + demande d'amélioration */}
+      <AttacheDescriptionPromptSection onNotice={setNotice} />
 
       {/* Consignes PAR DOMAINE — les prompts métier, jusqu'ici figés dans le code */}
       <AttacheConsignesSection onNotice={setNotice} />

@@ -6,6 +6,7 @@ import { MultiSelect } from '../ui/multi-select';
 import { Badge } from '../ui/badge';
 import { Flag } from 'lucide-react';
 import { RefreshIconButton, RefreshStatus } from '../ui/RefreshIconButton';
+import { formatRestant, type DescriptionProgress } from '@/hooks/useDescriptionActualisation';
 import { useTags } from '@/hooks/useTags';
 import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { NatinfBadge } from '../natinf/NatinfBadge';
@@ -30,6 +31,8 @@ interface EnqueteHeaderProps {
   onRefreshDescription?: () => void;
   /** État de l'actualisation (spinner pendant, ✓/⚠ transitoire après). */
   descriptionRefreshStatus?: RefreshStatus;
+  /** Avancement estimé de l'actualisation en cours (%, temps restant, étape). */
+  descriptionProgress?: DescriptionProgress | null;
 }
 
 export const EnqueteHeader = React.memo(({
@@ -46,7 +49,8 @@ export const EnqueteHeader = React.memo(({
   onUpdate,
   onUpdateImmediate,
   onRefreshDescription,
-  descriptionRefreshStatus = 'idle'
+  descriptionRefreshStatus = 'idle',
+  descriptionProgress = null
 }: EnqueteHeaderProps) => {
   // Pour les actions discrètes (date, select), utiliser le callback immédiat si disponible
   const discreteUpdate = onUpdateImmediate || onUpdate;
@@ -324,6 +328,16 @@ export const EnqueteHeader = React.memo(({
               title="Actualiser la synthèse — l'assistant reprend les CR et les actes téléversés (se fait aussi tout seul en arrière-plan)"
               ariaLabel="Actualiser la description"
             />
+          )}
+          {descriptionRefreshStatus === 'running' && descriptionProgress && (
+            <span className="flex min-w-0 items-center gap-1.5 text-[10px] text-emerald-700" title={descriptionProgress.detail}>
+              <span className="h-1 w-16 flex-shrink-0 overflow-hidden rounded-full bg-emerald-100">
+                <span className="block h-full rounded-full bg-emerald-500 transition-all duration-700" style={{ width: `${descriptionProgress.pourcent}%` }} />
+              </span>
+              <span className="flex-shrink-0 font-semibold">{descriptionProgress.pourcent} %</span>
+              <span className="flex-shrink-0">· {formatRestant(descriptionProgress.restantMs)}</span>
+              {descriptionProgress.detail && <span className="truncate text-gray-500">· {descriptionProgress.detail}</span>}
+            </span>
           )}
         </div>
         {isEditing ? (
