@@ -46,7 +46,8 @@ import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.
 import { analyserReseau, listerLiens, listerFiches, lireDocumentExNihilo, cartoHistoire, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
 import { analyseAvancee, cheminEntre } from './attache/cartoGraphe.mjs'
 import { lireSignaux } from './attache/recoupements.mjs'
-import { pageFichierGlobal, GLOBAL_EXTRACTIONS_MAX } from './attache/global.mjs'
+import { pageFichierGlobal, GLOBAL_EXTRACTIONS_MAX, THEMES } from './attache/global.mjs'
+import { readInstructionsProjet, writeInstructionsProjet } from './attache/instructionsProjet.mjs'
 import { saveProduction, listProductions, readProduction, deleteProduction, diffProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
 import { appendMemory, rewriteMemory, memoryStats, MEMORY_BUDGET } from './attache/memory.mjs'
 import { recordLearningSignal, pendingSignals, learningState, learningMetrics, metricsSummary } from './attache/apprentissage.mjs'
@@ -143,6 +144,7 @@ const OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME = new Set([
   'instru_modifier_dossier', 'instru_element', 'instru_mis_en_examen',
   'actualiser_description', 'ranger_document', 'depot_ecarter',
   'routine_enregistrer', 'routine_suspendre', 'routine_supprimer',
+  'instructions_projet_enregistrer',
   // le devis (chantier_proposer) reste permis : il attend le magistrat.
   'chantier_piloter',
 ])
@@ -360,18 +362,19 @@ const TOOLS = [
   },
   {
     name: 'dossier_global',
-    description: `FICHIER GLOBAL d'un dossier (enquête ou instruction) : TOUTES ses pièces versées, en texte, dans UN seul document — sommaire numéroté puis un bloc par pièce (« ===== » puis « 📄 <chemin> » : la cote à citer), copies exactes non répétées. C'est LA voie pour un travail de fond depuis Claude web — préparer un réquisitoire définitif, une synthèse générale, une recherche transversale — sans chantier ni lots : lis le fichier, travaille dessus. PAGINÉ par caractères (350 000 par page au plus) : tant que offsetSuivant figure dans la réponse, la suite existe — rappelle avec offset. \`pochette\` limite à une pochette de l'arborescence (dossier_arborescence donne le panorama) — sur un dossier de plusieurs milliers de pièces, dépouille pochette par pochette. Les pièces dont le texte n'est pas encore extrait (${GLOBAL_EXTRACTIONS_MAX} extractions fraîches par appel au plus) sont listées « pas encore extrait » : rappelle l'outil, chaque appel étend la couverture définitivement. Le même fichier se télécharge en .txt depuis la page Assistant de justice (section « Fichier global ») pour le verser dans un projet Claude web.`,
+    description: `FICHIER GLOBAL d'un dossier (enquête ou instruction) : TOUTES ses pièces versées, en texte, dans UN seul document. EN TÊTE : la fiche du dossier (description, mis en cause, NATINF, échéancier), la CHRONOLOGIE et le REGISTRE des pièces (type, date, personnes, résumé) — tout le contexte sans autre appel. Puis le SOMMAIRE et un bloc par pièce (« ===== » puis « 📄 P-0042 — <chemin> ») : chaque pièce porte un NUMÉRO STABLE « P-xxxx » (ordre de dépôt, jamais renuméroté — citable d'une conversation à l'autre) et son chemin (la cote). Pièces CLASSÉES par THÈME (${THEMES.map((t) => t.cle).join(', ')}) : l'ordre de lecture d'un réquisitoire ; \`theme\` livre un seul thème (la réponse liste les thèmes présents). Copies exactes non répétées. Servi depuis un CACHE tenu à jour par le service à chaque mouvement du dossier : instantané tant que rien n'a bougé. C'est LA voie pour un travail de fond depuis Claude web — réquisitoire définitif, synthèse générale, recherche transversale — sans chantier ni lots. PAGINÉ par caractères (350 000 par page au plus) : tant que offsetSuivant figure dans la réponse, la suite existe — rappelle avec offset. \`pochette\` limite à une pochette de l'arborescence. Les pièces « pas encore extrait » (${GLOBAL_EXTRACTIONS_MAX} extractions fraîches par compilation au plus) se complètent en rappelant l'outil. Le même fichier se télécharge en .txt depuis la page Assistant de justice (section « Fichier global »), par thème aussi, pour le verser dans un projet Claude web.`,
     inputSchema: {
       type: 'object',
       properties: {
         numero: { type: 'string' },
+        theme: { type: 'string', enum: THEMES.map((t) => t.cle), description: 'Limiter à un thème (ordre de lecture : auditions, synthese, telephonie, expertises, surveillances, decisions, autres). Vide = tout le dossier, classé par thème.' },
         pochette: { type: 'string', description: 'Limiter à une pochette (ex. "PV/GOSSE", "Dossier/D2"). Vide = tout le dossier.' },
         offset: { type: 'number', description: 'Caractère de départ (défaut 0). Utiliser offsetSuivant de la page précédente.' },
         limite: { type: 'number', description: 'Caractères par page (défaut et max 350 000).' },
       },
       required: ['numero'],
     },
-    handler: async (a) => pageFichierGlobal(keys, a.numero, { pochette: a.pochette, offset: a.offset, limite: a.limite }),
+    handler: async (a) => pageFichierGlobal(keys, a.numero, { pochette: a.pochette, theme: a.theme, offset: a.offset, limite: a.limite }),
   },
   {
     name: 'pieces_chercher',
@@ -1243,6 +1246,42 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
     write: true,
   },
   {
+    name: 'instructions_projet_lire',
+    description: 'INSTRUCTIONS DU PROJET CLAUDE WEB — la version de référence, tenue dans SIRAL, des instructions permanentes du projet claude.ai dans lequel le magistrat rédige ses actes (rôle, exigences de rédaction, pièges à éviter distillés de ses corrections, remise dans SIRAL). Depuis Claude web : à LIRE au début d\'une tâche de rédaction — elle peut être plus récente que le texte collé dans le projet. Depuis l\'attaché : la base de toute proposition de révision (proposer_instructions_projet).',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => ({ contenu: readInstructionsProjet(keys) }),
+  },
+  {
+    name: 'proposer_instructions_projet',
+    description: 'Propose au magistrat une RÉVISION des instructions de son projet Claude web (texte INTÉGRAL révisé — pas un extrait) : il l\'applique d\'un ✓ dans Paramètres → Attaché IA (version archivée, bouton Copier pour la coller dans claude.ai) ou la refuse. C\'est LA voie pour que les leçons tirées des actes RÉDIGÉS PAR CLAUDE WEB — corrigés à la main (acte_edite_main, production_diff) ou refusés avec motif (acte_refuse) — atterrissent là où la rédaction se fait. Règles GÉNÉRALES de rédaction (registre, plan, visas, motivation, formules, pièges), jamais l\'anecdote d\'un dossier ; conserve tout ce qui n\'a pas à changer. `resume` : UNE phrase (≤ 240 caractères) — ce que change la révision ; `motif` : pourquoi, signaux à l\'appui.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        contenu: { type: 'string', description: 'Le texte COMPLET révisé des instructions du projet (markdown)' },
+        resume: { type: 'string', description: 'Une phrase : ce que change la révision (≤ 240 caractères)' },
+        motif: { type: 'string', description: 'Pourquoi, avec les signaux / actes à l\'appui (1-5 phrases)' },
+        source: { type: 'string', description: 'D\'où vient la détection (consolidation, actes corrigés, refus…)' },
+      },
+      required: ['contenu', 'resume', 'motif'],
+    },
+    handler: async (a) => addProposition(keys, {
+      type: 'instructions_projet',
+      payload: { contenu: a.contenu, resume: a.resume, motif: a.motif },
+      source: a.source,
+    }),
+    write: true,
+  },
+  {
+    name: 'instructions_projet_enregistrer',
+    description: 'Réécrit DIRECTEMENT les instructions du projet Claude web (texte complet) — UNIQUEMENT sur instruction explicite du magistrat en conversation (« mets à jour les instructions de mon projet : … », « ajoute cette règle aux instructions du projet »). De ta propre initiative (consolidation, signaux), passe par proposer_instructions_projet. Versionné : rien n\'est perdu.',
+    inputSchema: { type: 'object', properties: { contenu: { type: 'string' } }, required: ['contenu'] },
+    handler: async (a) => {
+      if (IS_RUN_AUTONOME) throw new Error('Run autonome : les instructions du projet Claude web ne se réécrivent que sur instruction du magistrat — dépose proposer_instructions_projet (texte complet révisé + résumé + motif).')
+      return writeInstructionsProjet(keys, a.contenu, 'attache-ia')
+    },
+    write: true,
+  },
+  {
     name: 'kb_lister',
     description: 'Sommaire de la base de connaissances du magistrat (son fond documentaire : jurisprudences, circulaires, modes opératoires, fiches, contacts) : id, titre, catégorie, description — jamais le contenu. Le sommaire figure aussi dans ton prompt système.',
     inputSchema: { type: 'object', properties: { categorie: { type: 'string', description: 'Filtrer sur une catégorie' } } },
@@ -1961,8 +2000,8 @@ const INSTRUCTIONS_CONNECTEUR = [
   '  4. Chaque réponse porte un bloc `sources` : quel coffre a fourni les résultats d\'audience et quand il a été mis à jour. Si `repli: true` y apparaît, les chiffres d\'audience viennent d\'une copie qui n\'est plus alimentée : le DIRE au magistrat avant de les citer, et ne rien produire pour un tiers sur ces valeurs sans les avoir confrontées à son écran.',
   '  5. Pour VOIR ce qu\'il voit : stats_graphique, avec `graphiques` (plusieurs d\'un coup) et `annee`. Décrire les dynamiques d\'après l\'image, mais donner les nombres d\'après les données jointes.',
   'GROS STOCK ET ARCHIVES : lister_dossiers est paginé et filtrable — portee:"archives" (les archivés SEULS), portee:"toutes", `filtre` (numéro, objet, mis en cause), offset/limit ; la réponse dit ce qui reste et à quel offset reprendre. Une population de dossiers n\'est jamais hors de portée : déroule les pages.',
-  'TRAVAIL DE FOND SUR UN DOSSIER (réquisitoire définitif, synthèse générale, dépouillement) : dossier_global — TOUTES les pièces en texte dans un seul fichier, sommaire puis un bloc par pièce (cote = le chemin), paginé ; dossier volumineux : pochette par pochette (panorama de dossier_arborescence). Pour LOCALISER sans tout lire : pieces_chercher, registre_lire. Pour CROISER des affaires : registre_recouper (entités partagées, `entite` pour une valeur précise), recoupements_lire (veille hebdomadaire, `inedits:true` pour les ponts que rien ne montrait), carto_analyser et carto_chemin (sourcé). Les chantiers d\'analyse profonde côté serveur (chantiers_etat / chantier_proposer) restent disponibles pour un dépouillement de nuit par lots, mais ne sont plus la voie par défaut : le fichier global l\'est.',
-  'RÉDACTION DES ACTES : c\'est ICI, dans Claude web, qu\'ils se rédigent — l\'attaché de SIRAL ne rédige plus (il actualise, recoupe, prépare). Avant de rédiger : trames_lister / trame_lire (le plan-type du magistrat, qui PRIME sur un modele-* du même type), skills_lister / skill_lire (sa méthode), kb_chercher / kb_lire (son fond documentaire, documents ★ en réflexe), lire_dossier (NATINF enregistrés, mis en cause, échéancier) et chronologie_lire. Les instructions, la mémoire et la base de connaissances de ton projet Claude web PRIMENT sur ces ressources ; SIRAL les garde en mémoire et les améliore (propositions ✓/✗ du magistrat).',
+  'TRAVAIL DE FOND SUR UN DOSSIER (réquisitoire définitif, synthèse générale, dépouillement) : dossier_global — TOUTES les pièces en texte dans un seul fichier : en tête la fiche du dossier, la chronologie et le registre des pièces ; puis le sommaire et un bloc par pièce, classées par THÈME (auditions, synthese, telephonie, expertises, surveillances, decisions, autres — `theme` pour n\'en lire qu\'un), chaque pièce portant un numéro stable P-xxxx (citable d\'une conversation à l\'autre) et son chemin (la cote) ; paginé ; dossier volumineux : thème par thème ou pochette par pochette (panorama de dossier_arborescence). Pour LOCALISER sans tout lire : pieces_chercher, registre_lire. Pour CROISER des affaires : registre_recouper (entités partagées, `entite` pour une valeur précise), recoupements_lire (veille hebdomadaire, `inedits:true` pour les ponts que rien ne montrait), carto_analyser et carto_chemin (sourcé). Les chantiers d\'analyse profonde côté serveur (chantiers_etat / chantier_proposer) restent disponibles pour un dépouillement de nuit par lots, mais ne sont plus la voie par défaut : le fichier global l\'est.',
+  'RÉDACTION DES ACTES : c\'est ICI, dans Claude web, qu\'ils se rédigent — l\'attaché de SIRAL ne rédige plus (il actualise, recoupe, prépare). Avant de rédiger : instructions_projet_lire (les instructions de référence du projet, tenues dans SIRAL et révisées sur les corrections du magistrat — elles peuvent être plus récentes que celles collées dans le projet), trames_lister / trame_lire (le plan-type du magistrat, qui PRIME sur un modele-* du même type), skills_lister / skill_lire (sa méthode), kb_chercher / kb_lire (son fond documentaire, documents ★ en réflexe), lire_dossier (NATINF enregistrés, mis en cause, échéancier) et chronologie_lire. Les instructions, la mémoire et la base de connaissances de ton projet Claude web PRIMENT sur ces ressources ; SIRAL les garde en mémoire et les améliore (propositions ✓/✗ du magistrat).',
   'Écritures (actes, CR, à-faire, NATINF, dossiers…) : réservées aux instructions explicites du magistrat — en cas de doute, demande-lui dans la conversation avant d\'écrire. Chaque écriture est versionnée (réversible) et journalisée dans son audit ; les données partagées sont signées de son nom, jamais « IA ».',
   'Un acte rédigé ici se RANGE dans SIRAL avec produire_document (atelier « Actes rédigés » : relecture, export PDF/Word officiel, validation — avec acteMeta pour qu\'un acte d\'écoute ou de géolocalisation rejoigne l\'échéancier) ; une synthèse ou un livrable avec remettre_livrable (fil « pendant votre absence »).',
 ].join('\n')

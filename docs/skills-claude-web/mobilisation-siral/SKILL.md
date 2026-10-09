@@ -107,15 +107,22 @@ de la pièce) — visible dans les comptes-rendus et la chronologie.
   n'a pas été lue.
 - **Travail de fond sur le dossier entier** (réquisitoire définitif,
   synthèse générale, dépouillement) : `dossier_global` — **toutes** les
-  pièces en texte dans **un seul fichier** (sommaire numéroté, puis un bloc
-  par pièce ouvert par `📄 <chemin>` : c'est la cote à citer ; copies
-  exactes non répétées). Paginé : tant que `offsetSuivant` est rendu, la
-  suite existe — relire avec `offset`. Dossier volumineux : `pochette:"…"`
-  (panorama de `dossier_arborescence`), pochette par pochette. Les pièces
-  « pas encore extrait » se complètent en rappelant l'outil. Le magistrat
-  peut aussi avoir versé ce même fichier (`GLOBAL_<dossier>.txt`,
-  téléchargé depuis la page Assistant de justice) dans le projet : le lire
-  nativement, sans l'appeler.
+  pièces en texte dans **un seul fichier**. En tête : la fiche du dossier,
+  la chronologie et le registre des pièces (tout le contexte, sans autre
+  appel). Puis le sommaire et un bloc par pièce ouvert par
+  `📄 P-0042 — <chemin>` : le numéro `P-xxxx` est **stable** (ordre de
+  dépôt, jamais renuméroté — cite-le d'une conversation à l'autre), le
+  chemin est la cote. Les pièces sont **classées par thème** (auditions,
+  synthese, telephonie, expertises, surveillances, decisions, autres) :
+  `theme:"…"` pour lire dans l'ordre naturel d'un réquisitoire, un thème à
+  la fois. Paginé : tant que `offsetSuivant` est rendu, la suite existe —
+  relire avec `offset`. Dossier volumineux : thème par thème, ou
+  `pochette:"…"` (panorama de `dossier_arborescence`). Copies exactes non
+  répétées ; les pièces « pas encore extrait » se complètent en rappelant
+  l'outil. Le magistrat peut aussi avoir versé ce fichier
+  (`GLOBAL_<dossier>.txt`) ou le **dossier de rédaction** (`.zip` : fichier
+  global, trames, skills, base ★, actes précédents, instructions du projet)
+  dans le projet : les lire nativement, sans appeler l'outil.
 - `productions_lister` / `production_lire` : les actes déjà rédigés —
   cohérence des motivations, reprise des formules validées, pas de doublon.
 - `verifier_completude` / `diagnostic_dossier` : échéances, actes expirants,
@@ -131,8 +138,11 @@ de la pièce) — visible dans les comptes-rendus et la chronologie.
 
 ## Étape 4 — Rédiger ICI, puis ranger l'acte DANS SIRAL
 
-1. Les méthodes du magistrat : `trames_lister` puis `trame_lire` de la trame
-   du type d'acte (celle du magistrat **prime toujours** sur un `modele-*`,
+1. `instructions_projet_lire` d'abord : la version de référence des
+   instructions de ce projet, tenue dans SIRAL et révisée sur les corrections
+   du magistrat — elle peut être plus récente que celle collée dans le
+   projet ; appliquer ce qu'elle ajoute. Puis les méthodes du magistrat :
+   `trames_lister` puis `trame_lire` de la trame du type d'acte (celle du magistrat **prime toujours** sur un `modele-*`,
    et une trame qu'il nomme prime sur tout) ; `skills_lister` / `skill_lire`
    de la skill de rédaction applicable ; `kb_lire` des documents ★. Si une
    skill équivalente est installée dans ton projet Claude web, c'est elle qui

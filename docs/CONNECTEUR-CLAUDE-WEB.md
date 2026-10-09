@@ -33,9 +33,21 @@ connaissances, statistiques et graphiques, écritures réversibles (actes, CR,
   restent dans SIRAL pour être lus par Claude web et **améliorés** par
   l'attaché (étude du corpus d'actes validés, propositions ✓/✗).
 - Le **fichier global** remplace, pour le cas courant, les chantiers
-  d'analyse profonde : toutes les pièces d'un dossier en un seul texte,
-  lu par le connecteur page par page ou téléchargé en `.txt` depuis la page
-  Assistant de justice pour être versé dans le projet Claude web.
+  d'analyse profonde : fiche du dossier, chronologie et registre en tête,
+  puis toutes les pièces en texte, classées par thème (auditions, synthèses,
+  téléphonie, expertises, surveillances, décisions), chaque pièce portant un
+  numéro stable `P-xxxx` citable d'une conversation à l'autre — lu par le
+  connecteur page par page (`dossier_global`, `theme` pour un seul thème) ou
+  téléchargé en `.txt` depuis la page Assistant de justice. Servi depuis un
+  cache tenu à jour par le service à chaque mouvement du dossier. Le
+  **dossier de rédaction** (`.zip`, même page) y ajoute trames, skills,
+  documents ★ de la base, actes précédents et instructions du projet : la
+  base de connaissances du projet Claude web en un geste.
+- Les **instructions du projet Claude web** ont leur version de référence
+  dans SIRAL (Paramètres → Attaché IA) : l'attaché en propose des révisions
+  tirées des actes corrigés ou refusés (✓/✗, puis Copier → coller dans le
+  projet), et Claude web la lit par le connecteur
+  (`instructions_projet_lire`) au début d'une rédaction.
 
 > ⚠️ Réservé à l'**administrateur**, sur le TJ/contentieux confié à
 > l'attaché. Fonctionnalité **désactivée par défaut** ; tant qu'elle ne l'est
@@ -52,8 +64,10 @@ connaissances, statistiques et graphiques, écritures réversibles (actes, CR,
 - « Extrais tous les mis en cause liés au réseau X et leurs actes » →
   lectures croisées, recoupements ;
 - « Prépare le réquisitoire définitif du dossier 2026/000123 » →
-  `dossier_global` (toutes les pièces en texte, par pages ou pochette par
-  pochette), `trame_lire` du RD, `skill_lire`, puis rédaction ici ;
+  `instructions_projet_lire`, `dossier_global` (fiche, chronologie, registre,
+  puis les pièces en texte — thème par thème : auditions, téléphonie,
+  décisions…), `trame_lire` du RD, `skill_lire`, puis rédaction ici, pièces
+  citées par leur numéro P-xxxx ;
 - « Enregistre l'autorisation d'écoute signée ce matin » → `modifier_acte`
   (écriture versionnée, auditée) ;
 - « Rédige la prolongation et range-la dans le dossier » → `trame_lire` +
