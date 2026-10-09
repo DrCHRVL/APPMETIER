@@ -355,7 +355,11 @@ export class DataMergeService {
           (server.geolocalisations || []).filter(a => !deletedIds.has(a.id)),
           localIsNewer
         ),
-        tags: this.unionById(local.tags || [], server.tags || [], localIsNewer),
+        // Tags (services, infractions, suivi…) : version la plus récente, PAS
+        // d'union. Les retraits de tags ne laissent aucune trace : une union
+        // ressuscitait à chaque synchro un service supprimé tant qu'une copie
+        // (serveur, autre poste) le portait encore.
+        tags: newer.tags || older.tags || [],
         // Suivi, communications, etc. : prendre la version la plus récente
         suivi: newer.suivi || older.suivi,
         communications: newer.communications || older.communications,
