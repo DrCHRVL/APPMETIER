@@ -233,6 +233,21 @@ ok(adresses('Lieux de stockage des matières stupéfiantes. Par ailleurs, la pou
   adresses('Lieux de stockage des matières stupéfiantes. Par ailleurs, la poursuite…'))
 ok(adresses('Il se rend au 16 rue Balzac.').join() === '16 rue balzac', 'une vraie adresse est toujours lue')
 
+const cas = [
+  ['Au 12, rue Monstrelet et à la Résidence Les Tilleuls.', '12 rue monstrelet|residence les tilleuls',
+    'la phrase qui reprend (« et ») n’entre pas dans le nom, et la seconde adresse n’est plus avalée'],
+  ['Domicilié 4 allée des Pins, bât B.', '4 allee des pins', 'une voie accentuée (« allée ») est lue'],
+  ['Il demeure résidence les Tilleuls.', 'residence les tilleuls', '« résidence » accentuée est lue'],
+  ['Le 16 rue Balzac est un lieu de stockage.', '16 rue balzac', 'le verbe qui suit n’entre pas dans le nom'],
+  ['Il fixe sa résidence habituelle chez sa mère, sa résidence principale.', '',
+    'une résidence sans nom propre n’est pas une adresse'],
+  ['La personne citée comme témoin.', '', '« citée » n’est pas une cité'],
+]
+for (const [texte, attendu, libelle] of cas) {
+  const lu = adresses(texte).join('|')
+  ok(lu === attendu, libelle, lu)
+}
+
 const comptes = (texte) => extractValues(texte).filter(v => v.kind === 'compte').map(v => v.valeur)
 
 console.log('\nPseudos — ce que la veille ne doit PAS inventer :')
