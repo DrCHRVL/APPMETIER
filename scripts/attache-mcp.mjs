@@ -46,12 +46,12 @@ import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.
 import { analyserReseau, listerLiens, listerFiches, lireDocumentExNihilo, cartoHistoire, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
 import { analyseAvancee, cheminEntre } from './attache/cartoGraphe.mjs'
 import { lireSignaux } from './attache/recoupements.mjs'
+import { pageFichierGlobal, GLOBAL_EXTRACTIONS_MAX } from './attache/global.mjs'
 import { saveProduction, listProductions, readProduction, deleteProduction, diffProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
 import { appendMemory, rewriteMemory, memoryStats, MEMORY_BUDGET } from './attache/memory.mjs'
 import { recordLearningSignal, pendingSignals, learningState, learningMetrics, metricsSummary } from './attache/apprentissage.mjs'
 import { readConversation } from './attache/agent.mjs'
 import { controlerProduction } from './attache/qualite.mjs'
-import { listAssociations, setAssociation, removeAssociation } from './attache/associations.mjs'
 import { listInbox, readInboxMessage, markInboxProcessed } from './attache/mail.mjs'
 import { bilanStatistiques } from './attache/statistiques.mjs'
 import { genererGraphique, genererGraphiques, GRAPHIQUES } from './attache/statsGraphiques.mjs'
@@ -64,12 +64,12 @@ let keys = loadKeyring()
 const runContext = process.env.SIRAL_ATTACHE_RUN || 'chat'
 
 /**
- * Pseudo-dossier « hors dossier » — deux voies d'entrée : une demande d'acte
- * (mail transféré) qui ne correspond à aucun dossier en cours, OU une consigne
- * explicite du magistrat de ranger ici (valable même quand un dossier
- * correspondant existe — sa destination désignée prime). L'acte rédigé
- * apparaît dans la section « Actes rédigés — hors dossier » du tableau de
- * bord, en attendant que le magistrat décide de la suite.
+ * Pseudo-dossier « hors dossier » : une production (acte rangé depuis Claude
+ * web, livrable, état de balayage) qui ne se rattache à aucun dossier, ou
+ * qu'une consigne explicite du magistrat range ici (valable même quand un
+ * dossier correspondant existe — sa destination désignée prime). Elle
+ * apparaît dans la section « Actes rédigés — hors dossier » de la page
+ * Assistant de justice.
  */
 export const HORS_DOSSIER = '_hors-dossier'
 
@@ -357,6 +357,21 @@ const TOOLS = [
       required: ['numero'],
     },
     handler: async (a) => arborescenceDocuments(keys, a.numero, { pochette: a.pochette, offset: a.offset, limit: a.limit }),
+  },
+  {
+    name: 'dossier_global',
+    description: `FICHIER GLOBAL d'un dossier (enquête ou instruction) : TOUTES ses pièces versées, en texte, dans UN seul document — sommaire numéroté puis un bloc par pièce (« ===== » puis « 📄 <chemin> » : la cote à citer), copies exactes non répétées. C'est LA voie pour un travail de fond depuis Claude web — préparer un réquisitoire définitif, une synthèse générale, une recherche transversale — sans chantier ni lots : lis le fichier, travaille dessus. PAGINÉ par caractères (350 000 par page au plus) : tant que offsetSuivant figure dans la réponse, la suite existe — rappelle avec offset. \`pochette\` limite à une pochette de l'arborescence (dossier_arborescence donne le panorama) — sur un dossier de plusieurs milliers de pièces, dépouille pochette par pochette. Les pièces dont le texte n'est pas encore extrait (${GLOBAL_EXTRACTIONS_MAX} extractions fraîches par appel au plus) sont listées « pas encore extrait » : rappelle l'outil, chaque appel étend la couverture définitivement. Le même fichier se télécharge en .txt depuis la page Assistant de justice (section « Fichier global ») pour le verser dans un projet Claude web.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        pochette: { type: 'string', description: 'Limiter à une pochette (ex. "PV/GOSSE", "Dossier/D2"). Vide = tout le dossier.' },
+        offset: { type: 'number', description: 'Caractère de départ (défaut 0). Utiliser offsetSuivant de la page précédente.' },
+        limite: { type: 'number', description: 'Caractères par page (défaut et max 350 000).' },
+      },
+      required: ['numero'],
+    },
+    handler: async (a) => pageFichierGlobal(keys, a.numero, { pochette: a.pochette, offset: a.offset, limite: a.limite }),
   },
   {
     name: 'pieces_chercher',
@@ -907,26 +922,6 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
     mainOnly: true, // échanges privés du magistrat : jamais exposés aux sous-agents
   },
   {
-    name: 'associations_lister',
-    description: 'Table « type d\'acte → trame(s) + skill(s) » définie par le magistrat. À CONSULTER avant de rédiger un acte : si le type d\'acte y figure, applique D\'OFFICE la trame et la skill associées, sans reposer la question.',
-    inputSchema: { type: 'object', properties: {} },
-    handler: async () => ({ associations: listAssociations(keys) }),
-  },
-  {
-    name: 'association_definir',
-    description: 'Enregistre (ou met à jour) l\'association d\'un type d\'acte à une/des trame(s) et skill(s), pour l\'appliquer d\'office ensuite. À utiliser quand le magistrat rattache une trame/skill à un type d\'acte (« pour les prolongations de géoloc, prends la trame X et la skill Y »). acte : libellé du type d\'acte ; trames / skills : noms.',
-    inputSchema: { type: 'object', properties: { acte: { type: 'string' }, trames: { type: 'array', items: { type: 'string' } }, skills: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' } }, required: ['acte'] },
-    handler: async (a) => ({ association: await setAssociation(keys, a, 'attache-ia') }),
-    write: true,
-  },
-  {
-    name: 'association_supprimer',
-    description: 'Retire l\'association d\'un type d\'acte (par son libellé).',
-    inputSchema: { type: 'object', properties: { acte: { type: 'string' } }, required: ['acte'] },
-    handler: async (a) => removeAssociation(keys, a.acte, 'attache-ia'),
-    write: true,
-  },
-  {
     name: 'memoire_dossier_lire',
     description: 'Lit la mémoire légère du dossier : l\'essentiel des échanges passés du chat (ce que le magistrat a dit, décidé, découvert). À consulter au début d\'une conversation sur un dossier.',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
@@ -1057,10 +1052,10 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'produire_document',
-    description: `Rédige un ACTE et le range dans « Actes rédigés » du dossier (le magistrat le visionne, l'édite, l'exporte en PDF/Word officiel, puis le VALIDE). Type : ${PRODUCTION_TYPES.join(', ')}. Suis la trame correspondante (trames_lister/trame_lire) et le dossier (lire_dossier, chronologie_lire). COHÉRENCE NATINF OBLIGATOIRE : vise les qualifications enregistrées du dossier (section « Infractions (NATINF) » de lire_dossier) — si elles manquent, ajoute-les d'abord (natinf_chercher + ajouter_natinfs). Rédaction complète, prête à signer, texte brut (paragraphes séparés par des lignes vides). ` +
+    description: `Range dans « Actes rédigés » du dossier un ACTE que TU as rédigé ici, dans Claude web (le magistrat le visionne, l'édite, l'exporte en PDF/Word officiel, puis le VALIDE). Type : ${PRODUCTION_TYPES.join(', ')}. Avant de rédiger : la trame du magistrat (trames_lister/trame_lire — elle PRIME sur un modele-*), la skill de méthode (skills_lister/skill_lire), le dossier (lire_dossier, chronologie_lire) ; les instructions et la base de connaissances de ton projet Claude web priment sur ces ressources. COHÉRENCE NATINF OBLIGATOIRE : vise les qualifications enregistrées du dossier (section « Infractions (NATINF) » de lire_dossier) — si elles manquent, ajoute-les d'abord (natinf_chercher + ajouter_natinfs). Rédaction complète, prête à signer, texte brut (paragraphes séparés par des lignes vides). ` +
       'Type "presentation" = un DIAPORAMA (le magistrat l\'exporte en PowerPoint) : texte structuré « # » page de garde / « ## » une diapositive / puces / tableaux markdown / [GRAPHIQUE : …] et [DIAGRAMME : …] — voir la section BUREAUTIQUE de tes consignes. ' +
       'Renseigne `source` avec le nom EXACT de la trame suivie : il forme le 1ᵉʳ segment du nom de fichier à l\'export. Pour un acte d\'INTERCEPTION, d\'ÉCOUTE ou de GÉOLOCALISATION, renseigne aussi `objet` avec le n° de ligne interceptée ou l\'objet géolocalisé (ex. « 07 64 45 45 16 ») : il s\'ajoute en fin de nom de fichier. Pour MODIFIER un acte existant, passe son id. ' +
-      `RANGEMENT : numero désigne le dossier dans lequel l'acte apparaît — par défaut celui que le contenu concerne, MAIS une destination explicitement DÉSIGNÉE par le magistrat PRIME toujours, même incohérente avec le contenu (synthèse du dossier X à verser dans l'enquête Y ; acte du dossier A à ranger hors dossier) : exécute-la sans discuter ni la « corriger ». "${HORS_DOSSIER}" vaut sur simple demande du magistrat, et aussi quand l'acte demandé (mail transféré) ne correspond à AUCUN dossier en cours sans consigne de créer la procédure — il apparaît dans « Actes rédigés — hors dossier » du tableau de bord. ` +
+      `RANGEMENT : numero désigne le dossier dans lequel l'acte apparaît — par défaut celui que le contenu concerne, MAIS une destination explicitement DÉSIGNÉE par le magistrat PRIME toujours, même incohérente avec le contenu (synthèse du dossier X à verser dans l'enquête Y ; acte du dossier A à ranger hors dossier) : exécute-la sans discuter ni la « corriger ». "${HORS_DOSSIER}" vaut sur simple demande du magistrat — l'acte apparaît alors dans « Actes rédigés — hors dossier » de la page Assistant de justice. ` +
       'Un NOUVEL acte fait automatiquement apparaître une carte reliée (éditable) dans le journal « pendant votre absence » : ne la signale (signaler) pas en double.',
     inputSchema: {
       type: 'object',
@@ -1230,7 +1225,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'trames_lister',
-    description: 'Liste les trames de rédaction disponibles. AVANT toute rédaction type (DML, réquisition, TSE, mail), vérifier ici s\'il existe une trame et la suivre.',
+    description: 'Liste les trames de rédaction du magistrat (plans-types de DML, réquisition, TSE, soit-transmis… + modèles « modele-* » extraits de ses actes validés). Depuis Claude web, AVANT toute rédaction type, vérifier ici s\'il existe une trame et la suivre (celle du magistrat prime sur un modele-* du même type).',
     inputSchema: { type: 'object', properties: {} },
     handler: async () => listTrames(keys),
   },
@@ -1833,7 +1828,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'signaler',
-    description: 'Publie une carte d\'INFORMATION dans le journal « pendant votre absence » : ce qui a été fait/repéré, à titre indicatif. type: mail_traite | synthese | prolongation | alerte | note. N\'utilise PAS signaler pour un acte ou un livrable déjà produit (produire_document / remettre_livrable créent déjà une carte reliée, éditable) — ce serait un doublon. Pour une QUESTION au magistrat, utilise poser_question (jamais signaler, jamais le mail).',
+    description: 'Publie une carte d\'INFORMATION dans le journal « pendant votre absence » : ce qui a été fait/repéré, à titre indicatif. type: mail_traite | synthese | prolongation | alerte | note. N\'utilise PAS signaler pour un livrable déjà remis (remettre_livrable crée déjà une carte reliée, éditable) — ce serait un doublon. Pour une QUESTION au magistrat, utilise poser_question (jamais signaler, jamais le mail).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1966,9 +1961,10 @@ const INSTRUCTIONS_CONNECTEUR = [
   '  4. Chaque réponse porte un bloc `sources` : quel coffre a fourni les résultats d\'audience et quand il a été mis à jour. Si `repli: true` y apparaît, les chiffres d\'audience viennent d\'une copie qui n\'est plus alimentée : le DIRE au magistrat avant de les citer, et ne rien produire pour un tiers sur ces valeurs sans les avoir confrontées à son écran.',
   '  5. Pour VOIR ce qu\'il voit : stats_graphique, avec `graphiques` (plusieurs d\'un coup) et `annee`. Décrire les dynamiques d\'après l\'image, mais donner les nombres d\'après les données jointes.',
   'GROS STOCK ET ARCHIVES : lister_dossiers est paginé et filtrable — portee:"archives" (les archivés SEULS), portee:"toutes", `filtre` (numéro, objet, mis en cause), offset/limit ; la réponse dit ce qui reste et à quel offset reprendre. Une population de dossiers n\'est jamais hors de portée : déroule les pages.',
-  'ANALYSE PROFONDE : une demande qui suppose de LIRE des centaines ou des milliers de pièces (dépouiller un dossier entier, chercher une adresse ou une ligne dans les pièces de tous les dossiers, préparer un règlement, croiser des affaires) ne se traite pas dans la conversation. Cherche d\'abord avec les outils GRATUITS et exhaustifs — registre_recouper (entités partagées entre dossiers, `entite` pour une valeur précise), recoupements_lire (signaux de la veille hebdomadaire, pièces et OCR compris, `inedits:true` pour les ponts que rien ne montrait), carto_analyser (importance, intermédiaires, communautés CALCULÉS) et carto_chemin (ce qui relie X à Y, sourcé), registre_lire, pieces_chercher — puis, si la lecture de masse reste nécessaire, dépose un CHANTIER : chantiers_etat (ce qui existe déjà) puis chantier_proposer. Il naît en DEVIS chiffré (pièces, lots, jetons, heures, nuits) dans la bande « Analyses profondes » de l\'app ; le magistrat valide d\'un clic et le serveur travaille la nuit, par lots, avec reprise automatique. Ne conclus jamais sur une réserve d\'exhaustivité sans proposer le devis qui la lèvera.',
+  'TRAVAIL DE FOND SUR UN DOSSIER (réquisitoire définitif, synthèse générale, dépouillement) : dossier_global — TOUTES les pièces en texte dans un seul fichier, sommaire puis un bloc par pièce (cote = le chemin), paginé ; dossier volumineux : pochette par pochette (panorama de dossier_arborescence). Pour LOCALISER sans tout lire : pieces_chercher, registre_lire. Pour CROISER des affaires : registre_recouper (entités partagées, `entite` pour une valeur précise), recoupements_lire (veille hebdomadaire, `inedits:true` pour les ponts que rien ne montrait), carto_analyser et carto_chemin (sourcé). Les chantiers d\'analyse profonde côté serveur (chantiers_etat / chantier_proposer) restent disponibles pour un dépouillement de nuit par lots, mais ne sont plus la voie par défaut : le fichier global l\'est.',
+  'RÉDACTION DES ACTES : c\'est ICI, dans Claude web, qu\'ils se rédigent — l\'attaché de SIRAL ne rédige plus (il actualise, recoupe, prépare). Avant de rédiger : trames_lister / trame_lire (le plan-type du magistrat, qui PRIME sur un modele-* du même type), skills_lister / skill_lire (sa méthode), kb_chercher / kb_lire (son fond documentaire, documents ★ en réflexe), lire_dossier (NATINF enregistrés, mis en cause, échéancier) et chronologie_lire. Les instructions, la mémoire et la base de connaissances de ton projet Claude web PRIMENT sur ces ressources ; SIRAL les garde en mémoire et les améliore (propositions ✓/✗ du magistrat).',
   'Écritures (actes, CR, à-faire, NATINF, dossiers…) : réservées aux instructions explicites du magistrat — en cas de doute, demande-lui dans la conversation avant d\'écrire. Chaque écriture est versionnée (réversible) et journalisée dans son audit ; les données partagées sont signées de son nom, jamais « IA ».',
-  'Livrables et actes rédigés se remettent DANS SIRAL : produire_document (atelier « Actes rédigés ») ou remettre_livrable (fil « pendant votre absence »).',
+  'Un acte rédigé ici se RANGE dans SIRAL avec produire_document (atelier « Actes rédigés » : relecture, export PDF/Word officiel, validation — avec acteMeta pour qu\'un acte d\'écoute ou de géolocalisation rejoigne l\'échéancier) ; une synthèse ou un livrable avec remettre_livrable (fil « pendant votre absence »).',
 ].join('\n')
 
 /**
@@ -1997,13 +1993,19 @@ export async function handleConnectorMessage(message) {
 }
 
 // ── Boucle stdio (une ligne = un message) — exécution directe par le CLI ──
+// L'attaché (runs CLI : chat, mails, routines, flux, apprentissage) est un
+// ANALYSTE : il actualise les dossiers, recoupe, améliore la donnée — il ne
+// rédige plus les actes. La rédaction se fait dans Claude web, avec le
+// connecteur ; produire_document n'existe donc que pour le connecteur. Les
+// livrables d'analyse (remettre_livrable) et les fiches de chantier restent.
+const OUTILS_HORS_CLI = new Set(['produire_document'])
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
 if (isMain) {
   const rl = readline.createInterface({ input: process.stdin, terminal: false })
   rl.on('line', async (line) => {
     let req
     try { req = JSON.parse(line) } catch { return }
-    const res = await dispatchMcp(req)
+    const res = await dispatchMcp(req, { exclure: OUTILS_HORS_CLI })
     if (res) process.stdout.write(JSON.stringify(res) + '\n')
   })
   rl.on('close', () => process.exit(0))

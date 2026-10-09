@@ -24,7 +24,7 @@ export function runCategory(run) {
   // 'majordome' : ancien brief quotidien, retiré — conservé pour que les
   // relevés d'usage antérieurs restent lisibles dans « Consommation IA ».
   if (r === 'majordome') return 'brief'
-  if (r === 'trames-analyse' || r === 'kb-analyse' || r === 'skills-analyse' || r === 'associations-suggest') return 'classements'
+  if (r === 'trames-analyse' || r === 'kb-analyse' || r === 'skills-analyse') return 'classements'
   if (r === 'apprentissage' || r === 'etude') return 'apprentissage'
   if (r === 'description') return 'descriptions'
   // mini-fiches du registre : même poste que les descriptions (fil de l'eau)

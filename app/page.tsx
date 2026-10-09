@@ -31,7 +31,6 @@ import { buildResultatKey } from '@/stores/useAudienceStore';
 import { InstructionResultatsProvider } from '@/contexts/InstructionResultatsContext';
 import { useInstructionResultatsStore, buildInstructionResultatKey } from '@/stores/useInstructionResultatsStore';
 import type { ResultatAudience } from '@/types/audienceTypes';
-import { ActeRunsWatcher } from '@/components/attache/ActeRunsWatcher';
 import { useIaVisibiliteStore } from '@/stores/useIaVisibiliteStore';
 import type { EnquetePreliminaireOption } from '@/components/instruction/LierEnquetePreliminaireModal';
 import { UserProvider, useUser } from '@/contexts/UserContext';
@@ -2951,9 +2950,6 @@ export default function App() {
         <AudienceProvider>
           <InstructionResultatsProvider>
             <AppContent />
-            {/* Surveille les retouches IA d'actes lancées depuis « Actes rédigés » :
-                toast global à la fin, même si le magistrat a changé de dossier. */}
-            <ActeRunsWatcher />
           </InstructionResultatsProvider>
         </AudienceProvider>
       </ToastProvider>

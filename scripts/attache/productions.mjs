@@ -1,12 +1,15 @@
 /**
  * SIRAL — Attaché de justice · productions rédactionnelles.
  *
- * Les actes que l'attaché rédige à partir des trames (réquisition, demande
- * de prolongation au JLD, saisine, projet de réponse…). Chaque production est
- * conservée par dossier, chiffrée (clé globale), versionnée. Le magistrat les
- * visionne dans « Actes rédigés », les fait retoucher par l'IA (chat), les
+ * Les actes rangés dans SIRAL depuis Claude web (connecteur, produire_document
+ * — réquisition, demande de prolongation au JLD, saisine, projet de
+ * réponse…), les livrables de l'attaché (remettre_livrable) et les fiches des
+ * chantiers. Chaque production est conservée par dossier, chiffrée (clé
+ * globale), versionnée. Le magistrat les visionne dans « Actes rédigés », les
  * édite légèrement à la main, les exporte en PDF/Word officiel, puis les
- * VALIDE (traite) — l'acte quitte alors la liste courante.
+ * VALIDE (traite) — l'acte quitte alors la liste courante. L'attaché de SIRAL
+ * ne rédige ni ne retouche les actes : il les lit (production_lire) et les
+ * compare (production_diff) pour apprendre.
  *
  * Chaque production = un fichier-enveloppe. L'attaché l'écrit chiffré côté
  * serveur ; le navigateur de l'administrateur la déchiffre pour l'afficher,

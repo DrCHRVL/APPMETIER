@@ -28,6 +28,7 @@ import { writeClaudeToken, clearClaudeToken, clearAuthFailure } from './attache/
 import { runAgent, checkClaudeCli, testClaudeAuth, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
 import { usageSummary } from './attache/usage.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
+import { compilerFichierGlobal } from './attache/global.mjs'
 import { genererGraphique } from './attache/statsGraphiques.mjs'
 import { loadContentieux, numeroCanonique } from './attache/dossier.mjs'
 import { donneesDescription, couverturePieces, estimerTotalMs, estimerRedactionMs, observerRedaction, avancement } from './attache/description.mjs'
@@ -38,8 +39,7 @@ import { enfiler as fluxEnfiler, balayer as fluxBalayer, pomper as fluxPomper, f
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
-import { analyserTrame } from './attache/analyseTrame.mjs'
-import { classerTrames, classerKb, classerSkills, suggererAssociations } from './attache/classer.mjs'
+import { classerTrames, classerKb, classerSkills } from './attache/classer.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
 import { listEnvelopesDossier, writeEnvelope, deleteProduction, readProduction, sommaireProductions } from './attache/productions.mjs'
 import { recordLearningSignal, consolidationDue, consolidationPrompt, learningStatus, learningState, latestSignalTs } from './attache/apprentissage.mjs'
@@ -196,25 +196,30 @@ async function processProactiveRun(keys, mailId) {
     const prompt = [
       `Un nouveau message vient d'arriver dans la boîte dédiée (id : ${mailId}).`,
       'Traite-le ENTIÈREMENT selon ta méthode : boite_lire pour prendre connaissance de la consigne et des pièces jointes,',
-      'qualification, rapprochement RIGOUREUX avec le dossier SIRAL concerné, actions dans SIRAL si elles s\'imposent,',
-      'préparation des synthèses/projets — remis DANS SIRAL (remettre_livrable, signaler, produire_document) :',
-      'aucun mail sortant n\'existe plus.',
-      'PLUSIEURS ACTES : un même mail peut réclamer PLUSIEURS actes (« une prolongation de la ligne X ET une géoloc',
-      'du véhicule Y ») — commence par LISTER tous les actes demandés, traite-les UN PAR UN (une production par acte,',
-      'chacune avec son acteMeta), et VÉRIFIE avant de clore que chaque acte de ta liste a bien sa production.',
+      'qualification, rapprochement RIGOUREUX avec le dossier SIRAL concerné, puis ACTUALISATION du dossier : rangement des',
+      'pièces (ranger_document / kb_ranger_piece), NATINF cités par la pièce et absents du dossier (ajouter_natinfs),',
+      'échéancier (modifier_acte / proposer_acte), mis en cause nouveaux (proposer_mec), CR de réception (proposer_cr ou',
+      'classer_note sur consigne), description actualisée (actualiser_description). Tes synthèses se remettent DANS SIRAL',
+      '(remettre_livrable, signaler) : aucun mail sortant n\'existe plus.',
+      'TU NE RÉDIGES PAS LES ACTES : si la consigne demande un acte (requête, prolongation, réquisitions, soit-transmis,',
+      'réponse DML), prépare le dossier pour que le magistrat le rédige dans Claude web — tout ce que la pièce apporte',
+      'doit être intégré (actes, NATINF, mis en cause, CR, description), l\'acte attendu enregistré en PROPOSITION',
+      '(proposer_acte, pré-rempli, statut en attente JLD s\'il y a lieu) — puis dis-le dans la carte signaler : quel(s)',
+      'acte(s) sont attendus, sur quel dossier, et ce qui est prêt. PLUSIEURS ACTES : un même mail peut en réclamer',
+      'PLUSIEURS (« une prolongation de la ligne X ET une géoloc du véhicule Y ») — liste-les tous, une proposition par acte.',
       'COHÉRENCE : compare le numéro de procédure porté par la pièce jointe au dossier que tu as retenu — s\'ils',
       'divergent, tranche par les mis en cause et les faits, et SIGNALE la divergence (elle peut révéler une erreur',
-      'de transfert). De même, ajoute les NATINF cités par la pièce et absents du dossier (ajouter_natinfs).',
-      'DESTINATION DÉSIGNÉE : si la consigne du transfert dit OÙ verser la production (« verse dans le dossier Y »,',
+      'de transfert).',
+      'DESTINATION DÉSIGNÉE : si la consigne du transfert dit OÙ ranger une pièce ou un livrable (« verse dans le dossier Y »,',
       '« range hors dossier »), ce rangement-là PRIME et s\'exécute tel quel, même s\'il te paraît incohérent avec le',
       'contenu — pas de question, pas de rectification : au plus une phrase de récapitulatif (RANGEMENT SUR CONSIGNE).',
       'SI AUCUN dossier en cours ne correspond : (a) la consigne du transfert dit « créer procédure » (ou équivalent',
       'sans ambiguïté) → crée le dossier (creer_dossier, tout renseigné depuis la pièce : directeur d\'enquête, service,',
       'mis en cause recoupés, NATINF), puis traite-y la demande ;',
-      '(b) la consigne dit seulement de traiter → rédige l\'acte demandé sous le pseudo-dossier "_hors-dossier"',
-      '(produire_document) : il apparaîtra dans « Actes rédigés — hors dossier » du tableau de bord.',
-      'Termine par boite_marquer_traite — le résumé ÉNUMÈRE ce qui a été fait (ex. « 2 actes rédigés : prolongation',
-      'ligne X, géoloc Y — CR proposé ») — puis signaler.',
+      '(b) sinon → signale (type alerte) qu\'aucun dossier ne correspond, avec ce que la pièce contient et l\'acte',
+      'demandé, et laisse la pièce dans la boîte (sans la marquer traitée) : le magistrat décide.',
+      'Termine par boite_marquer_traite — le résumé ÉNUMÈRE ce qui a été fait (ex. « pièce rangée au dossier X,',
+      '2 actes proposés : prolongation ligne X, géoloc Y — CR proposé, NATINF ajoutés ») — puis signaler.',
       'Si le message est hors sujet (spam, notification technique), marque-le traité avec un résumé d\'un mot et ne signale rien.',
     ].join('\n')
     const result = await runAgent({ keys, prompt, runLabel: 'proactif', title: `Mail ${mailId}` })
@@ -303,8 +308,9 @@ async function runRoutine(routine, trigger = 'planifiée') {
     '  jamais un doublon de ce que tu as déjà signalé à l\'exécution précédente.',
     '  N\'annonce PAS les actes qui expirent, les poses non confirmées ni les attentes JLD ordinaires : le tableau',
     '  de bord les affiche déjà tout seul (widgets dédiés + notifications). Seulement ce qu\'il ne voit pas.',
-    '- Si la consigne demande une remise (« envoie-moi », « prépare-moi », une synthèse, un projet) :',
-    '  remettre_livrable (ou produire_document pour un acte à signer) — le livrable s\'affiche dans SIRAL.',
+    '- Si la consigne demande une remise (« envoie-moi », « prépare-moi », une synthèse, un point d\'étape) :',
+    '  remettre_livrable — le livrable s\'affiche dans SIRAL. Tu ne rédiges pas d\'acte : un acte attendu se',
+    '  PROPOSE (proposer_acte) et se signale ; le magistrat le rédige dans Claude web.',
     '- Si tu détectes une écriture à faire (lien de renseignement, personne ou dossier ex nihilo, mis en cause,',
     '  acte, CR), PROPOSE-la (proposer_lien, proposer_mec_carto, proposer_dossier_carto, ajouter_mec…) : le',
     '  magistrat tranche ✓/✗ dans le panneau Attaché et sur la Cartographie. Une proposition déposée SURVIT même',
@@ -1663,22 +1669,6 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    if (route === 'POST /analyse-trame') {
-      // Analyse STATELESS de la charpente d'un acte pour en tirer une trame de
-      // forme : aucune donnée chiffrée du coffre n'est touchée, pas de
-      // trousseau requis — seul le CLI claude est sollicité, et le fichier de
-      // l'utilisateur reste dans son navigateur.
-      const body = await readBody(req, 2 * 1024 * 1024)
-      const lignes = Array.isArray(body.lignes) ? body.lignes : []
-      if (!lignes.length) return json(res, 400, { ok: false, error: 'Aucune ligne fournie' })
-      try {
-        const out = await analyserTrame({ nomFichier: body.nomFichier, format: body.format, lignes })
-        return json(res, out.ok ? 200 : 502, out)
-      } catch (e) {
-        return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 400) })
-      }
-    }
-
     if (route === 'GET /routines') {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
@@ -1751,28 +1741,31 @@ const server = http.createServer(async (req, res) => {
       return json(res, 202, { ok: true, started: true })
     }
 
-    if (route === 'POST /associations/suggest') {
-      // Propose des associations acte → trame + skill (un appel modèle, sans
-      // sous-agent) SANS RIEN ÉCRIRE : le panneau charge les suggestions en
-      // brouillon, le magistrat vérifie et enregistre. Action DIRECTE du
-      // magistrat (bouton) : synchrone, jamais différée par le gouverneur.
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
-      try {
-        const out = await suggererAssociations(keys)
-        await audit(keys, 'associations_suggerees', { nb: out.suggestions?.length || 0, ok: out.ok }).catch(() => {})
-        return json(res, out.ok ? 200 : 502, out)
-      } catch (e) {
-        return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 300) })
-      }
-    }
-
     if (route === 'GET /chronologie') {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
       const numero = url.searchParams.get('numero') || ''
       const chrono = buildChronologie(keys, numero)
       return chrono ? json(res, 200, chrono) : json(res, 404, { error: 'Dossier introuvable' })
+    }
+
+    if (route === 'GET /dossier-global') {
+      // FICHIER GLOBAL d'un dossier — toutes les pièces en texte, un seul
+      // fichier (sommaire + un bloc par pièce), téléchargé depuis la page
+      // Assistant de justice pour être versé dans un projet Claude web.
+      // Lecture de caches (ingestion de fond) : rien n'est ré-extrait, sauf
+      // un nombre borné de pièces encore jamais extraites.
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const numero = url.searchParams.get('numero') || ''
+      if (!numero) return json(res, 400, { error: 'numero requis' })
+      try {
+        const g = await compilerFichierGlobal(keys, numero, { pochette: url.searchParams.get('pochette') || undefined })
+        await audit(keys, 'fichier_global', { numero: g.dossier, pieces: g.stats.pieces, caracteres: g.stats.caracteres }).catch(() => {})
+        return json(res, 200, { dossier: g.dossier, stats: g.stats, sommaire: g.sommaire, texte: g.texte })
+      } catch (e) {
+        return json(res, 500, { error: String(e?.message || e).slice(0, 300) })
+      }
     }
 
     if (route === 'GET /stats-graphique') {

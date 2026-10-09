@@ -16,7 +16,7 @@ du front-matter qui sert de déclencheur).
 
 | Fichier | Usage |
 |---|---|
-| `mobilisation-siral.skill` | Méthode complète de mobilisation du connecteur SIRAL : identifier le bon dossier (numéros, mis en cause, lignes), lire les données en économe (aperçus, sections paginées, pièces, actes déjà rédigés), recouper une pièce versée en conversation (PV, ordonnance), rédiger selon les trames du magistrat et remettre l'acte dans SIRAL (`produire_document` + `acteMeta`), avec la discipline d'écriture (instruction explicite, `[À CONFIRMER]`, récapitulatif). Couvre aussi les **régimes d'écriture** (propositions ✓/✗ par défaut, écritures directes sur consigne permanente bornée) et les **travaux au long cours** : balayages par lots avec état de reprise déposé dans SIRAL (« Actes rédigés — hors dossier »), et délégation du massif récurrent à une routine de nuit de l'attaché. |
+| `mobilisation-siral.skill` | Méthode complète de mobilisation du connecteur SIRAL : identifier le bon dossier (numéros, mis en cause, lignes), lire les données en économe (aperçus, sections paginées, pièces, **fichier global** `dossier_global` pour un travail de fond), recouper une pièce versée en conversation (PV, ordonnance), **rédiger dans Claude web** avec les trames, skills et base de connaissances du magistrat lus par le connecteur (les instructions du projet Claude web priment) et ranger l'acte dans SIRAL (`produire_document` + `acteMeta`), avec la discipline d'écriture (instruction explicite, `[À CONFIRMER]`, récapitulatif). Couvre aussi les **régimes d'écriture** (propositions ✓/✗ par défaut, écritures directes sur consigne permanente bornée) et les **travaux au long cours** : balayages par lots avec état de reprise déposé dans SIRAL (« Actes rédigés — hors dossier »), et délégation du massif récurrent à une routine de nuit de l'attaché. |
 
 ## Modifier / reconstruire
 
@@ -29,5 +29,5 @@ node scripts/build-skill.mjs docs/skills-claude-web/mobilisation-siral
 
 La `description` du front-matter doit rester ≤ 300 caractères. Ces mêmes
 fichiers `.skill` sont aussi importables dans SIRAL (Paramètres → Attaché
-IA → Skills) si l'on veut la même méthode côté attaché — mais celle-ci est
-pensée pour Claude web, qui découvre les outils par le connecteur.
+IA → Skills) — mais celle-ci est pensée pour Claude web, qui découvre les
+outils par le connecteur ; l'attaché, lui, ne rédige plus les actes.

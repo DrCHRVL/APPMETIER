@@ -3,6 +3,16 @@
 *Document de vision, issu de la réflexion sur le dossier PRISON BREAK 2 (9 procédures
 versées, 1 073 pièces). À affiner avant développement.*
 
+> **Mise à jour.** Le cas courant — préparer un réquisitoire définitif, une
+> synthèse, dépouiller un dossier — passe désormais par le **fichier global**
+> du dossier : toutes les pièces en texte, dans un seul fichier (sommaire,
+> puis un bloc par pièce), lu par Claude web via le connecteur
+> (`dossier_global`, paginé, pochette par pochette) ou téléchargé en `.txt`
+> depuis la page Assistant de justice pour être versé dans un projet Claude
+> web, où la rédaction se fait. Les chantiers décrits ci-dessous existent
+> toujours (moteur de nuit, par lots) mais ne sont plus la voie par défaut ;
+> la bande « Analyses profondes » est reléguée derrière le fichier global.
+
 ## Le constat de départ
 
 Le dépouillement d'un dossier massif ne passe ni dans une conversation Claude web
