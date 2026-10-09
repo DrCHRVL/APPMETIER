@@ -57,7 +57,8 @@ fs.writeFileSync(
 const { writeDocBlob, docServerKey, attacheTj } = await import(`${REPO}/scripts/attache/store.mjs`)
 const { readRegistre, writeRegistre } = await import(`${REPO}/scripts/attache/registre.mjs`)
 const { loadContentieux, actualiserDescription } = await import(`${REPO}/scripts/attache/dossier.mjs`)
-const { donneesDescription, couverturePieces } = await import(`${REPO}/scripts/attache/description.mjs`)
+const { donneesDescription, couverturePieces, avancement, estimerTotalMs, estimerRedactionMs, observerRedaction } = await import(`${REPO}/scripts/attache/description.mjs`)
+const { appendDossierMemory } = await import(`${REPO}/scripts/attache/dossierMemory.mjs`)
 const { SOCLES } = await import(`${REPO}/scripts/attache/consignes.mjs`)
 
 const echecs = []
@@ -91,6 +92,12 @@ attendu('fiche du registre jointe (résumé, personnes, entités)',
 attendu('pièce sans fiche listée', txt.includes('- PV/surveillance.pdf'))
 attendu('mis en cause enregistrés joints', txt.includes('KARIM Ali (gérant du point) [actif]'))
 
+attendu('sections de contexte jointes (mémoire, MEC ailleurs, liens carto, entités partagées)',
+  ['MÉMOIRE DU DOSSIER', 'MIS EN CAUSE CONNUS AILLEURS', 'LIENS DÉJÀ TRACÉS SUR LA CARTE', 'ENTITÉS PARTAGÉES'].every((t) => txt.includes(t)))
+attendu('aucune marque ★ avant toute actualisation', !txt.includes('★'))
+attendu('le prompt couvre rôles courts, suspects, liens et mémoire',
+  ['modifier_mec', 'proposer_mec', 'proposer_lien', 'memoire_dossier_noter', '2 à 6 mots'].every((t) => SOCLES.description.includes(t)))
+
 attendu('le prompt exige l\'écriture', SOCLES.description.includes('TOUJOURS') && !SOCLES.description.includes('termine sans appeler actualiser_description'))
 
 await actualiserDescription(keys, { numero: NUM, description: 'SYNTHÈSE\nRixe.\nMIS EN CAUSE\nKARIM Ali — gérant.' })
@@ -98,6 +105,31 @@ const e = loadContentieux(keys).data.enquetes.find((x) => x.numero === NUM)
 attendu('première description écrite', e.description.startsWith('SYNTHÈSE'))
 attendu('entrée d\'historique même depuis une description vide',
   Array.isArray(e.descriptionHistory) && e.descriptionHistory.length === 1 && e.descriptionHistory[0].description === '')
+
+// Après actualisation : un CR créé ensuite est marqué ★, l'acquis non.
+await new Promise((ok) => setTimeout(ok, 5))
+const payload = loadContentieux(keys)
+payload.data.enquetes[0].comptesRendus.push({ id: Date.now() + 1000, date: '2026-10-01', description: 'Interpellation de KARIM.' })
+fs.writeFileSync(
+  path.join(DATA_DIR, 'vaults', 'ctx-crimorg.json'),
+  JSON.stringify(encryptJson(keyCtx, { data: payload.data, metadata: { lastModified: new Date().toISOString(), modifiedBy: 'test', version: 2 } }))
+)
+await appendDossierMemory(keys, NUM, 'KARIM dit Kiki — ligne 0611223344.')
+const txt2 = donneesDescription(keys, NUM).join('\n')
+attendu('nouveau CR marqué ★, ancien non', txt2.includes('[★ CR 2026-10-01') && !txt2.includes('★ CR 2026-03-10'))
+attendu('mémoire du dossier jointe', txt2.includes('KARIM dit Kiki — ligne 0611223344.'))
+
+// Avancement : borné à 97 % tant que non fini, 100 % une fois fini.
+const total = estimerTotalMs({ lotsFiches: 1, chars: 50_000 })
+const a1 = avancement({ numero: NUM, debut: 0, finEstimeeAt: total, phase: 'redaction', etapes: [] }, total / 2)
+const a2 = avancement({ numero: NUM, debut: 0, finEstimeeAt: total, phase: 'redaction', etapes: [] }, total * 3)
+const a3 = avancement({ numero: NUM, debut: 0, finEstimeeAt: total, phase: 'fin', etapes: [], fini: true }, 10)
+attendu('avancement à mi-course ≈ 50 %', a1.pourcent === 50 && a1.restantMs === total / 2, JSON.stringify(a1))
+attendu('dépassement plafonné à 97 %, 0 restant', a2.pourcent === 97 && a2.restantMs === 0)
+attendu('fini → 100 %', a3.pourcent === 100)
+const avant = estimerRedactionMs(100_000)
+observerRedaction(avant * 2, avant)
+attendu('un run plus lent que prévu allonge l\'estimation suivante', estimerRedactionMs(100_000) > avant)
 
 fs.rmSync(SCRATCH, { recursive: true, force: true })
 if (echecs.length) { console.log(`\n${echecs.length} échec(s).`); process.exit(1) }

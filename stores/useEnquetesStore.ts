@@ -165,9 +165,22 @@ function ensureManagerSubscription(): void {
       useEnquetesStore.setState(s => ({
         ownEnquetes: fraiches,
         enquetes: [...fraiches, ...s.sharedEnquetes],
+        ...selectionFraiche(s, fraiches),
       }));
     });
   }
+}
+
+// Le dossier OUVERT suit les données fraîches (description actualisée par
+// l'attaché, CR, mis en cause tirés par la sync) : sans cela la fiche restait
+// figée jusqu'à sa fermeture. Jamais pendant une édition manuelle.
+function selectionFraiche(
+  s: { selectedEnquete: Enquete | null; isEditing: boolean },
+  fraiches: Enquete[],
+): { selectedEnquete?: Enquete } {
+  if (!s.selectedEnquete || s.isEditing) return {};
+  const fresh = fraiches.find((e) => e.id === s.selectedEnquete!.id);
+  return fresh && fresh !== s.selectedEnquete ? { selectedEnquete: fresh } : {};
 }
 
 // ── Interface du store ──
@@ -515,6 +528,7 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       set(state => ({
         ownEnquetes: repairedData,
         enquetes: [...repairedData, ...state.sharedEnquetes],
+        ...selectionFraiche(state, repairedData),
       }));
     } catch (error) {
       console.error(`❌ EnquetesStore[${contentieuxId}]: erreur chargement`, error);
@@ -589,8 +603,16 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
     //    le cache local n'est mis à jour que par la sync). En cas de conflit /
     //    hors-ligne, triggerSync n'écrit rien : on recharge quand même, sans
     //    casser l'affichage — le cycle périodique reprendra la main.
+    //    Une sync périodique déjà en cours faisait renvoyer « Sync
+    //    indisponible » sans rien tirer : on attend qu'elle finisse (≤ 15 s)
+    //    puis on retire, pour que l'écriture de l'attaché arrive bien.
     try {
-      await MultiSyncManager.getInstance().triggerSync(contentieuxId);
+      const fin = Date.now() + 15_000;
+      for (;;) {
+        const r = await MultiSyncManager.getInstance().triggerSync(contentieuxId);
+        if (r.success || r.error !== 'Sync indisponible' || Date.now() > fin) break;
+        await new Promise((ok) => setTimeout(ok, 700));
+      }
     } catch (error) {
       console.warn('EnquetesStore.syncAndRefresh: sync ignorée', error);
     }

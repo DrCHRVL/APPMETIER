@@ -32,6 +32,7 @@ import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
 import { RefreshStatus } from '../ui/RefreshIconButton';
+import { useDescriptionActualisation } from '@/hooks/useDescriptionActualisation';
 import { SuiviAlertModal } from './SuiviAlertModal';
 import { ToDoItem } from '@/types/interfaces';
 import { RecoupementHint } from '../recoupements/RecoupementHint';
@@ -120,9 +121,7 @@ const EnqueteDetailModalImpl = ({
   recoupements,
 }: EnqueteDetailModalProps) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [descriptionRefreshStatus, setDescriptionRefreshStatus] = useState<RefreshStatus>('idle');
   const [mecRefreshStatus, setMecRefreshStatus] = useState<RefreshStatus>('idle');
-  const descStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mecStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Incrémenté après chaque passe de l'attaché : force le bandeau des
   // propositions à se recharger pour montrer les noms qu'elle vient de déposer.
@@ -171,7 +170,6 @@ const EnqueteDetailModalImpl = ({
   }, []);
 
   useEffect(() => () => {
-    if (descStatusTimer.current) clearTimeout(descStatusTimer.current);
     if (mecStatusTimer.current) clearTimeout(mecStatusTimer.current);
   }, []);
 
@@ -189,53 +187,22 @@ const EnqueteDetailModalImpl = ({
   }, [onUpdate, showToast]);
 
   // Actualisation « à la demande » de la description par l'attaché IA (icône à
-  // côté du titre Description). Le run est court et awaité côté service ; au
-  // retour, on tire le coffre serveur (syncAndRefresh) pour afficher la nouvelle
-  // synthèse tout de suite. Elle se rafraîchit aussi TOUTE SEULE en arrière-plan
-  // à chaque CR/acte téléversé — ce bouton ne fait qu'accélérer.
-  const handleRefreshDescription = useCallback(async () => {
-    if (descriptionRefreshStatus === 'running') return;
-    if (descStatusTimer.current) clearTimeout(descStatusTimer.current);
-    setDescriptionRefreshStatus('running');
-    try {
-      const res = await fetch('/api/attache/actualiser-description', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ numero: enquete.numero }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 202 || data.running) {
-        showToast('Une actualisation est déjà en cours — réessayez dans un instant.', 'info');
-        setDescriptionRefreshStatus('idle');
-      } else if (res.ok && data.ok && data.chantier) {
-        // Dossier trop volumineux pour un run court : basculé sur un chantier
-        // de dépouillement (nuit, par lots) — pas d'échec, mais rien n'est
-        // actualisé tout de suite. On le dit franchement, sans laisser croire
-        // à un succès ni à une panne (l'icône revient au repos, pas à l'échec).
-        showToast(data.message || 'Dossier volumineux — actualisation basculée en chantier de dépouillement.', 'warning');
-        setDescriptionRefreshStatus('idle');
-      } else if (res.ok && data.ok) {
-        await useEnquetesStore.getState().syncAndRefresh().catch(() => {});
-        // La même passe tient la section « Mis en cause » en cohérence : tout
-        // nom relevé au passage et absent du dossier est déposé en proposition.
-        setPropositionsToken((t) => t + 1);
-        const n = Number(data.proposees) || 0;
-        showToast(
-          n > 0
-            ? `Description actualisée — ${n} mis en cause proposé${n > 1 ? 's' : ''} à valider`
-            : 'Description actualisée',
-          'success'
-        );
-        settleRefreshStatus(setDescriptionRefreshStatus, descStatusTimer, 'success');
-      } else {
-        showToast(data.error || 'Actualisation impossible pour le moment', 'error');
-        settleRefreshStatus(setDescriptionRefreshStatus, descStatusTimer, 'error');
-      }
-    } catch {
-      showToast('Service de l\'attaché indisponible', 'error');
-      settleRefreshStatus(setDescriptionRefreshStatus, descStatusTimer, 'error');
-    }
-  }, [descriptionRefreshStatus, enquete.numero, showToast, settleRefreshStatus]);
+  // côté du titre Description) : l'attaché relit TOUT le dossier en fond et,
+  // d'un même passage, rédige la description, tient les rôles des mis en
+  // cause, propose suspects et liens de cartographie. Avancement (%, temps
+  // restant), toasts par étape, et la fiche se met à jour dès qu'une écriture
+  // tombe — sans la fermer. Voir hooks/useDescriptionActualisation.
+  const bumpPropositions = useCallback(() => setPropositionsToken((t) => t + 1), []);
+  const {
+    lancer: handleRefreshDescription,
+    status: descriptionRefreshStatus,
+    progress: descriptionProgress,
+  } = useDescriptionActualisation({
+    numero: enquete.numero,
+    enabled: attacheAvailable && isAdmin(),
+    showToast,
+    onPropositions: bumpPropositions,
+  });
 
   // Recherche « à la demande » des mis en cause manquants (icône à côté du + de
   // la section Mis en cause). L'attaché relit les CR, actes et documents et
@@ -460,6 +427,7 @@ const EnqueteDetailModalImpl = ({
               onUpdateImmediate={isEditing ? (updates) => handleUpdateImmediate(enquete.id, updates) : undefined}
               onRefreshDescription={attacheAvailable && isAdmin() && !isEditing ? handleRefreshDescription : undefined}
               descriptionRefreshStatus={descriptionRefreshStatus}
+              descriptionProgress={descriptionProgress}
             />
 
             {/* Recoupements avec d'autres dossiers — bandeau replié, informatif.

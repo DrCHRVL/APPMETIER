@@ -30,7 +30,7 @@ import { usageSummary } from './attache/usage.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { genererGraphique } from './attache/statsGraphiques.mjs'
 import { loadContentieux, numeroCanonique } from './attache/dossier.mjs'
-import { donneesDescription, couverturePieces } from './attache/description.mjs'
+import { donneesDescription, couverturePieces, estimerTotalMs, estimerRedactionMs, observerRedaction, avancement } from './attache/description.mjs'
 import { ingestPass } from './attache/ingest.mjs'
 import { passeRecoupements, dernierResultat } from './attache/recoupements.mjs'
 import { registreFichesStep } from './attache/registre.mjs'
@@ -531,83 +531,174 @@ function mecPrompt(keys, numero) {
 // Lots de mini-fiches tentés avant la description (pièces tout juste versées).
 const DESC_LOTS_FICHES = 3
 
-let descriptionRunning = false
-async function runActualiserDescription(numero, trigger = 'auto') {
+// ── Avancement de l'actualisation en cours ──
+// Une seule actualisation à la fois ; son état (phase, étapes, estimation de
+// fin, résultat) est lu par le navigateur toutes les quelques secondes
+// (GET /actualiser-description) : pourcentage, « X min restantes », toasts à
+// chaque étape. Le dernier état terminé reste lisible un moment.
+let descEtat = null
+
+function descEtape(phase, texte, patch = {}) {
+  if (!descEtat) return
+  descEtat.phase = phase
+  descEtat.detail = texte
+  descEtat.etapes.push({ at: new Date().toISOString(), phase, texte })
+  Object.assign(descEtat, patch)
+}
+
+// Outils du run → étape lisible par le magistrat (et compteur d'écritures :
+// le navigateur resynchronise dès qu'une écriture tombe).
+const DESC_OUTILS = [
+  [/actualiser_description/, 'ecriture', 'Description écrite', true],
+  [/modifier_mec/, 'mec', 'Rôle d\'un mis en cause mis à jour', true],
+  [/proposer_mec/, 'mec', 'Mis en cause proposé (à valider)', true],
+  [/recouper_personnes/, 'mec', 'Recoupement des personnes avec les autres dossiers', false],
+  [/proposer_lien/, 'liens', 'Lien proposé pour la cartographie (à valider)', true],
+  [/memoire_dossier_noter/, 'memoire', 'Acquis notés dans la mémoire du dossier', false],
+  [/lire_document/, 'lecture', 'Lecture d\'une pièce', false],
+]
+
+function descSurOutil(nom) {
+  for (const [re, phase, texte, ecriture] of DESC_OUTILS) {
+    if (re.test(String(nom))) {
+      descEtape(phase, texte)
+      if (ecriture) descEtat.ecritures = (descEtat.ecritures || 0) + 1
+      return
+    }
+  }
+}
+
+/** Démarre l'actualisation EN FOND et rend aussitôt l'état initial. */
+function demarrerActualiserDescription(numero, trigger = 'manuel') {
   const num = String(numero || '').trim()
   if (!num) return { ok: false, error: 'numéro requis' }
   // Un seul run de description à la fois (les écritures visent le MÊME coffre) —
   // évite qu'un run n'écrase la description d'un dossier voisin (read-modify-write).
-  if (descriptionRunning) return { ok: false, running: true, error: 'actualisation déjà en cours' }
+  if (descEtat && !descEtat.fini) {
+    return { ok: false, running: true, memeDossier: descEtat.numero === num, etat: avancement(descEtat) }
+  }
   const keys = loadKeyring()
   if (!keys) return { ok: false, error: 'trousseau non remis' }
-  descriptionRunning = true
-  try {
-    // Pièces nouvelles : ingestion (zéro jeton) puis quelques lots de
-    // mini-fiches, pour que le sommaire joint couvre les derniers versements.
-    const docKey = docServerKey(numeroCanonique(keys, num))
-    try { await ingestPass(keys, { docKeys: [docKey], maxDossiers: 1, maxExtractions: 40, maxShas: 400, maxProbes: 600 }) } catch { /* jamais bloquant */ }
-    for (let i = 0; i < DESC_LOTS_FICHES; i++) {
-      let r = null
-      try { r = await registreFichesStep(keys, { docKey }) } catch { r = null }
-      if (!r || !r.restantes) break
-    }
-    // Trop de pièces encore SANS fiche (versement massif) : chantier de dépouillement plutôt qu'une description bâtie à
-    // l'aveugle — et on le dit clairement au magistrat.
-    const cov = couverturePieces(keys, num)
-    if (cov.sansFiche.length >= DESC_CHANTIER_SEUIL) {
-      try {
-        const b = await basculerEnChantier(keys, { numero: num, pieces: cov.sansFiche.length, trigger })
-        console.log(`[attache] description « ${num} » (${trigger}) : chantier ${b.chantier.id} ${b.cree ? 'créé' : `déjà « ${b.chantier.etat} »`}, pas de run`)
-        return { ok: true, chantier: b.chantier, message: b.message }
-      } catch (e) {
-        // Cas attendu le plus courant : toutes les pièces sont déjà couvertes
-        // par les fiches d'un chantier précédent — on poursuit avec le registre.
-        console.log(`[attache] description « ${num} » (${trigger}) : bascule chantier écartée (${e?.message || e}) — run direct`)
-      }
-    }
-    console.log(`[attache] actualisation description « ${num} » (${trigger}) — ${cov.fichees.length}/${cov.total} pièce(s) fichée(s)`)
-    // Le run tient AUSSI la section « Mis en cause » en cohérence : la partie
-    // MIS EN CAUSE de la description ne parle que des personnes enregistrées,
-    // donc tout nom relevé au passage et absent du dossier part en proposition
-    // ✓/✗. On compte avant/après (coût nul) pour le dire au magistrat.
-    const avantMec = countPropositionsMec(keys, num)
-    const avantDesc = descriptionDe(keys, num)
-    const result = await runAgent({
-      keys,
-      prompt: descriptionPrompt(keys, num),
-      runLabel: 'description',
-      title: `Description ${num} ${new Date().toISOString().slice(0, 10)}`,
-      // Demandée par le magistrat, qui veut une description de QUALITÉ : le
-      // modèle principal (pas l'économe). Toute la matière est jointe, donc
-      // peu de tours suffisent.
-      model: agentConfig().model || undefined,
-      effort: 'medium',
-      maxTurns: 12,
-      timeoutMs: 8 * 60 * 1000,
-    })
-    const proposees = Math.max(0, countPropositionsMec(keys, num) - avantMec)
-    // Vérification DÉTERMINISTE : le run a-t-il vraiment écrit ? Sans elle, un
-    // run terminé sans appeler actualiser_description passait pour un succès
-    // (« Description actualisée ») alors que la description restait vide.
-    const ecrite = descriptionDe(keys, num) !== avantDesc
-    const error = result.ok && !ecrite
-      ? 'L\'attaché a terminé sans écrire de description — réessayez ; si cela persiste, voyez son prompt dans Paramètres → Attaché IA.'
-      : result.error
-    await audit(keys, 'description_actualisee', { numero: num, trigger, ok: result.ok && ecrite, ecrite, proposees, pieces: cov.total, fichees: cov.fichees.length, convId: result.convId, erreur: error })
-    return { ok: result.ok && ecrite, proposees, convId: result.convId, error }
-  } finally {
-    descriptionRunning = false
+  descEtat = {
+    numero: num, trigger, debut: Date.now(), phase: 'debut', detail: '', etapes: [], ecritures: 0,
+    finEstimeeAt: Date.now() + estimerTotalMs({ lotsFiches: 1, chars: 60_000 }),
   }
+  runActualiserDescription(keys, num, trigger)
+    .catch((e) => ({ ok: false, error: String(e?.message || e) }))
+    .then((resultat) => {
+      if (!descEtat || descEtat.numero !== num) return
+      descEtat.fini = true
+      descEtat.resultat = resultat
+      descEtape('fin', resultat.ok ? 'Terminé' : (resultat.chantier ? 'Basculé en chantier' : 'Échec'))
+    })
+  return { ok: true, demarre: true, etat: avancement(descEtat) }
+}
+
+async function runActualiserDescription(keys, num, trigger) {
+  // 1. Pièces nouvelles : ingestion (zéro jeton) puis quelques lots de
+  //    mini-fiches, pour que le sommaire joint couvre les derniers versements.
+  descEtape('ingestion', 'Recensement des pièces du serveur')
+  const docKey = docServerKey(numeroCanonique(keys, num))
+  try { await ingestPass(keys, { docKeys: [docKey], maxDossiers: 1, maxExtractions: 40, maxShas: 400, maxProbes: 600 }) } catch { /* jamais bloquant */ }
+  let cov = couverturePieces(keys, num)
+  const lots = Math.min(DESC_LOTS_FICHES, Math.ceil(cov.sansFiche.length / 8))
+  descEtat.finEstimeeAt = Date.now() + estimerTotalMs({ lotsFiches: lots, chars: donneesDescription(keys, num).join('\n').length }) - 10_000
+  descEtape('fiches', cov.sansFiche.length
+    ? `${cov.total} pièce(s) — ${cov.sansFiche.length} à résumer avant lecture`
+    : `${cov.total} pièce(s), toutes déjà résumées`, { pieces: cov.total, sansFiche: cov.sansFiche.length })
+  for (let i = 0; i < lots; i++) {
+    let r = null
+    try { r = await registreFichesStep(keys, { docKey }) } catch { r = null }
+    if (r) descEtape('fiches', `Résumé des pièces nouvelles — lot ${i + 1}/${lots} (${r.faites || 0} fiche(s) faite(s), ${r.restantes || 0} restante(s))`)
+    if (!r || !r.restantes) break
+  }
+  cov = couverturePieces(keys, num)
+
+  // 2. Trop de pièces encore SANS fiche (versement massif) : chantier de
+  //    dépouillement plutôt qu'une description bâtie à l'aveugle — dit clairement.
+  if (cov.sansFiche.length >= DESC_CHANTIER_SEUIL) {
+    try {
+      const b = await basculerEnChantier(keys, { numero: num, pieces: cov.sansFiche.length, trigger })
+      console.log(`[attache] description « ${num} » (${trigger}) : chantier ${b.chantier.id} ${b.cree ? 'créé' : `déjà « ${b.chantier.etat} »`}, pas de run`)
+      return { ok: true, chantier: b.chantier, message: b.message }
+    } catch (e) {
+      // Cas attendu le plus courant : toutes les pièces sont déjà couvertes
+      // par les fiches d'un chantier précédent — on poursuit avec le registre.
+      console.log(`[attache] description « ${num} » (${trigger}) : bascule chantier écartée (${e?.message || e}) — run direct`)
+    }
+  }
+
+  // 3. Le run : tout le dossier joint ; il écrit la description, tient les
+  //    rôles des mis en cause, propose suspects et liens, note les acquis.
+  const prompt = descriptionPrompt(keys, num)
+  const redactionEstimee = estimerRedactionMs(prompt.length)
+  const t0 = Date.now()
+  descEtat.finEstimeeAt = t0 + redactionEstimee
+  descEtape('redaction', `Lecture de tout le dossier par l'attaché (${(enqueteDe(keys, num)?.comptesRendus || []).length} CR, ${cov.fichees.length}/${cov.total} pièces résumées)`)
+  console.log(`[attache] actualisation description « ${num} » (${trigger}) — ${cov.fichees.length}/${cov.total} pièce(s) fichée(s)`)
+  const avantMec = countPropositions(keys, num, 'mec')
+  const avantLiens = countPropositions(keys, num, 'lien')
+  const avantDesc = descriptionDe(keys, num)
+  const avantRoles = rolesDe(keys, num)
+  const result = await runAgent({
+    keys,
+    prompt,
+    runLabel: 'description',
+    title: `Description ${num} ${new Date().toISOString().slice(0, 10)}`,
+    // Demandée par le magistrat, qui veut un travail de QUALITÉ : le modèle
+    // principal (pas l'économe). La matière est jointe ; les tours servent aux
+    // écritures (rôles, propositions, liens, mémoire).
+    model: agentConfig().model || undefined,
+    effort: 'medium',
+    maxTurns: 30,
+    timeoutMs: 10 * 60 * 1000,
+    onEvent: (ev) => { if (ev?.type === 'tool') descSurOutil(ev.name) },
+  })
+  observerRedaction(Date.now() - t0, redactionEstimee)
+
+  // 4. Bilan DÉTERMINISTE (comptages avant/après, coût nul) : ce que le
+  //    magistrat retrouvera dans la fiche. Sans la vérification d'écriture, un
+  //    run terminé sans appeler actualiser_description passait pour un succès.
+  const ecrite = descriptionDe(keys, num) !== avantDesc
+  const apresRoles = rolesDe(keys, num)
+  const bilan = {
+    descriptionEcrite: ecrite,
+    proposees: Math.max(0, countPropositions(keys, num, 'mec') - avantMec),
+    liens: Math.max(0, countPropositions(keys, num, 'lien') - avantLiens),
+    roles: [...apresRoles].filter(([id, role]) => avantRoles.has(id) && avantRoles.get(id) !== role).length,
+    pieces: cov.total,
+    fichees: cov.fichees.length,
+  }
+  const error = result.ok && !ecrite
+    ? 'L\'attaché a terminé sans écrire de description — réessayez ; si cela persiste, voyez son prompt dans Paramètres → Attaché IA.'
+    : result.error
+  await audit(keys, 'description_actualisee', { numero: num, trigger, ok: result.ok && ecrite, ...bilan, convId: result.convId, erreur: error })
+  return { ok: result.ok && ecrite, ...bilan, convId: result.convId, error }
+}
+
+/** Propositions EN ATTENTE d'un type sur un dossier (comptage déterministe). */
+function countPropositions(keys, numero, type) {
+  try {
+    return listPropositions(keys, { numero, enAttente: true }).filter((p) => p.type === type).length
+  } catch { return 0 }
+}
+
+function enqueteDe(keys, numero) {
+  try {
+    const { data } = loadContentieux(keys)
+    const canon = numeroCanonique(keys, numero)
+    return (data.enquetes || []).find((x) => String(x.numero).trim() === canon.trim()) || null
+  } catch { return null }
+}
+
+/** Rôles des mis en cause enregistrés (id → rôle). */
+function rolesDe(keys, numero) {
+  return new Map((enqueteDe(keys, numero)?.misEnCause || []).map((m) => [m.id, String(m.role || '')]))
 }
 
 /** Description actuelle d'un dossier (lecture du coffre, coût nul). */
 function descriptionDe(keys, numero) {
-  try {
-    const { data } = loadContentieux(keys)
-    const canon = numeroCanonique(keys, numero)
-    const e = (data.enquetes || []).find((x) => String(x.numero).trim() === canon.trim())
-    return String(e?.description || '')
-  } catch { return '' }
+  return String(enqueteDe(keys, numero)?.description || '')
 }
 
 let mecRunning = false
@@ -1370,16 +1461,22 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (route === 'POST /actualiser-description') {
-      // Actualisation À LA DEMANDE (icône « Actualiser » du dossier) : run court,
-      // AWAITÉ ici pour que le navigateur enchaîne sur syncAndRefresh et voie la
-      // nouvelle description tout de suite. Un seul à la fois (voir le lock).
+      // Actualisation À LA DEMANDE (icône « Actualiser » du dossier) : lancée
+      // EN FOND, réponse immédiate ; le navigateur suit l'avancement par
+      // GET /actualiser-description et resynchronise à chaque écriture.
+      // Une seule à la fois (voir descEtat).
       const body = await readBody(req)
       const numero = String(body.numero || '').trim()
       if (!numero) return json(res, 400, { ok: false, error: 'Numéro requis' })
       if (!loadKeyring()) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
-      const out = await runActualiserDescription(numero, 'manuel')
-      if (out.running) return json(res, 202, { ok: true, running: true })
+      const out = demarrerActualiserDescription(numero, 'manuel')
+      if (out.running) return json(res, 202, out)
       return json(res, out.ok ? 200 : 502, out)
+    }
+
+    if (route === 'GET /actualiser-description') {
+      // Avancement de l'actualisation en cours (ou de la dernière terminée).
+      return json(res, 200, { etat: avancement(descEtat) })
     }
 
     if (route === 'POST /actualiser-mec') {
