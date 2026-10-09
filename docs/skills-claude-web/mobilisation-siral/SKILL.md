@@ -1,11 +1,10 @@
 ---
 name: mobilisation-siral
 description: >
-  Mobiliser le connecteur SIRAL : trouver le bon dossier, lire données et
-  pièces, recouper une pièce versée (PV), rédiger et remettre les actes,
-  inscrire les résultats d'audience. Consignes permanentes et balayages par
-  lots. Déclencher dès que SIRAL, une enquête, un acte ou une audience est
-  en jeu.
+  Mobiliser le connecteur SIRAL : trouver le bon dossier, lire données,
+  pièces et fichier global, recouper une pièce versée (PV), rédiger ICI les
+  actes avec les trames et skills du magistrat puis les ranger dans SIRAL,
+  inscrire les résultats d'audience. Déclencher dès que SIRAL est en jeu.
 ---
 
 # Mobiliser SIRAL depuis Claude web
@@ -19,6 +18,18 @@ nom** — jamais « IA », jamais « attaché ». Tu écris **uniquement sur
 instruction du magistrat** — ponctuelle, ou permanente (voir « Régimes
 d'écriture ») ; en cas de doute (dossier ambigu, portée d'une consigne),
 tu poses la question **dans la conversation** avant d'écrire.
+
+**Partage des rôles.** L'attaché de SIRAL est un *analyste* : il actualise
+les dossiers, recoupe, prépare — il ne rédige plus les actes. **La rédaction
+se fait ici, dans Claude web.** SIRAL te fournit par le connecteur les
+**trames** du magistrat (`trames_lister` / `trame_lire`), ses **skills**
+(`skills_lister` / `skill_lire`) et sa **base de connaissances**
+(`kb_chercher` / `kb_lire`) ; les instructions, la mémoire et la base de
+connaissances **de ton projet Claude web priment** sur ces ressources (SIRAL
+les garde en mémoire et les améliore sur propositions ✓/✗). Ce que
+l'attaché a préparé pour toi : les **propositions d'actes** en attente dans
+le dossier (`propositions_en_attente`), les NATINF et mis en cause à jour,
+la chronologie, la mémoire du dossier.
 
 ## Étape 1 — Identifier le dossier (toujours en premier)
 
@@ -94,11 +105,17 @@ de la pièce) — visible dans les comptes-rendus et la chronologie.
   nécessaire à la question posée (demande du magistrat, pièce décisive).
   Ne jamais AFFIRMER le contenu d'une page restée marquée : dire qu'elle
   n'a pas été lue.
-- **Dépouillement massif** (plusieurs centaines de pièces) : déléguer avec
-  `sous_agents` — un sous-agent par pochette/procédure, chacun rendant sa
-  fiche (chronologie, déclarations verbatim, contradictions, cotes) — et
-  consigner chaque fiche dans la mémoire du dossier
-  (`memoire_dossier_noter`) pour que rien ne se perde entre les passes.
+- **Travail de fond sur le dossier entier** (réquisitoire définitif,
+  synthèse générale, dépouillement) : `dossier_global` — **toutes** les
+  pièces en texte dans **un seul fichier** (sommaire numéroté, puis un bloc
+  par pièce ouvert par `📄 <chemin>` : c'est la cote à citer ; copies
+  exactes non répétées). Paginé : tant que `offsetSuivant` est rendu, la
+  suite existe — relire avec `offset`. Dossier volumineux : `pochette:"…"`
+  (panorama de `dossier_arborescence`), pochette par pochette. Les pièces
+  « pas encore extrait » se complètent en rappelant l'outil. Le magistrat
+  peut aussi avoir versé ce même fichier (`GLOBAL_<dossier>.txt`,
+  téléchargé depuis la page Assistant de justice) dans le projet : le lire
+  nativement, sans l'appeler.
 - `productions_lister` / `production_lire` : les actes déjà rédigés —
   cohérence des motivations, reprise des formules validées, pas de doublon.
 - `verifier_completude` / `diagnostic_dossier` : échéances, actes expirants,
@@ -112,12 +129,16 @@ de la pièce) — visible dans les comptes-rendus et la chronologie.
   pour tout chiffre d'activité — jamais d'estimation, jamais de recalcul à la
   main : chaque carte rendue porte sa règle, on la cite telle quelle.
 
-## Étape 4 — Rédiger et remettre l'acte DANS SIRAL
+## Étape 4 — Rédiger ICI, puis ranger l'acte DANS SIRAL
 
-1. `associations_lister` d'abord : si le type d'acte y figure, appliquer
-   d'office la trame et la skill associées. Sinon `trames_lister` puis
-   `trame_lire` — la trame du magistrat **prime toujours** sur un
-   `modele-*`.
+1. Les méthodes du magistrat : `trames_lister` puis `trame_lire` de la trame
+   du type d'acte (celle du magistrat **prime toujours** sur un `modele-*`,
+   et une trame qu'il nomme prime sur tout) ; `skills_lister` / `skill_lire`
+   de la skill de rédaction applicable ; `kb_lire` des documents ★. Si une
+   skill équivalente est installée dans ton projet Claude web, c'est elle qui
+   prime. Reprendre le **dernier acte du même type** du dossier
+   (`productions_lister` / `production_lire`) et la **proposition d'acte**
+   déposée par l'attaché s'il y en a une (`propositions_en_attente`).
 2. **NATINF** : reprendre obligatoirement les qualifications ENREGISTRÉES du
    dossier (section « Infractions (NATINF) » de `lire_dossier`) ; s'il en
    manque une que la pièce fonde, `ajouter_natinfs` d'abord.
@@ -131,7 +152,8 @@ de la pièce) — visible dans les comptes-rendus et la chronologie.
    objet géolocalisé s'il y a lieu, et `acteMeta` pour toute
    écoute/géolocalisation (`kind`, `cible`/`objet`, `duree`,
    `pendingJld:true` tant que le JLD n'a pas statué). Pour retoucher un acte
-   existant : reprendre son `id` (`productions_lister`).
+   existant : reprendre son `id` (`productions_lister`) — la retouche se
+   fait ici, l'attaché ne réécrit pas les actes.
    L'acte apparaît dans « Actes rédigés » du dossier : relecture, édition,
    export PDF/Word officiel, validation — c'est LA livraison ; un texte
    seulement collé dans la conversation n'est pas une remise.
@@ -245,10 +267,12 @@ avec un **état de reprise**.
    l'attaché** (`routine_enregistrer` : prompt autonome et précis, heure de
    nuit type 22:30) — elle tournera côté serveur, sans limite de fenêtre de
    conversation. Le connecteur garde le pilotage et les sondages ciblés.
-6. **Lire des milliers de pièces n'est PAS un balayage par lots : c'est un
-   CHANTIER.** Dépouiller un dossier entier, chercher une adresse / une
-   ligne / un nom dans les pièces de tous les dossiers, préparer un
-   règlement. Dans l'ordre : (a) le **gratuit et exhaustif** d'abord —
+6. **Lire un dossier entier : le fichier global d'abord.** Dépouiller un
+   dossier, préparer un règlement, en tirer une synthèse : `dossier_global`
+   (pochette par pochette si volumineux) — tu lis, tu travailles, sans
+   lots ni nuit. Chercher une adresse / une ligne / un nom dans les pièces
+   de **tous** les dossiers, ou croiser des affaires, dans l'ordre : (a) le
+   **gratuit et exhaustif** d'abord —
    `registre_recouper` (entités partagées entre dossiers : téléphones,
    plaques, IBAN, **adresses**, personnes, avec les pièces des deux côtés ;
    `entite` pour chercher UNE valeur dans tous les registres),
@@ -256,18 +280,14 @@ avec un **état de reprise**.
    OCR compris — `inedits:true` pour les ponts que rien ne montrait),
    `carto_analyser` (importance, intermédiaires, communautés **calculés**) et
    `carto_chemin` (ce qui relie X à Y, chaque saut sourcé),
-   `registre_lire`, `pieces_chercher` ; (b) si la lecture de masse reste
-   nécessaire, `chantiers_etat` (ne redemande pas ce qui tourne déjà) puis
-   `chantier_proposer` — type `dossier` (chaque pièce lue une seule fois →
-   fiches cotées), `liens` (croise les fiches de plusieurs dossiers),
-   `carto`. Le chantier naît en **devis** dans la bande « Analyses
-   profondes » de l'app : annonce ses chiffres (pièces, lots, jetons,
-   heures, nuits), le magistrat valide d'un clic et le serveur travaille la
-   nuit, par lots, avec reprise automatique. `chantier_piloter` (lancer /
-   pause) uniquement sur instruction explicite. Une réserve d'exhaustivité
-   (« je n'ai pas pu ouvrir chaque PV », « les archives n'ont pas pu être
-   passées au crible ») n'est jamais une conclusion : c'est une demande de
-   devis.
+   `registre_lire`, `pieces_chercher` ; (b) si une lecture de masse de
+   PLUSIEURS dossiers reste nécessaire et que le magistrat le demande, les
+   chantiers de nuit existent encore : `chantiers_etat` puis
+   `chantier_proposer` (types `dossier`, `liens`, `carto`), devis validé
+   dans l'app, `chantier_piloter` sur instruction explicite. Ce n'est plus
+   la voie par défaut. Une réserve d'exhaustivité (« je n'ai pas pu ouvrir
+   chaque PV ») n'est jamais une conclusion : proposer le fichier global
+   (ou le chantier) qui la lèvera.
 
 Cartographie par lots : traite les dossiers par groupes, croise avec
 `recouper_personnes` et `carto_rapprochements`, et dépose les propositions
@@ -293,8 +313,9 @@ la cartographie, où le magistrat valide ✓/✗ à son rythme.
    acte d'écoute concerné (id, échéance), NATINF, mis en cause.
 3. `chronologie_lire` + `production_lire` de la requête initiale +
    `verifier_completude` → durée déjà écoulée, chaîne d'autorisations.
-4. `associations_lister` / `trame_lire` de la trame de prolongation ;
-   `kb_lire` du Memento si utile.
+4. `trames_lister` / `trame_lire` de la trame de prolongation, `skill_lire`
+   de la skill de rédaction ; `kb_lire` du Memento si utile ;
+   `propositions_en_attente` (l'attaché a peut-être déjà proposé l'acte).
 5. Rédiger la demande de prolongation motivée (éléments nouveaux du PV
    cités), puis `produire_document` avec `acteMeta` et `source` = trame.
 6. Proposer dans la même réponse : `acter_prolongation` (mode `demande`)

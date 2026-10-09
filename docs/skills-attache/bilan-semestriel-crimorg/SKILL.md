@@ -33,9 +33,9 @@ publicitaire — c'est précisément ce qui rend le document convaincant.
 2. **Relire la demande du magistrat** : ses observations, ses angles
    (phénomènes qu'il veut voir traités, destinataires qu'il vise, format).
    Ses consignes priment sur le plan-type ci-dessous.
-3. **Associations et méthodes** : vérifier (associations_lister) si une
-   trame ou une autre skill est associée à ce type de document — l'appliquer
-   alors en complément.
+3. **Méthodes** : vérifier (trames_lister, skills_lister) si une trame ou
+   une autre skill correspond à ce type de document — l'appliquer alors en
+   complément.
 
 ## Étape 1 — Les chiffres : stats_synthese, source unique
 
@@ -187,11 +187,11 @@ Relire intégralement en vérifiant, ligne à ligne :
 
 ## Étape 7 — Remise
 
-- `produire_document` avec `type: "livrable"`, titre
-  « Bilan d'activité — criminalité organisée — [période] », rangé au
-  pseudo-dossier `_hors-dossier` (sauf consigne contraire). Le magistrat le
-  retrouve dans « Actes rédigés — hors dossier », le retouche, l'exporte en
-  PDF/Word et le valide.
+- `remettre_livrable` avec le sujet
+  « Bilan d'activité — criminalité organisée — [période] », sans `numero`
+  (sauf consigne contraire). Le magistrat le retrouve dans le fil « pendant
+  votre absence » et dans « Actes rédigés — hors dossier », le retouche,
+  l'exporte en PDF/Word et le valide.
 - Récapituler en réponse : la période, les totaux clés, les graphiques
   insérés (leurs marqueurs seront remplacés par les images à l'export
   PDF/Word), les affaires retenues en encadré, et ce qui manquerait

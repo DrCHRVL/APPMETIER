@@ -24,7 +24,6 @@
  */
 
 import { PAPETERIE } from './papeterie'
-import type { TrameFormeType, TrameVars } from './trameFill'
 import { escapeHtml } from '@/utils/documents/htmlEscape'
 import { parseMarqueur, formatMarqueur } from '@/lib/stats/graphiqueMarqueur.mjs'
 import { parseDiagramme, formatDiagramme } from '@/lib/stats/diagrammeMarqueur.mjs'
@@ -66,17 +65,6 @@ export async function chargerImagesActe(contenu: string): Promise<GraphiquesActe
     }
   } catch { /* best-effort */ }
   return out.size ? out : undefined
-}
-
-/** Remplace chaque marqueur par une ligne lisible (chemins sans image : trame
- *  de forme Word de l'utilisateur, où l'on ne peut pas injecter de PNG). */
-function remplacerMarqueursParTexte(contenu: string, graphiques?: GraphiquesActe): string {
-  return String(contenu || '').split(/\r?\n/).map((ligne) => {
-    const m = marqueurImageLigne(ligne)
-    if (!m) return ligne
-    const r = graphiques?.get(m.cle)
-    return `(graphique : ${r?.titre || m.nom} — voir l'export PDF)`
-  }).join('\n')
 }
 
 export interface ActeExportable {
@@ -540,59 +528,11 @@ function triggerDocxDownload(blob: Blob, name: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
 
-/** Type de papeterie déduit de l'acte, pour choisir la trame de forme. */
-export function detectTypeForme(p: ActeExportable): TrameFormeType {
-  if (isLettre(p.contenu)) return 'courrier'
-  const titre = (parseActe(p.contenu).titre || p.titre || '').toUpperCase()
-  if (/SOIT[-\s]?TRANSMIS/.test(titre)) return 'soit-transmis'
-  if (/REQU[ÊE]TE|R[ÉE]QUISITO/.test(titre)) return 'requete'
-  return 'defaut'
-}
-
-/** Variables extraites de l'acte pour remplir les balises d'une trame de forme. */
-function extractTrameVars(p: ActeExportable, type: TrameFormeType): TrameVars {
-  if (type === 'courrier') {
-    const { addressee, objet, dateStr, corps } = parseLettre(p.contenu)
-    return { destinataire: addressee, objet, date: dateStr || longDate(p.updatedAt), corps }
-  }
-  const s = parseActe(p.contenu)
-  return {
-    titre: s.titre || p.titre || '',
-    corps: s.corps,
-    signature: s.signature.join('\n'),
-    date: longDate(p.updatedAt),
-  }
-}
-
 export async function downloadActeDocx(p: ActeExportable): Promise<void> {
   const graphiques = await chargerImagesActe(p.contenu)
 
-  // 1) Trame de forme définie par l'utilisateur pour ce type d'acte : on part
-  //    de SON fichier (.docx ou .odt) et on remplit les balises. La forme est
-  //    100 % la sienne, et l'acte ressort dans le format de sa trame.
-  //    Impossible d'y injecter une image : les marqueurs [GRAPHIQUE : …]
-  //    deviennent une ligne lisible qui renvoie à l'export PDF.
-  try {
-    const type = detectTypeForme(p)
-    const { loadTramesForme, pickTrameForme } = await import('./tramesFormeStore')
-    const trame = pickTrameForme(await loadTramesForme(), type)
-    if (trame?.docxBase64) {
-      const { fillTrame, extensionTrame } = await import('./trameDoc')
-      const { trameFormat } = await import('./trameModele')
-      const format = trameFormat(trame)
-      const vars = extractTrameVars(p, type)
-      if (vars.corps) vars.corps = remplacerMarqueursParTexte(vars.corps, graphiques)
-      const blob = await fillTrame(trame.docxBase64, format, vars)
-      triggerDocxDownload(blob, `${acteFileBase(p)}.${extensionTrame(format)}`)
-      return
-    }
-  } catch (e) {
-    // Trame absente / invalide : on retombe proprement sur la génération intégrée.
-    console.warn('Trame de forme indisponible, génération intégrée :', e)
-  }
-
-  // 2) Repli : papeterie reconstruite (aucune trame de forme définie). Les
-  //    marqueurs [GRAPHIQUE : …] deviennent de vraies images dans le document.
+  // Papeterie reconstruite : les marqueurs [GRAPHIQUE : …] deviennent de
+  // vraies images dans le document.
   const logo = await loadLogo()
   const { html, footerHtml } = acteDocxParts(p, { logo, graphiques })
   const { buildDocxBlob } = await import('./htmlToDocx')

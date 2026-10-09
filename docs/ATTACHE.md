@@ -6,6 +6,43 @@ organisée par défaut). Il est propulsé par **Claude Code connecté à
 l'abonnement Claude du magistrat** (pas de clé API, pas de facturation à
 l'usage).
 
+## Partage des rôles : l'attaché analyse, Claude web rédige
+
+L'attaché est un **attaché analyste**. Il **actualise** les dossiers à chaque
+pièce reçue (description, mis en cause, NATINF, échéancier, CR de
+réception), **lit et recoupe** les pièces (registre, recoupements,
+cartographie, recherche plein texte), **améliore la donnée**, traite la
+boîte mail dédiée et remet des **analyses** (livrables, préparations,
+bilans). Il **ne rédige pas les actes** : requêtes, prolongations,
+réquisitions, soit-transmis, réponses DML et réquisitoires se rédigent
+**dans Claude web**, branché sur SIRAL par le
+[connecteur](CONNECTEUR-CLAUDE-WEB.md). Face à une demande d'acte (chat ou
+mail transféré), il **prépare** : dossier à jour, acte attendu déposé en
+**proposition pré-remplie** (✓ à la validation → échéancier), matière
+rassemblée (chronologie, acte précédent, éléments nouveaux), trame et skill à
+suivre nommées — et le dit. L'outil `produire_document` n'existe pas dans
+ses runs ; il reste au connecteur, pour que Claude web range l'acte rédigé
+dans l'atelier « Actes rédigés » (relecture, export PDF/Word, validation).
+
+Les **trames** (plans-types) et les **skills** (méthodes) du magistrat
+restent tenues dans SIRAL — chiffrées, versionnées — pour deux raisons :
+Claude web les lit par le connecteur quand il rédige (`trames_lister` /
+`trame_lire`, `skills_lister` / `skill_lire` ; les instructions et la base de
+connaissances de son projet Claude web **priment**), et l'attaché les
+**améliore** (étude du corpus d'actes validés → modèles `modele-*`,
+propositions ✓/✗ sur les trames et skills du magistrat). Il n'y a plus
+d'association « type d'acte → trame + skill » à tenir : le choix de la
+trame et de la skill se fait à la rédaction, par l'IA. Les papeteries Word /
+OpenDocument (« trames de forme ») ont été retirées : l'export PDF/Word
+officiel reconstruit l'habillage du parquet.
+
+Le **fichier global** d'un dossier (page Assistant de justice, section
+« Fichier global » ; outil `dossier_global` du connecteur) — toutes les
+pièces en texte dans un seul `.txt`, sommaire puis un bloc par pièce — est
+la voie par défaut pour un travail de fond (réquisitoire définitif, synthèse)
+dans Claude web ; les chantiers d'analyse profonde restent disponibles
+derrière, pour un dépouillement de nuit par lots.
+
 ## Ce qu'il fait
 
 - **Lit tout** le contentieux confié : dossiers, actes, comptes-rendus,
@@ -62,8 +99,9 @@ l'usage).
     `SIRAL_ATTACHE_ALLOWED_SENDERS`) — un expéditeur inconnu est ignoré,
     audité et signalé au fil, ses « consignes » ne déclenchent jamais un run.
   - **Plusieurs actes dans un même mail** : l'attaché commence par LISTER
-    tous les actes demandés, les traite un par un (une production par acte),
-    vérifie avant de clore que chacun a la sienne, et le résumé du widget
+    tous les actes demandés, dépose une **proposition pré-remplie** par
+    acte (il ne les rédige pas — le magistrat les rédige dans Claude web),
+    actualise le dossier avec ce que la pièce apporte, et le résumé du widget
     boîte les énumère.
   - **Rien ne se perd en silence** : un traitement qui échoue est retenté
     (jusqu'à `SIRAL_ATTACHE_MAIL_MAX_ATTEMPTS`, délai croissant), puis
@@ -105,7 +143,7 @@ l'usage).
   les boîtes professionnelles étaient rejetées — réputation de domaine). Les
   **livrables** se remettent DANS SIRAL : carte « Livrable 📦 » du fil
   « pendant votre absence » (texte intégral + bouton Copier, outil
-  `remettre_livrable`) et actes dans l'atelier « Actes rédigés ». Le widget
+  `remettre_livrable`). Le widget
   **Boîte de l'attaché** du tableau de bord (admin seul, sous le calendrier)
   montre chaque message reçu et son avancement — **reçu → en cours →
   traité** (avec résumé), toasts à chaque transition : on vérifie d'un coup
@@ -265,8 +303,7 @@ l'usage).
     - **Ciblage par corrélation** : les signaux d'actes retouchés portent la
       trame suivie — une trame/skill dont l'usage produit des retouches
       répétées devient la priorité de la consolidation suivante.
-    - La consolidation peut aussi **fixer une association** type d'acte →
-      trame + skill (appliquée d'office ensuite). Chaque évolution — écrite
+    - Chaque évolution — écrite
       (`auto-*`/`modele-*`) ou proposée (en attente de ✓) — est listée dans
       la carte « Apprentissage ». Et une skill peut **référencer d'autres
       ressources** (autre skill, trame, entrée de la base) : l'attaché charge
@@ -278,8 +315,9 @@ l'usage).
   signaux chiffrés (clé globale), mémoire versionnée à chaque réécriture,
   et toujours éditable/effaçable par le magistrat.
 - **Portes de qualité auto-appliquées** : des contrôles **déterministes, à
-  coût de jetons nul**, exécutés au moment où l'attaché remet une
-  production (`produire_document`, `remettre_livrable`) — marqueur
+  coût de jetons nul**, exécutés au moment où une production est remise
+  (`remettre_livrable` par l'attaché, `produire_document` depuis Claude
+  web) — marqueur
   d'inachèvement oublié (`[À COMPLÉTER]`, `TODO`, `XXXX` — `[À CONFIRMER]`
   reste autorisé), auto-désignation (« Attaché IA », « en tant qu'IA » :
   règle de dissimulation), HTML dans un acte, **acte à signer
@@ -389,7 +427,8 @@ l'usage).
   sont des ordres de grandeur que le magistrat affine — les jetons mesurés,
   eux, sont exacts. Route interne `GET /usage`.
 - **Priorité au magistrat (demandes + mails), le fond la nuit** : répondre
-  aux demandes (chat) et traiter les mails transférés (rédaction d'actes) est
+  aux demandes (chat) et traiter les mails transférés (actualisation des
+  dossiers, propositions d'actes) est
   la priorité — ces runs ne sont **jamais** différés ni bridés, et leurs
   sous-agents gardent toute leur qualité même forfait tendu. Les travaux
   de **fond lourds** (étude du corpus d'actes, consolidation de l'apprentissage)
@@ -597,11 +636,24 @@ l'usage).
   Chaque page est désormais bornée en caractères, quoi qu'on demande, et le
   plafond de sortie du CLI est relevé pour qu'une page pleine de
   `lire_document` passe sans déversement.
-- **Dépose lui-même une « analyse profonde » quand le travail déborde de la
-  conversation** : dépouiller un dossier entier, chercher une adresse ou une
-  ligne dans les pièces de tous les dossiers, préparer un règlement. Il épuise
-  d'abord les outils gratuits et exhaustifs (`registre_recouper`,
-  `pieces_chercher`), puis dépose un **chantier en DEVIS**
+- **Fichier global du dossier** : page « Assistant de justice », section
+  « Fichier global » — toutes les pièces d'un dossier (enquête ou
+  instruction) en **texte**, dans **un seul `.txt`** : sommaire numéroté,
+  puis un bloc par pièce ouvert par sa cote (`📄 chemin`), copies exactes
+  non répétées ; filtre par pochette pour un dossier volumineux. Compilé par
+  le service à partir des caches d'extraction (ingestion de fond, OCR des
+  scans muets) — rien n'est ré-extrait, sauf un nombre borné de pièces
+  jamais extraites (recompiler étend la couverture). Bouton « Sommaire »
+  (pièces, taille, non extraites) et « Télécharger le .txt », à verser dans
+  le projet Claude web ; le connecteur lit le même fichier par pages
+  (`dossier_global`). C'est la voie par défaut pour un réquisitoire
+  définitif ou une synthèse : Claude web lit, Claude web rédige.
+- **Dépose lui-même une « analyse profonde » quand le travail déborde**
+  (chantiers de nuit, relégués derrière le fichier global) : chercher une
+  adresse ou une ligne dans les pièces de tous les dossiers, croiser
+  plusieurs affaires. Il épuise d'abord les outils gratuits et exhaustifs
+  (`registre_recouper`, `pieces_chercher`), puis dépose un **chantier en
+  DEVIS**
   (`chantier_proposer`) dans la bande « Analyses profondes » de la page
   Assistant de justice : pièces, lots, jetons, **heures**, nuits. Rien ne
   démarre sans le clic du magistrat (« Valider le devis et lancer ») ; ensuite
@@ -691,7 +743,7 @@ l'usage).
     produire un **bilan semestriel** ou un rapport de politique pénale
     complet — chiffres, visuels commentés, dossiers marquants anonymisés,
     contexte tiré de la base de connaissances — remis dans SIRAL
-    (`remettre_livrable` / `produire_document`).
+    (`remettre_livrable`).
   - **Les graphiques s'insèrent TOUT SEULS dans le document final** : le
     bilan place chaque graphique par un marqueur texte
     `[GRAPHIQUE : nom | du=… | au=…]` (le document reste éditable en texte
@@ -717,14 +769,13 @@ l'usage).
     `scripts/attache/coffresGlobaux.mjs` centralise ces lectures et joint aux
     réponses un bloc `sources` (quel coffre, mis à jour quand) ; un repli sur
     le vestige, faute de coffre dédié lisible, est signalé en clair.
-- **Bureautique complète — présentations, diagrammes, Excel (parité Claude
-  web, sans que rien ne sorte de SIRAL)** :
-  - **Présentations PowerPoint** : « prépare-moi une présentation du bilan
-    pour le procureur général » → l'attaché rédige un diaporama (type
-    `presentation`) en texte structuré (`#` page de garde, `##` une
-    diapositive, puces, tableaux, marqueurs de graphiques), rangé dans
-    « Actes rédigés » comme les autres productions : relecture, retouche par
-    le chat, édition à la main… puis bouton **« PowerPoint »** — un vrai
+- **Bureautique — présentations, diagrammes, Excel (sans que rien ne sorte
+  de SIRAL)** :
+  - **Présentations PowerPoint** : une production structurée en diaporama
+    (type `presentation` rangée depuis Claude web, ou tout livrable en texte
+    structuré : `#` page de garde, `##` une diapositive, puces, tableaux,
+    marqueurs de graphiques) dans « Actes rédigés » : relecture, édition à
+    la main… puis bouton **« PowerPoint »** — un vrai
     fichier `.pptx` (généré dans le navigateur, aucune dépendance nouvelle),
     gabarit sobre 16:9 aux couleurs de l'app (page de garde, filets, tableaux
     zébrés, images des graphiques insérées, numérotation), lisible par
@@ -759,11 +810,11 @@ l'usage).
   d'un dossier d'instruction (arborescence des cotes A/B/C/D/E/G/S/Z) :
   un parseur la structure, l'attaché comprend le sens et l'ordre du
   dossier, et les cotes datées rejoignent la frise.
-- **Suit les trames du magistrat** : ses plans-types et consignes de
-  rédaction (DML, réquisitions, TSE — ceux qu'il utilisait dans Claude
-  web) se collent dans le panneau (« enregistre cette trame sous… ») ;
-  l'attaché les relit avant chaque rédaction du même type. Chiffrées,
-  versionnées.
+- **Tient les trames du magistrat** : ses plans-types et consignes de
+  rédaction (DML, réquisitions, TSE) se collent dans le panneau
+  (« enregistre cette trame sous… ») ; **Claude web les lit par le
+  connecteur** au moment de rédiger, et l'attaché les améliore (étude du
+  corpus, propositions ✓/✗). Chiffrées, versionnées.
 - **Bibliothèque de trames téléversable en masse** : le stock du cabinet
   (fichiers `.odt`, `.docx`, **`.doc` (ancien Word)**, `.pdf`, texte…) se
   téléverse d'un coup dans
@@ -788,18 +839,6 @@ l'usage).
   réécriture) : la demander **dans le chat de l'attaché**, sur cette trame
   précise — ciblée et bornée. Le bouton indique clairement s'il faut d'abord
   remettre les clés et affiche l'état du lancement sur place.
-- **Associations acte → trame + skill, suggérées en un clic** : la table que
-  l'attaché consulte avant de rédiger (« pour ce type d'acte, cette trame + cette
-  skill, d'office »). Elle se remplissait jusqu'ici uniquement en le disant en
-  chat, une par une — d'où une table souvent vide. Le bouton **« Suggérer »**
-  (Paramètres → Attaché IA → Associations) lance une passe rapide (un appel
-  modèle, sans sous-agent) qui lit les noms + descriptions des trames et des
-  skills et **propose** les liens. Les suggestions arrivent en **lignes de
-  brouillon** : vous vérifiez, ajustez, puis **« Enregistrer »** — **rien n'est
-  appliqué à une rédaction tant que vous n'avez pas validé** (les noms sont
-  vérifiés contre la bibliothèque réelle ; les types d'acte déjà présents ne sont
-  pas re-suggérés). Classez d'abord la bibliothèque (« Classer ») pour des
-  suggestions plus fines.
 - **Base de connaissances — le cerveau documentaire** (pensez Obsidian
   branché sur l'IA) : le fond durable du cabinet — jurisprudences,
   conventions et circulaires, modes opératoires, fiches réflexes, contacts —
@@ -839,23 +878,23 @@ l'usage).
   PDF scannés (image, sans texte) : détectés et signalés au téléversement
   comme au rangement par mail (`kb_ranger_piece` **refuse** alors la pièce,
   rien n'est enregistré) — passez-les par un OCR avant.
-- **Gère les DML de bout en bout (module instruction)** : l'attaché lit les
-  dossiers d'instruction du magistrat (coffres `instructions-*`, clé
-  globale — lecture seule) : saisine, mis en examen avec périodes de
-  détention, DML en attente et leur échéance (+10 jours), débats JLD,
-  chronologie. Workflow d'une DML : le magistrat transfère le mail
-  « nouvelle DML dossier X » à la boîte dédiée → l'attaché identifie le
-  dossier et le mis en examen (`instru_lister`, `lire_dossier`), s'appuie
-  sur la **réponse précédente archivée** (zone « Archive DML » du détail
-  d'instruction — les PDF signés y restent INTACTS), sur les trames et la
-  base de connaissances → **demande systématiquement au magistrat**, via la
-  carte Question du panneau (réponse sur place, jamais par mail), si un
-  acte récent (audition, expertise — souvent dans NPP, invisible pour lui)
-  doit enrichir la motivation → rédige SANS attendre le projet complet
-  (type « Réponse DML », points suspendus marqués [À CONFIRMER]) → à la
-  réponse du magistrat, révise l'acte dans la même conversation. Le magistrat retouche dans « Actes
-  rédigés », l'exporte en PDF/Word officiel puis le **valide** une fois
-  traité.
+- **Prépare les DML (module instruction)** : l'attaché lit les dossiers
+  d'instruction du magistrat (coffres `instructions-*`, clé globale —
+  lecture seule) : saisine, mis en examen avec périodes de détention, DML
+  en attente et leur échéance (+10 jours), débats JLD, chronologie. Workflow
+  d'une DML : le magistrat transfère le mail « nouvelle DML dossier X » à la
+  boîte dédiée → l'attaché identifie le dossier et le mis en examen
+  (`instru_lister`, `lire_dossier`), rassemble la **réponse précédente
+  archivée** (zone « Archive DML » du détail d'instruction — les PDF signés
+  y restent INTACTS), ce qui est intervenu depuis (chronologie), le fond
+  (base de connaissances) → **demande au magistrat**, via la carte Question
+  du panneau (réponse sur place, jamais par mail), si un acte récent
+  (audition, expertise — souvent dans NPP, invisible pour lui) doit enrichir
+  la motivation → remet une **préparation** (livrable « Préparation DML »)
+  : échéance, points à reprendre, éléments nouveaux datés avec leur pièce,
+  trame et skill à suivre. Le magistrat rédige la réponse dans Claude web
+  (trame « réponse DML » lue par le connecteur) et la range dans « Actes
+  rédigés » (export PDF/Word officiel, validation).
   Une routine de veille anticipe aussi les échéances instruction : DML en
   attente, débats JLD sans réquisitions, fins de détention proches.
 - **Analyse automatique des documents (IA)** : la fonctionnalité « Analyse
@@ -935,33 +974,32 @@ l'usage).
 - **Atelier des actes rédigés** : page « Assistant de justice », section
   « Actes rédigés — par dossier » — une ligne par dossier qui a des actes
   (ceux en attente d'une décision d'abord), dépliée en l'atelier du dossier ;
-  la fiche enquête n'en a plus (admin only). L'attaché y range les actes qu'il rédige
-  (réquisition, demande de prolongation JLD, saisine, projet de réponse —
-  suivant les trames, via l'outil `produire_document`, en reprenant les
-  **NATINF enregistrés du dossier**). **La destination désignée par le
-  magistrat prime toujours** : « rédige la synthèse du dossier X et verse-la
-  dans les actes rédigés de l'enquête Y », « fais cet acte du dossier A mais
-  range-le hors dossier » — l'attaché exécute ce rangement-là, tel quel, même
-  s'il paraît incohérent avec le contenu (c'est un choix d'organisation du
-  magistrat, pas une erreur à corriger) : ni refus, ni question de
-  confirmation, au plus une phrase de récapitulatif. Les contrôles de
-  cohérence et l'identification rigoureuse du dossier ne jouent que lorsque
-  l'attaché doit trouver la destination lui-même. Seul filet (non bloquant) :
-  un numéro qui ne correspond à aucune enquête déclenche un avertissement à
-  l'agent — l'acte est enregistré mais n'apparaîtrait dans aucun dossier. Le magistrat les visionne, demande à
-  l'IA de les retoucher (chat du dossier), les **édite légèrement à la
-  main** (puis Enregistrer — le navigateur rechiffre, l'app ne voit jamais
-  le clair), les **exporte en PDF / Word au gabarit officiel** (en-tête
-  République française — drapeau, devise —, Times 12 pt justifié ; nom de
-  fichier au formalisme de la trame suivie :
-  `<trame>_<dossier>_<date>.pdf`), puis les **VALIDE** (✓) : l'acte est
-  considéré traité et quitte la liste courante (récupérable via « voir les
-  actes traités » ; une retouche IA le remet en attente de relecture).
+  la fiche enquête n'en a plus (admin only). S'y rangent les actes que
+  **Claude web** a rédigés et déposés par le connecteur (`produire_document`
+  — réquisition, demande de prolongation JLD, saisine, projet de réponse,
+  avec les **NATINF enregistrés du dossier** et `acteMeta` pour
+  l'échéancier), les livrables de l'attaché et les fiches de chantier. **La
+  destination désignée par le magistrat prime toujours** (« verse-la dans
+  l'enquête Y », « range-le hors dossier ») : exécutée telle quelle, au plus
+  une phrase de récapitulatif. Seul filet (non bloquant) : un numéro qui ne
+  correspond à aucune enquête déclenche un avertissement — l'acte est
+  enregistré mais n'apparaîtrait dans aucun dossier. Le magistrat les
+  visionne, les **édite légèrement à la main** (puis Enregistrer — le
+  navigateur rechiffre, l'app ne voit jamais le clair), les **exporte en
+  PDF / Word au gabarit officiel** (en-tête République française — drapeau,
+  devise —, Times 12 pt justifié ; nom de fichier au formalisme de la trame
+  suivie : `<trame>_<dossier>_<date>.pdf`), puis les **VALIDE** (✓) : l'acte
+  est considéré traité et quitte la liste courante (récupérable via « voir
+  les actes traités ») — ou les **REFUSE** (✗) avec un motif, signal
+  d'apprentissage. La retouche se fait dans Claude web, en reprenant l'`id`
+  de l'acte ; l'attaché ne réécrit pas les actes (il lit la correction du
+  magistrat par `production_diff` pour apprendre).
 - **NATINF cohérents, app ↔ actes** : les qualifications officielles d'un
-  dossier sont ses codes NATINF enregistrés dans SIRAL — l'attaché les lit
+  dossier sont ses codes NATINF enregistrés dans SIRAL — Claude web les lit
   (section « Infractions (NATINF) » de `lire_dossier`) et les **reprend
   obligatoirement** dans chaque requête, autorisation ou réquisition
-  (`natinf_chercher` pour le référentiel). Quand une pièce du dossier — un
+  (`natinf_chercher` pour le référentiel) ; l'attaché veille à ce qu'ils
+  soient complets avant que le magistrat n'ait à rédiger. Quand une pièce du dossier — un
   acte d'autorisation téléversé notamment — mentionne des NATINF absents de
   l'application, il les **ajoute en autonomie** (`ajouter_natinfs`, sans
   validation) : refus des codes inconnus du référentiel, dédoublonnage, et
@@ -971,13 +1009,13 @@ l'usage).
   la consigne du transfert : « **et créer procédure** » (ou équivalent sans
   ambiguïté) → l'attaché **crée le dossier lui-même** (`creer_dossier` —
   tout renseigné depuis la pièce : mis en cause recoupés, NATINF, pièces
-  rangées) puis y traite la demande ; « **traiter** » seul → l'acte est
-  rédigé sous le pseudo-dossier `_hors-dossier` et apparaît dans la section
-  « **Actes rédigés — hors dossier** » du tableau de bord (admin seul,
-  masquée quand vide) — mêmes exports officiels, même validation ✓. Le
-  rangement hors dossier vaut aussi **sur simple demande** : « fais cet acte
-  et range-le hors dossier » suffit, même quand une procédure correspondante
-  existe — la consigne de rangement du magistrat prime.
+  rangées) puis y dépose la proposition d'acte ; sinon → carte d'alerte au
+  fil (ce que la pièce contient, l'acte demandé) et le mail reste dans la
+  boîte, non traité : le magistrat décide. La section « **Actes rédigés —
+  hors dossier** » de la page Assistant de justice (admin seul, masquée
+  quand vide) accueille ce que Claude web range sans dossier
+  (`_hors-dossier`) et les livrables sans numéro — mêmes exports officiels,
+  même validation ✓.
 - **Documents d'enquête par dossiers entiers** : chaque zone de la section
   documents (Geoloc, Écoutes, Actes, PV, DML) accepte désormais un **dossier
   complet, sous-pochettes comprises** (bouton « Dossier » ou glisser-déposer
@@ -1100,16 +1138,18 @@ l'usage).
 
 ## Connecteur Claude web (optionnel)
 
-Les MÊMES outils que l'attaché, pilotés **depuis claude.ai** (connecteur MCP
-personnalisé) : lecture des dossiers, statistiques, écritures réversibles et
-auditées — sans attendre que le panneau intégré rattrape chaque nouveauté de
-Claude web. OAuth réservé à l'administrateur (session passkey +
-consentement), désactivé par défaut, activation dans Paramètres → Attaché IA
-→ **Connecteur Claude web**, révocation un clic. Deux outils sont exclus du
-connecteur : `sous_agents` et `poser_question` — pour un travail de masse,
-Claude web dépose un **chantier d'analyse profonde** (`chantier_proposer`),
-exécuté par le serveur, plutôt que de tout lire dans sa conversation. Guide complet :
-**[CONNECTEUR-CLAUDE-WEB.md](CONNECTEUR-CLAUDE-WEB.md)**.
+Les outils de l'attaché, pilotés **depuis claude.ai** (connecteur MCP
+personnalisé) : lecture des dossiers et des pièces, fichier global, trames,
+skills et base de connaissances, statistiques, écritures réversibles et
+auditées — et **c'est là que les actes se rédigent**, puis se rangent dans
+SIRAL (`produire_document`, réservé au connecteur). OAuth réservé à
+l'administrateur (session passkey + consentement), désactivé par défaut,
+activation dans Paramètres → Attaché IA → **Connecteur Claude web**,
+révocation un clic. Deux outils sont exclus du connecteur : `sous_agents` et
+`poser_question`. Pour un travail de fond, Claude web lit le **fichier
+global** du dossier (`dossier_global`, par pages) ; les chantiers d'analyse
+profonde restent disponibles pour un dépouillement de nuit par lots. Guide
+complet : **[CONNECTEUR-CLAUDE-WEB.md](CONNECTEUR-CLAUDE-WEB.md)**.
 
 ## « Je n'ai plus d'assistant de justice »
 

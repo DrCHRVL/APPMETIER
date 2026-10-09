@@ -4,11 +4,18 @@
  * SIRAL — Page « Assistant de justice » (attaché de justice IA).
  *
  * Regroupe, HORS du tableau de bord, tout ce que l'attaché IA prépare pour le
- * magistrat : les propositions à trancher, le journal (« Pendant votre
- * absence »), les actes rédigés — par dossier (la fiche enquête n'en a plus)
- * et hors dossier — et la boîte dédiée. Le tableau de bord retrouve ainsi sa
- * lisibilité (indicateurs, OP, échéances, agenda) ; l'assistant vit sur sa
- * propre page.
+ * magistrat : les propositions à trancher, le FICHIER GLOBAL d'un dossier
+ * (toutes ses pièces en texte, pour rédiger dans Claude web), le journal
+ * (« Pendant votre absence »), les actes rangés depuis Claude web — par
+ * dossier (la fiche enquête n'en a plus) et hors dossier — et la boîte dédiée.
+ * Le tableau de bord retrouve ainsi sa lisibilité (indicateurs, OP, échéances,
+ * agenda) ; l'assistant vit sur sa propre page.
+ *
+ * Partage des rôles : l'attaché ACTUALISE, RECOUPE et PRÉPARE (analyste) ; la
+ * RÉDACTION se fait dans Claude web, branché sur SIRAL par le connecteur. Le
+ * fichier global est la pièce maîtresse de ce partage : un seul .txt, toutes
+ * les pièces, exploitable directement par Claude web — ou lu par le connecteur
+ * (`dossier_global`) sans téléchargement.
  *
  * Le « brief du majordome » (balayage matinal de tous les dossiers, un
  * sous-agent par dossier) a été RETIRÉ : premier poste de dépense du forfait
@@ -27,6 +34,7 @@ import { ProductionsSection } from '@/components/attache/ProductionsSection';
 import { ActesRedigesDossiers } from '@/components/attache/ActesRedigesDossiers';
 import { NouveauxDossiersPropositions } from '@/components/attache/NouveauxDossiersPropositions';
 import { ChantiersSection } from '@/components/attache/ChantiersSection';
+import { FichierGlobalSection } from '@/components/attache/FichierGlobalSection';
 
 /** Types de propositions tranchables ici (constante stable : évite un
  * rechargement en boucle du bandeau, qui compare `kinds` par valeur). */
@@ -83,20 +91,25 @@ export const AssistantJusticePage = ({ onOpenDossier, serviceDuDossier, serviceI
           ici, sur la page où les cartes de l'attaché atterrissent. */}
       <NouveauxDossiersPropositions kinds={A_VALIDER_KINDS} title="Proposition à valider" />
 
-      {/* Chantiers d'analyse profonde : dépouillement massif d'un dossier en
-          fiches factuelles (la nuit, par lots, interruptible) puis synthèse.
-          Le poste de pilotage vit ICI — le moteur tourne côté service. */}
-      <ChantiersSection />
+      {/* Fichier global : toutes les pièces d'un dossier en un seul .txt — la
+          voie par défaut pour un travail de fond (RD, synthèse) dans Claude web. */}
+      <FichierGlobalSection />
 
-      {/* Journal « pendant votre absence » — actions préparées, documents rédigés */}
+      {/* Journal « pendant votre absence » — actualisations, analyses, livrables */}
       <AbsenceJournal onOpenDossier={onOpenDossier} serviceDuDossier={serviceDuDossier} />
 
-      {/* Actes rédigés de chaque dossier — la fiche enquête n'en a plus. */}
+      {/* Actes rangés depuis Claude web (connecteur) et livrables, par dossier —
+          la fiche enquête n'en a plus. */}
       <ActesRedigesDossiers serviceDuDossier={serviceDuDossier} />
 
-      {/* Actes rédigés HORS DOSSIER : demandes arrivées par mail sans procédure
-          correspondante, traitées sur consigne — invisible tant qu'il n'y en a aucun. */}
+      {/* HORS DOSSIER : actes rangés sans dossier depuis Claude web, états de
+          balayage, livrables sans numéro — invisible tant qu'il n'y en a aucun. */}
       <ProductionsSection numero="_hors-dossier" titre="Actes rédigés — hors dossier" masquerSiVide />
+
+      {/* Chantiers d'analyse profonde (moteur de nuit, par lots) : relégués
+          derrière le fichier global, qui couvre désormais le cas courant. Le
+          poste de pilotage reste ici pour les chantiers existants. */}
+      <ChantiersSection />
 
       {/* Boîte mail dédiée de l'attaché : contrôle « bien reçu / en cours / traité ». */}
       <InboxWidget />

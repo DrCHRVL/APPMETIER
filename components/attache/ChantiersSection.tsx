@@ -52,6 +52,7 @@ export function ChantiersSection() {
           <Layers className="h-4 w-4 flex-shrink-0 text-[#2B5746]" />
           <span className="text-sm font-semibold text-gray-800">Analyses profondes</span>
           <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#2B5746]">vous seul</span>
+          <span className="hidden text-[11px] text-gray-400 md:inline">moteur de nuit, par lots — pour le cas courant, préférez le fichier global</span>
           {devis > 0 && (
             <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">{devis} devis à valider</span>
           )}
@@ -80,9 +81,10 @@ export function ChantiersSection() {
         <div className="border-t border-gray-100 px-4 py-3">
           {chantiers.length === 0 ? (
             <p className="py-2 text-center text-xs leading-relaxed text-gray-400">
-              Aucun chantier. Trois types : « dossier en détail » dépouille un dossier entier en fiches factuelles
-              (la nuit, par lots, interruptible) puis en tire une synthèse ; « liens entre dossiers » croise les fiches
-              de plusieurs dossiers en un rapport de recoupements ; « cartographie » en tire des propositions à valider.
+              Aucun chantier. Pour un réquisitoire, une synthèse ou une recherche dans un dossier : le <b>fichier global</b>
+              ci-dessus, exploité dans Claude web, suffit le plus souvent. Les chantiers restent pour un dépouillement de
+              nuit, par lots : « dossier en détail » (fiches factuelles puis synthèse), « liens entre dossiers » (rapport de
+              recoupements), « cartographie » (propositions à valider).
             </p>
           ) : (
             <div className="space-y-1">

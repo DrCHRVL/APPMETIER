@@ -121,11 +121,18 @@ try {
   attendu('sous_agents exclu', !noms.includes('sous_agents'))
   attendu('poser_question exclu', !noms.includes('poser_question'))
   attendu('remettre_livrable présent', noms.includes('remettre_livrable'))
+  attendu('dossier_global présent (fichier global pour Claude web)', noms.includes('dossier_global'))
+  attendu('associations retirées', !noms.some((n) => n.startsWith('association')))
 
   // ── lecture : le dossier seedé est visible
   const dossiers = await mcp({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'lister_dossiers', arguments: {} } })
   const texteDossiers = dossiers.body?.result?.content?.[0]?.text || ''
   attendu('lister_dossiers voit le dossier', texteDossiers.includes('RESEAU TEST'), texteDossiers.slice(0, 120))
+
+  // ── fichier global : toutes les pièces en un texte (ici : dossier sans pièce — structure seule)
+  const global_ = await mcp({ jsonrpc: '2.0', id: 30, method: 'tools/call', params: { name: 'dossier_global', arguments: { numero: '2026/000123 - RESEAU TEST' } } })
+  const texteGlobal = global_.body?.result?.content?.[0]?.text || ''
+  attendu('dossier_global rend un fichier structuré', global_.status === 200 && !global_.body?.result?.isError && texteGlobal.includes('FICHIER GLOBAL') && texteGlobal.includes('SOMMAIRE'), texteGlobal.slice(0, 160))
 
   // ── écriture : ajouter_todo — versionnée, auditée sous contexte « connecteur »
   const todo = await mcp({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'ajouter_todo', arguments: { numero: '2026/000123 - RESEAU TEST', texte: 'Vérifier la ligne du connecteur' } } })

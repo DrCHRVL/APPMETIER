@@ -2,10 +2,40 @@
 
 Brancher **claude.ai** directement sur SIRAL : depuis n'importe quelle
 conversation Claude web (ou l'app mobile Claude), le magistrat administrateur
-dispose des **mêmes outils que l'attaché** — lecture des dossiers, pièces et
-chronologies, statistiques et graphiques, écritures réversibles (actes, CR,
+dispose des **outils de l'attaché** — lecture des dossiers, pièces et
+chronologies, **fichier global** d'un dossier, trames, skills et base de
+connaissances, statistiques et graphiques, écritures réversibles (actes, CR,
 à-faire, NATINF, dossiers…), livrables remis dans SIRAL — sans avoir à faire
 évoluer l'assistant intégré à chaque nouveauté de Claude web.
+
+## Partage des rôles : Claude web rédige, l'attaché analyse
+
+- **Claude web (connecteur)** : c'est **là que les actes se rédigent** —
+  requêtes, prolongations, réquisitions, soit-transmis, réponses DML,
+  réquisitoires. Le magistrat y travaille dans un projet qui porte ses
+  instructions, sa mémoire et sa base de connaissances : **elles priment**.
+  Le connecteur lui apporte en plus ce que SIRAL tient à jour — les
+  **trames** (`trames_lister` / `trame_lire`, la trame du magistrat prime
+  sur un `modele-*` extrait de ses actes validés), les **skills**
+  (`skills_lister` / `skill_lire`), la **base de connaissances**
+  (`kb_chercher` / `kb_lire`), le dossier (NATINF, mis en cause,
+  échéancier, chronologie), les **propositions d'actes** que l'attaché a
+  pré-remplies, et le **fichier global** (`dossier_global`). L'acte rédigé
+  se range dans SIRAL par `produire_document` (atelier « Actes rédigés » :
+  relecture, export PDF/Word officiel, validation ; `acteMeta` pour qu'une
+  écoute ou une géolocalisation rejoigne l'échéancier). Une retouche se fait
+  au même endroit, en reprenant l'`id` de l'acte.
+- **L'attaché de SIRAL (service, runs CLI)** est un **analyste** : il
+  actualise les dossiers à chaque pièce reçue, recoupe, améliore la donnée,
+  prépare la matière d'un acte (proposition d'acte pré-remplie, préparation
+  de DML, chronologie) et remet des analyses — il **ne rédige plus** les
+  actes (`produire_document` n'existe pas dans ses runs). Trames et skills
+  restent dans SIRAL pour être lus par Claude web et **améliorés** par
+  l'attaché (étude du corpus d'actes validés, propositions ✓/✗).
+- Le **fichier global** remplace, pour le cas courant, les chantiers
+  d'analyse profonde : toutes les pièces d'un dossier en un seul texte,
+  lu par le connecteur page par page ou téléchargé en `.txt` depuis la page
+  Assistant de justice pour être versé dans le projet Claude web.
 
 > ⚠️ Réservé à l'**administrateur**, sur le TJ/contentieux confié à
 > l'attaché. Fonctionnalité **désactivée par défaut** ; tant qu'elle ne l'est
@@ -21,10 +51,14 @@ chronologies, statistiques et graphiques, écritures réversibles (actes, CR,
   `stats_graphique` (Claude VOIT les courbes) ;
 - « Extrais tous les mis en cause liés au réseau X et leurs actes » →
   lectures croisées, recoupements ;
+- « Prépare le réquisitoire définitif du dossier 2026/000123 » →
+  `dossier_global` (toutes les pièces en texte, par pages ou pochette par
+  pochette), `trame_lire` du RD, `skill_lire`, puis rédaction ici ;
 - « Enregistre l'autorisation d'écoute signée ce matin » → `modifier_acte`
   (écriture versionnée, auditée) ;
-- « Rédige la prolongation et range-la dans le dossier » →
-  `produire_document` (atelier « Actes rédigés », exports officiels) ;
+- « Rédige la prolongation et range-la dans le dossier » → `trame_lire` +
+  `skill_lire` + `lire_dossier`, rédaction ici, puis `produire_document`
+  (atelier « Actes rédigés », exports officiels) ;
 - « 2026/000123 : DUPONT, MARTIN et DURAND déférés le 24/09. DUPONT et
   MARTIN en CRPC — 12 mois dont 6 avec sursis probatoire, 8 mois ferme et
   500 € d'amende. Renvoi au 15/10 pour DURAND » → `enregistrer_audience`
@@ -169,9 +203,12 @@ de l'app consomme exactement les mêmes fonctions : si une règle évolue, elle
 5. **Recommandé** : téléversez dans claude.ai la skill
    [`mobilisation-siral.skill`](skills-claude-web/) (Paramètres → Capacités
    → Skills) — elle apprend à Claude web la MÉTHODE : identifier le bon
-   dossier, lire en économe (aperçus, sections paginées), recouper une
-   pièce versée (PV → NATINF, mis en cause, échéances), suivre vos trames
-   et remettre les actes dans SIRAL avec les bonnes métadonnées.
+   dossier, lire en économe (aperçus, sections paginées, fichier global),
+   recouper une pièce versée (PV → NATINF, mis en cause, échéances),
+   rédiger avec vos trames et skills lus par le connecteur, et ranger les
+   actes dans SIRAL avec les bonnes métadonnées. Dans un **projet Claude
+   web** dédié, vos instructions et votre base de connaissances priment ;
+   la skill et le connecteur les complètent.
 
 ## Révocation & réversibilité
 
