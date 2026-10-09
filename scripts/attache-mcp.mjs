@@ -1184,44 +1184,46 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'proposer_trame',
-    description: 'Propose au magistrat une AMÉLIORATION d\'une de SES trames (ou une nouvelle trame) — le texte INTÉGRAL révisé attend son ✓ dans Paramètres → Attaché IA (application versionnée, réversible) ou son ✗. C\'est l\'UNIQUE voie pour faire évoluer une trame qui ne t\'appartient pas (tout sauf modele-*) de ta propre initiative : fragilité de légalité repérée, écart au corpus d\'actes validés, corrections récurrentes du magistrat sur ce type d\'acte. `motif` : POURQUOI, en 1-3 phrases, avec ta source (signaux, pièces, textes) — il décide sur cette base. Conserve tout ce qui n\'a pas besoin de changer : c\'est une révision, pas une réécriture de style.',
+    description: 'Propose au magistrat une AMÉLIORATION d\'une de SES trames (ou une nouvelle trame) — le texte INTÉGRAL révisé attend son ✓ dans Paramètres → Attaché IA (application versionnée, réversible) ou son ✗. C\'est l\'UNIQUE voie pour faire évoluer une trame qui ne t\'appartient pas (tout sauf modele-*) de ta propre initiative : fragilité de légalité repérée, écart au corpus d\'actes validés, corrections récurrentes du magistrat sur ce type d\'acte. `resume` : CE QUE change la révision, en une phrase courte (affichée en tête). `motif` : POURQUOI, avec ta source (signaux, pièces, textes), aussi détaillé que nécessaire — il décide sur cette base. Conserve tout ce qui n\'a pas besoin de changer : c\'est une révision, pas une réécriture de style.',
     inputSchema: {
       type: 'object',
       properties: {
         nom: { type: 'string', description: 'Nom exact de la trame visée (trames_lister) — ou d\'une nouvelle' },
         contenu: { type: 'string', description: 'Le texte COMPLET révisé (remplace tout à la validation)' },
         description: { type: 'string', description: 'Nouvelle description (sinon l\'actuelle est conservée)' },
-        motif: { type: 'string', description: 'Pourquoi cette révision, avec la source (1-3 phrases)' },
+        resume: { type: 'string', description: 'Ce que change la révision, en UNE phrase courte (≤ 240 caractères) — affichée en tête ; trop longue, elle est refusée (reformule plus court, jamais coupée)' },
+        motif: { type: 'string', description: 'Pourquoi cette révision, avec la source — le détail complet, conservé entier (le magistrat le déplie)' },
         source: { type: 'string', description: 'D\'où vient la détection (étude du corpus, analyse de légalité, signaux…)' },
       },
-      required: ['nom', 'contenu', 'motif'],
+      required: ['nom', 'contenu', 'resume', 'motif'],
     },
     handler: async (a) => addProposition(keys, {
       type: 'trame',
-      // motif transmis tel quel : c'est addProposition qui le borne proprement
-      payload: { nom: a.nom, contenu: a.contenu, description: a.description, motif: a.motif },
+      // résumé et motif transmis tels quels : addProposition valide, ne coupe jamais
+      payload: { nom: a.nom, contenu: a.contenu, description: a.description, resume: a.resume, motif: a.motif },
       source: a.source,
     }),
     write: true,
   },
   {
     name: 'proposer_skill',
-    description: 'Propose au magistrat une AMÉLIORATION d\'une de SES skills (ou une nouvelle skill) — même mécanique ✓/✗ que proposer_trame, même exigence de motif. C\'est l\'UNIQUE voie pour faire évoluer une skill qui ne t\'appartient pas (tout sauf auto-*) de ta propre initiative ; sur instruction EXPLICITE du magistrat en conversation, skill_enregistrer reste la voie directe.',
+    description: 'Propose au magistrat une AMÉLIORATION d\'une de SES skills (ou une nouvelle skill) — même mécanique ✓/✗ que proposer_trame, même exigence de résumé et de motif. C\'est l\'UNIQUE voie pour faire évoluer une skill qui ne t\'appartient pas (tout sauf auto-*) de ta propre initiative ; sur instruction EXPLICITE du magistrat en conversation, skill_enregistrer reste la voie directe.',
     inputSchema: {
       type: 'object',
       properties: {
         nom: { type: 'string', description: 'Nom exact de la skill visée (skills_lister) — ou d\'une nouvelle' },
         contenu: { type: 'string', description: 'La méthode COMPLÈTE révisée (markdown)' },
         description: { type: 'string', description: 'Nouvelle description — quand appliquer (sinon l\'actuelle est conservée)' },
-        motif: { type: 'string', description: 'Pourquoi cette révision, avec la source (1-3 phrases)' },
+        resume: { type: 'string', description: 'Ce que change la révision, en UNE phrase courte (≤ 240 caractères) — affichée en tête ; trop longue, elle est refusée (reformule plus court, jamais coupée)' },
+        motif: { type: 'string', description: 'Pourquoi cette révision, avec la source — le détail complet, conservé entier (le magistrat le déplie)' },
         source: { type: 'string', description: 'D\'où vient la détection (signaux, corpus…)' },
       },
-      required: ['nom', 'contenu', 'motif'],
+      required: ['nom', 'contenu', 'resume', 'motif'],
     },
     handler: async (a) => addProposition(keys, {
       type: 'skill',
-      // motif transmis tel quel : c'est addProposition qui le borne proprement
-      payload: { nom: a.nom, contenu: a.contenu, description: a.description, motif: a.motif },
+      // résumé et motif transmis tels quels : addProposition valide, ne coupe jamais
+      payload: { nom: a.nom, contenu: a.contenu, description: a.description, resume: a.resume, motif: a.motif },
       source: a.source,
     }),
     write: true,

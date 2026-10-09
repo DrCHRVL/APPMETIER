@@ -180,7 +180,26 @@ const SIGNAL_LABELS: Record<string, string> = {
 /** Proposition d'amélioration d'une trame/skill du magistrat, en attente de ✓/✗. */
 interface MethodProp {
   id: string; type: 'trame' | 'skill'; titre: string; source?: string; creeLe?: string;
-  payload: { nom: string; contenu: string; description?: string; motif?: string; existante?: boolean };
+  payload: { nom: string; contenu: string; description?: string; resume?: string; motif?: string; existante?: boolean };
+}
+
+/**
+ * « Pourquoi » d'une proposition de méthode : texte entier, jamais coupé —
+ * replié sur trois lignes quand il est long, déplié d'un clic.
+ */
+function MotifRepliable({ motif }: { motif: string }) {
+  const [ouvert, setOuvert] = useState(false);
+  const long = motif.length > 280 || motif.split('\n').length > 3;
+  return (
+    <div className="mt-1.5 text-[11.5px] leading-relaxed text-gray-600">
+      <p className={`whitespace-pre-line ${long && !ouvert ? 'line-clamp-3' : ''}`}><b>Pourquoi :</b> {motif}</p>
+      {long && (
+        <button onClick={() => setOuvert((o) => !o)} className="mt-0.5 text-[11px] font-semibold text-[#2B5746] hover:underline">
+          {ouvert ? '▴ Replier' : '▾ Déplier le pourquoi en entier'}
+        </button>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -2289,9 +2308,10 @@ export function AdminAttachePanel() {
                     </button>
                   </span>
                 </div>
-                {p.payload.motif && (
-                  <p className="mt-1.5 whitespace-pre-line text-[11.5px] leading-relaxed text-gray-600"><b>Pourquoi :</b> {p.payload.motif}</p>
+                {p.payload.resume && (
+                  <p className="mt-1.5 text-[12px] font-medium leading-relaxed text-gray-800">{p.payload.resume}</p>
                 )}
+                {p.payload.motif && <MotifRepliable motif={p.payload.motif} />}
                 {p.source && <p className="mt-0.5 text-[10.5px] text-gray-400">Source : {p.source}</p>}
                 {p.payload.description && p.payload.description !== (courante?.description || '') && (
                   <p className="mt-1.5 text-[11px] leading-relaxed text-gray-600">
