@@ -67,6 +67,15 @@ export interface Provenance {
   detail?: string;
 }
 
+/** Une citation où la valeur apparaît, avec la pièce d'où elle sort. */
+export interface ExtraitSource {
+  texte: string;
+  /** Valeur telle qu'écrite sur place — c'est elle qu'on surligne. */
+  valeur: string;
+  /** « CR du 20/07/2026 », « PV_gendarmerie.pdf »… à défaut, la nature de la source. */
+  source: string;
+}
+
 /** Tout ce que la veille sait d'un dossier POUR CE SIGNAL, en une fois. */
 export interface DossierResume {
   key: string;
@@ -79,7 +88,7 @@ export interface DossierResume {
    *  elle n'est pas dans sa liste de mis en cause. */
   citeeSansEtreMiseEnCause: boolean;
   provenances: Provenance[];
-  extraits: string[];
+  extraits: ExtraitSource[];
 }
 
 /**
@@ -104,7 +113,7 @@ export function grouperParDossier(signal: Recoupement): DossierResume[] {
 
     const provenances: Provenance[] = [];
     const vues = new Set<string>();
-    const extraits: string[] = [];
+    const extraits: ExtraitSource[] = [];
     let declaree = false;
     let fiche = false;
 
@@ -117,7 +126,13 @@ export function grouperParDossier(signal: Recoupement): DossierResume[] {
         vues.add(cle);
         provenances.push({ libelle, detail: occ.detail });
       }
-      if (occ.extrait && !extraits.includes(occ.extrait)) extraits.push(occ.extrait);
+      if (occ.extrait && !extraits.some(e => e.texte === occ.extrait)) {
+        extraits.push({
+          texte: occ.extrait,
+          valeur: occ.valeurBrute,
+          source: (occ.detail || '').trim() || libelle,
+        });
+      }
     }
 
     resumes.push({
