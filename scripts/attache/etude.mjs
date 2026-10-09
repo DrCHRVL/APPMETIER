@@ -135,7 +135,7 @@ export function etudePrompt(trigger) {
     '   - TOUTE AUTRE trame (déposée par le magistrat) reste interdite d\'écriture directe. Mais si le corpus',
     '     validé révèle une amélioration SUBSTANTIELLE (une formule que les JLD exigent systématiquement et qui',
     '     manque, un visa périmé, un plan que ses propres actes signés n\'appliquent plus) → proposer_trame :',
-    '     texte INTÉGRAL révisé + motif citant les pièces — le magistrat applique d\'un ✓, ou refuse. Un simple',
+    '     texte INTÉGRAL révisé + résumé d\'une phrase + motif citant les pièces — le magistrat applique d\'un ✓, ou refuse. Un simple',
     '     écart de goût ne se propose pas : il se note au livrable.',
     '   - leçons transversales de rédaction (ce que les JLD reprennent, reformulent ou exigent systématiquement,',
     '     les motivations qui passent sans retouche) → memoire_noter (« Réflexes appris »), en règles générales.',

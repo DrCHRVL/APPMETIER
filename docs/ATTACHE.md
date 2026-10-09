@@ -250,10 +250,13 @@ l'usage).
       `auto-*` qui se recouvrent, supprimer l'inutile).
     - **Vos méthodes à vous** : jamais d'écriture d'office. L'attaché dépose
       une **proposition d'amélioration** (`proposer_trame` /
-      `proposer_skill`) : le texte **intégral révisé** + le **motif**
-      (signaux, écart au corpus validé, fragilité de légalité). Elle
+      `proposer_skill`) : le texte **intégral révisé**, un **résumé** d'une
+      phrase (ce qui change — un résumé trop long est refusé et reformulé
+      par l'attaché, jamais coupé) et le **motif** (signaux, écart au corpus
+      validé, fragilité de légalité — conservé entier, sans limite). Elle
       apparaît dans Paramètres → Attaché IA, encadré **« Propositions de
-      méthode »** : motif **entier** (jamais coupé au milieu d'un mot), puis la
+      méthode »** : le résumé en tête, le motif replié sur trois lignes et
+      **déplié d'un clic**, puis la
       **liste des changements** — le diff ligne à ligne contre VOTRE version
       courante, ajouts en vert, retraits en rouge, inchangé replié, calculé
       dans votre navigateur sur le texte déchiffré — et le texte complet

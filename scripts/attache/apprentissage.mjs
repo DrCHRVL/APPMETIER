@@ -310,7 +310,7 @@ export function consolidationPrompt({ budget, trigger }) {
     '     suivie (champ source « trame … ») — une trame/skill dont l\'usage produit des retouches répétées est',
     '     TA priorité. Si c\'est une modele-*/auto-* → corrige-la directement (trame_enregistrer /',
     '     skill_enregistrer, même nom). Si c\'est une méthode du magistrat → proposer_trame / proposer_skill',
-    '     (texte INTÉGRAL révisé + motif citant les signaux) — il applique d\'un ✓.',
+    '     (texte INTÉGRAL révisé + résumé d\'une phrase + motif citant les signaux) — il applique d\'un ✓.',
     '   - processus multi-étapes RÉCURRENT qu\'aucune skill ne couvre → rédige la skill « auto-<nom> »',
     '     (description soignée : c\'est elle qui la déclenchera) avec skill_enregistrer ;',
     '   - choix trame/skill stabilisé pour un type d\'acte → association_definir ;',
