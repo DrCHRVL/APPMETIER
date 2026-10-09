@@ -20,6 +20,7 @@ import { entrySlug } from '@/lib/web/slug';
 import { diffTexte } from '@/lib/attache/diffCore.mjs';
 import { AttacheKbSection } from './AttacheKbSection';
 import { AttacheConsignesSection } from './AttacheConsignesSection';
+import { InstructionsProjetSection } from './InstructionsProjetSection';
 import { AttacheDescriptionPromptSection } from './AttacheDescriptionPromptSection';
 import { useIaVisibiliteStore } from '@/stores/useIaVisibiliteStore';
 
@@ -169,9 +170,35 @@ const SIGNAL_LABELS: Record<string, string> = {
 
 /** Proposition d'amélioration d'une trame/skill du magistrat, en attente de ✓/✗. */
 interface MethodProp {
-  id: string; type: 'trame' | 'skill'; titre: string; source?: string; creeLe?: string;
-  payload: { nom: string; contenu: string; description?: string; resume?: string; motif?: string; existante?: boolean };
+  id: string; type: 'trame' | 'skill' | 'instructions_projet'; titre: string; source?: string; creeLe?: string;
+  payload: { nom?: string; contenu: string; description?: string; resume?: string; motif?: string; existante?: boolean };
 }
+/** Squelette affiché tant que rien n'a été enregistré — miroir de scripts/attache/instructionsProjet.mjs. */
+const INSTRUCTIONS_PROJET_DEFAUT = `# Instructions du projet Claude web — rédaction des actes (SIRAL)
+
+## Rôle et contexte
+Tu rédiges, pour un magistrat du parquet (criminalité organisée), les actes de
+procédure dont il a besoin : requêtes, autorisations, prolongations,
+réquisitions, soit-transmis, réponses DML, réquisitoires. SIRAL, par son
+connecteur, te donne le dossier (NATINF enregistrés, mis en cause, échéancier,
+chronologie, pièces, fichier global), ses trames (trames_lister / trame_lire),
+ses skills (skills_lister / skill_lire) et sa base de connaissances
+(kb_chercher / kb_lire). Les instructions de ce projet priment.
+
+## Exigences de rédaction
+(à compléter : ce que le magistrat exige de chaque acte — registre, plan,
+visas, motivation, formules consacrées)
+
+## Pièges à éviter
+(les corrections répétées du magistrat sur les actes rédigés, en règles
+générales — jamais l'anecdote)
+
+## Remise dans SIRAL
+Un acte rédigé se range avec produire_document (numero, type, titre daté,
+source = nom exact de la trame suivie, acteMeta pour une écoute ou une
+géolocalisation) ; une synthèse avec remettre_livrable.
+`;
+const METHOD_TYPE_LABEL: Record<MethodProp['type'], string> = { trame: 'trame', skill: 'skill', instructions_projet: 'projet Claude web' };
 
 /**
  * « Pourquoi » d'une proposition de méthode : texte entier, jamais coupé —
@@ -532,9 +559,42 @@ export function AdminAttachePanel() {
       const res = await fetch('/api/attache/propositions');
       if (!res.ok) return;
       const { propositions } = await res.json();
-      setMethodProps(((propositions || []) as MethodProp[]).filter((p) => p.type === 'trame' || p.type === 'skill'));
+      setMethodProps(((propositions || []) as MethodProp[]).filter((p) => p.type === 'trame' || p.type === 'skill' || p.type === 'instructions_projet'));
     } catch { /* silencieux */ }
   }, []);
+
+  // ── Instructions du projet Claude web : enveloppe unique, déchiffrée ICI (comme la mémoire) ──
+  const [instrProjet, setInstrProjet] = useState<string | null>(null);
+  const [instrProjetExiste, setInstrProjetExiste] = useState(false);
+  const [instrProjetSaving, setInstrProjetSaving] = useState(false);
+  const loadInstrProjet = useCallback(async () => {
+    try {
+      const res = await fetch('/api/attache/instructions-projet');
+      if (!res.ok) return;
+      const { envelope } = await res.json();
+      if (!envelope) { setInstrProjetExiste(false); setInstrProjet(INSTRUCTIONS_PROJET_DEFAUT); return; }
+      const payload = await bridgeFn('attache_decrypt')(envelope) as { content?: string } | null;
+      setInstrProjetExiste(true);
+      setInstrProjet(payload?.content || INSTRUCTIONS_PROJET_DEFAUT);
+    } catch { /* silencieux — l'erreur remonte à l'enregistrement */ }
+  }, []);
+  const saveInstrProjet = useCallback(async () => {
+    if (instrProjet == null) return;
+    setInstrProjetSaving(true);
+    try {
+      const envelope = await bridgeFn('attache_encrypt')({ content: instrProjet });
+      const res = await fetch('/api/attache/instructions-projet', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ envelope }),
+      });
+      if (res.ok) { setNotice('Instructions du projet enregistrées (version précédente archivée) — « Copier » pour les coller dans votre projet claude.ai.'); setInstrProjetExiste(true); }
+      else { const d = await res.json().catch(() => ({} as { error?: string })); setNotice(`Enregistrement refusé : ${d.error || res.status}`); }
+    } catch (e) {
+      setNotice(`Enregistrement impossible : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setInstrProjetSaving(false);
+    }
+  }, [instrProjet]);
 
   const decideMethodProp = useCallback(async (p: MethodProp, action: 'valider' | 'refuser') => {
     setMethodBusy(p.id);
@@ -546,9 +606,11 @@ export function AdminAttachePanel() {
       const data = await res.json().catch(() => ({} as { ok?: boolean; error?: string }));
       if (res.ok && data.ok) {
         setNotice(action === 'valider'
-          ? `${p.type === 'trame' ? 'Trame' : 'Skill'} « ${p.payload.nom} » mise à jour (l'ancienne version reste archivée).`
+          ? (p.type === 'instructions_projet'
+            ? 'Instructions du projet Claude web mises à jour (l\'ancienne version reste archivée) — « Copier » dans la section ci-dessous, puis collez-les dans votre projet claude.ai.'
+            : `${p.type === 'trame' ? 'Trame' : 'Skill'} « ${p.payload.nom} » mise à jour (l'ancienne version reste archivée).`)
           : 'Proposition refusée — l\'attaché en tirera la leçon à la prochaine consolidation.');
-        if (action === 'valider') { loadTrames(); loadSkills(); }
+        if (action === 'valider') { loadTrames(); loadSkills(); loadInstrProjet(); }
       } else {
         setNotice(`Décision refusée : ${data.error || res.status}`);
       }
@@ -558,9 +620,9 @@ export function AdminAttachePanel() {
     } finally {
       setMethodBusy(null);
     }
-  }, [loadMethodProps, loadTrames, loadSkills]);
+  }, [loadMethodProps, loadTrames, loadSkills, loadInstrProjet]);
 
-  useEffect(() => { refresh(); loadRoutines(); loadSkills(); loadTrames(); loadMethodProps(); }, [refresh, loadRoutines, loadSkills, loadTrames, loadMethodProps]);
+  useEffect(() => { refresh(); loadRoutines(); loadSkills(); loadTrames(); loadMethodProps(); loadInstrProjet(); }, [refresh, loadRoutines, loadSkills, loadTrames, loadMethodProps, loadInstrProjet]);
 
   /** Conversion des fichiers choisis en trames — tout se passe dans CE navigateur (E2EE). */
   const stageFiles = useCallback(async (files: FileList | null) => {
@@ -2178,19 +2240,21 @@ export function AdminAttachePanel() {
             <Sparkles className="h-4 w-4 text-amber-600" />
             <span className="text-sm font-semibold text-gray-800">Propositions de méthode</span>
             <span className="text-[11px] text-gray-500">
-              {methodProps.length} amélioration{methodProps.length > 1 ? 's' : ''} de trame/skill en attente de votre décision — rien n&apos;est modifié sans votre ✓
+              {methodProps.length} amélioration{methodProps.length > 1 ? 's' : ''} de trame, skill ou instructions du projet Claude web en attente de votre décision — rien n&apos;est modifié sans votre ✓
             </span>
           </div>
           <div className="space-y-2 p-3">
             {methodProps.map((p) => {
               // Version courante, déchiffrée dans ce navigateur : c'est elle qui
               // sert de référence au diff (null = méthode inconnue ici).
-              const courante = (p.type === 'trame' ? trames : skills).find((x) => x.nom === p.payload.nom) ?? null;
+              const courante = p.type === 'instructions_projet'
+                ? (instrProjet != null ? { nom: 'instructions du projet', contenu: instrProjet, description: undefined as string | undefined } : null)
+                : ((p.type === 'trame' ? trames : skills).find((x) => x.nom === p.payload.nom) ?? null);
               const lignesProposees = (p.payload.contenu || '').split('\n').length;
               return (
               <div key={p.id} className="rounded-lg border border-gray-200 bg-white p-2.5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">{p.type}</span>
+                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">{METHOD_TYPE_LABEL[p.type]}</span>
                   <span className="text-xs font-semibold text-gray-800">{p.titre}</span>
                   {p.creeLe && <span className="text-[10px] text-gray-400">{new Date(p.creeLe).toLocaleDateString('fr-FR')}</span>}
                   <span className="ml-auto flex items-center gap-1.5">
@@ -2198,7 +2262,9 @@ export function AdminAttachePanel() {
                       onClick={() => decideMethodProp(p, 'valider')}
                       disabled={methodBusy === p.id}
                       className="inline-flex items-center gap-1 rounded-lg bg-[#2B5746] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#234639] disabled:opacity-50"
-                      title="Applique le texte révisé (l'ancienne version reste archivée — réversible)."
+                      title={p.type === 'instructions_projet'
+                        ? 'Enregistre le texte révisé comme version de référence (archivée, réversible) — puis « Copier » pour le coller dans votre projet claude.ai.'
+                        : 'Applique le texte révisé (l\'ancienne version reste archivée — réversible).'}
                     >
                       {methodBusy === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />} Appliquer
                     </button>
@@ -2225,8 +2291,8 @@ export function AdminAttachePanel() {
                   ? <MethodPropDiff actuel={courante.contenu || ''} propose={p.payload.contenu || ''} />
                   : (
                     <p className="mt-1.5 text-[11px] text-gray-500">
-                      {p.payload.existante
-                        ? `Version actuelle de cette ${p.type} introuvable dans cette bibliothèque — liste des changements impossible à établir : relisez le texte proposé.`
+                      {p.payload.existante || p.type === 'instructions_projet'
+                        ? `Version actuelle de cette ${METHOD_TYPE_LABEL[p.type]} introuvable ici — liste des changements impossible à établir : relisez le texte proposé.`
                         : `Nouvelle ${p.type} (${lignesProposees} ligne${lignesProposees > 1 ? 's' : ''}) — rien n'est remplacé.`}
                     </p>
                   )}
@@ -2240,6 +2306,16 @@ export function AdminAttachePanel() {
           </div>
         </div>
       )}
+
+      {/* Instructions du projet Claude web — là où la rédaction se fait, là où les leçons atterrissent */}
+      <InstructionsProjetSection
+        texte={instrProjet}
+        charge={loadInstrProjet}
+        onChange={setInstrProjet}
+        onSave={saveInstrProjet}
+        saving={instrProjetSaving}
+        existe={instrProjetExiste}
+      />
 
       {/* Consignes permanentes — le « prompt » du magistrat, relu à chaque run */}
       <div className="rounded-xl border border-gray-200">

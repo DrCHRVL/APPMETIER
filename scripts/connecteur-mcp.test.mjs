@@ -123,6 +123,7 @@ try {
   attendu('remettre_livrable présent', noms.includes('remettre_livrable'))
   attendu('dossier_global présent (fichier global pour Claude web)', noms.includes('dossier_global'))
   attendu('associations retirées', !noms.some((n) => n.startsWith('association')))
+  attendu('instructions du projet Claude web exposées', noms.includes('instructions_projet_lire') && noms.includes('proposer_instructions_projet'))
 
   // ── lecture : le dossier seedé est visible
   const dossiers = await mcp({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'lister_dossiers', arguments: {} } })
@@ -133,6 +134,19 @@ try {
   const global_ = await mcp({ jsonrpc: '2.0', id: 30, method: 'tools/call', params: { name: 'dossier_global', arguments: { numero: '2026/000123 - RESEAU TEST' } } })
   const texteGlobal = global_.body?.result?.content?.[0]?.text || ''
   attendu('dossier_global rend un fichier structuré', global_.status === 200 && !global_.body?.result?.isError && texteGlobal.includes('FICHIER GLOBAL') && texteGlobal.includes('SOMMAIRE'), texteGlobal.slice(0, 160))
+  attendu('dossier_global porte la fiche du dossier en tête', texteGlobal.includes('FICHE DU DOSSIER') && texteGlobal.includes('RESEAU TEST'))
+  const globalTheme = await mcp({ jsonrpc: '2.0', id: 31, method: 'tools/call', params: { name: 'dossier_global', arguments: { numero: '2026/000123 - RESEAU TEST', theme: 'auditions' } } })
+  attendu('dossier_global accepte un thème', globalTheme.status === 200 && !globalTheme.body?.result?.isError && (globalTheme.body?.result?.content?.[0]?.text || '').includes('AUDITIONS'), (globalTheme.body?.result?.content?.[0]?.text || '').slice(0, 120))
+  const instr = await mcp({ jsonrpc: '2.0', id: 32, method: 'tools/call', params: { name: 'instructions_projet_lire', arguments: {} } })
+  attendu('instructions_projet_lire rend le squelette par défaut', (instr.body?.result?.content?.[0]?.text || '').includes('Instructions du projet Claude web'))
+
+  // ── dossier de rédaction : l'archive .zip que le projet Claude web attend
+  const zipRes = await fetch(`http://127.0.0.1:${PORT}/dossier-redaction?numero=${encodeURIComponent('2026/000123 - RESEAU TEST')}&acte=${encodeURIComponent('réquisitoire définitif')}`, { headers: { 'x-attache-secret': BRIDGE } })
+  const zipBuf = Buffer.from(await zipRes.arrayBuffer())
+  let zipFichiers = []
+  try { zipFichiers = JSON.parse(decodeURIComponent(zipRes.headers.get('x-siral-fichiers') || '[]')) } catch { /* en-tête absent */ }
+  attendu('dossier de rédaction : zip valide', zipRes.status === 200 && zipRes.headers.get('content-type') === 'application/zip' && zipBuf.subarray(0, 2).toString('binary') === 'PK', `${zipRes.status} ${zipRes.headers.get('content-type')} ${zipBuf.length} octets`)
+  attendu('dossier de rédaction : LISEZMOI, fichier global et instructions du projet', zipFichiers.includes('LISEZMOI.md') && zipFichiers.some((f) => f.startsWith('GLOBAL_')) && zipFichiers.includes('INSTRUCTIONS-PROJET.md'), zipFichiers.join(', '))
 
   // ── écriture : ajouter_todo — versionnée, auditée sous contexte « connecteur »
   const todo = await mcp({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'ajouter_todo', arguments: { numero: '2026/000123 - RESEAU TEST', texte: 'Vérifier la ligne du connecteur' } } })

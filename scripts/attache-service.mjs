@@ -28,7 +28,8 @@ import { writeClaudeToken, clearClaudeToken, clearAuthFailure } from './attache/
 import { runAgent, checkClaudeCli, testClaudeAuth, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
 import { usageSummary } from './attache/usage.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
-import { compilerFichierGlobal } from './attache/global.mjs'
+import { compilerFichierGlobal, entretenirFichiersGlobaux } from './attache/global.mjs'
+import { dossierRedaction } from './attache/redaction.mjs'
 import { genererGraphique } from './attache/statsGraphiques.mjs'
 import { loadContentieux, numeroCanonique } from './attache/dossier.mjs'
 import { donneesDescription, couverturePieces, estimerTotalMs, estimerRedactionMs, observerRedaction, avancement } from './attache/description.mjs'
@@ -773,6 +774,27 @@ async function maybeIngest() {
 }
 
 // ── Mini-fiches du registre (fil de l'eau, modèle économe) ──
+// ── Fichiers globaux (cache du corps des pièces, fil de l'eau) ──
+// Le flux tendu recompile le dossier qu'il vient de traiter ; cette passe de
+// fond rattrape les autres (stock ancien, pièces encore non extraites,
+// dossiers touchés hors flux), quelques dossiers par tick. CPU local, zéro jeton.
+let globauxRunning = false
+async function maybeGlobaux() {
+  if (globauxRunning) return
+  const keys = loadKeyring()
+  if (!keys) return
+  globauxRunning = true
+  try {
+    const b = await entretenirFichiersGlobaux(keys)
+    if (activites.global) activites.global.dernierBilan = b
+    if (b.recompiles || b.erreurs) {
+      console.log(`[attache] fichiers globaux : ${b.recompiles} dossier(s) recompilé(s) sur ${b.examines} examiné(s)${b.restants ? `, ${b.restants} au prochain tick` : ''}${b.erreurs ? `, ${b.erreurs} erreur(s)` : ''}`)
+    }
+  } finally {
+    globauxRunning = false
+  }
+}
+
 // Un lot court par tick, APRÈS l'ingestion (texte + entités déjà là).
 // Consomme des jetons → même gouvernance de forfait que les descriptions.
 let registreRunning = false
@@ -1760,9 +1782,36 @@ const server = http.createServer(async (req, res) => {
       const numero = url.searchParams.get('numero') || ''
       if (!numero) return json(res, 400, { error: 'numero requis' })
       try {
-        const g = await compilerFichierGlobal(keys, numero, { pochette: url.searchParams.get('pochette') || undefined })
-        await audit(keys, 'fichier_global', { numero: g.dossier, pieces: g.stats.pieces, caracteres: g.stats.caracteres }).catch(() => {})
-        return json(res, 200, { dossier: g.dossier, stats: g.stats, sommaire: g.sommaire, texte: g.texte })
+        const g = await compilerFichierGlobal(keys, numero, {
+          pochette: url.searchParams.get('pochette') || undefined,
+          theme: url.searchParams.get('theme') || undefined,
+        })
+        await audit(keys, 'fichier_global', { numero: g.dossier, theme: g.theme, pieces: g.stats.pieces, caracteres: g.stats.caracteres }).catch(() => {})
+        return json(res, 200, { dossier: g.dossier, theme: g.theme, themes: g.themes, stats: g.stats, sommaire: g.sommaire, texte: g.texte })
+      } catch (e) {
+        return json(res, 500, { error: String(e?.message || e).slice(0, 300) })
+      }
+    }
+
+    if (route === 'GET /dossier-redaction') {
+      // DOSSIER DE RÉDACTION : une archive .zip prête à verser dans un projet
+      // Claude web — fichier global, trames et skills applicables à l'acte
+      // visé, documents ★ de la base de connaissances, actes précédents du
+      // même type, instructions du projet, LISEZMOI.
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const numero = url.searchParams.get('numero') || ''
+      if (!numero) return json(res, 400, { error: 'numero requis' })
+      try {
+        const r = await dossierRedaction(keys, numero, { acte: url.searchParams.get('acte') || '' })
+        await audit(keys, 'dossier_redaction', { numero: r.dossier, acte: r.acte || undefined, fichiers: r.fichiers.length, octets: r.zip.length }).catch(() => {})
+        res.writeHead(200, {
+          'content-type': 'application/zip',
+          'content-length': String(r.zip.length),
+          'x-siral-nom': encodeURIComponent(r.nom),
+          'x-siral-fichiers': encodeURIComponent(JSON.stringify(r.fichiers)),
+        })
+        return res.end(r.zip)
       } catch (e) {
         return json(res, 500, { error: String(e?.message || e).slice(0, 300) })
       }
@@ -2102,6 +2151,7 @@ setInterval(() => {
   decale(45_000, 'chantiers', 'chantiers d\'analyse', () => maybeChantiers())
   decale(90_000, 'registre', 'mini-fiches du registre', () => maybeRegistreFiches())
   decale(120_000, 'recoupements', 'recoupements entre dossiers', () => maybeRecoupements())
+  decale(150_000, 'global', 'fichiers globaux', () => maybeGlobaux())
 }, POLL_MINUTES * 60 * 1000)
 // première relève 20 s après le démarrage (laisse le réseau docker s'établir)
 setTimeout(() => { pollOnce('démarrage').catch(() => {}) }, 20_000)

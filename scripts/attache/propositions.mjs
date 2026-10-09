@@ -23,6 +23,7 @@ import { ajouterMec, enregistrerActe, classerNote, getMecNoms, normalizeNom, pro
 import { appendLien, appendDossierExNihilo, dossierExNihiloExiste, appendMecExNihilo, mecExNihiloExiste, appendMecNoteEnrichissement, appendCampAssignments } from './carto.mjs'
 import { saveTrame, readTrame, safeTrameName, MODELE_PREFIX } from './trames.mjs'
 import { saveSkill, readSkill, safeSkillName, AUTO_SKILL_PREFIX } from './skills.mjs'
+import { readInstructionsProjet, writeInstructionsProjet, INSTRUCTIONS_PROJET_MAX } from './instructionsProjet.mjs'
 import { audit } from './journal.mjs'
 import { recordLearningSignal } from './apprentissage.mjs'
 
@@ -33,7 +34,7 @@ const FILE = () => attacheDir('propositions.json')
 // Aucun des deux n'est jamais coupé : un résumé trop long est REFUSÉ, l'attaché
 // le reformule plus court ; le motif est conservé entier, quelle que soit sa longueur.
 const RESUME_MAX = 240
-const TYPES = ['mec', 'acte', 'cr', 'lien', 'dossier', 'dossier_carto', 'mec_carto', 'mec_note', 'camp_carto', 'trame', 'skill']
+const TYPES = ['mec', 'acte', 'cr', 'lien', 'dossier', 'dossier_carto', 'mec_carto', 'mec_note', 'camp_carto', 'trame', 'skill', 'instructions_projet']
 // Types rattachés à un dossier EXISTANT (numéro requis). « dossier » porte le
 // numéro du dossier à créer ; « dossier_carto », « mec_carto » et « lien »
 // sont globaux (carte — numéro facultatif pour un lien : simple contexte
@@ -184,6 +185,26 @@ export async function addProposition(keys, { numero, type, payload, source, titr
     numero = ''
   }
 
+  // Révision des INSTRUCTIONS DU PROJET CLAUDE WEB : texte complet révisé,
+  // appliqué d'un ✓ (version archivée) puis collé par le magistrat dans
+  // claude.ai — la leçon atterrit là où la rédaction se fait.
+  if (type === 'instructions_projet') {
+    const contenu = String(payload.contenu || '').trim()
+    if (contenu.length < 200) throw new Error('Contenu complet requis (≥ 200 caractères) : la proposition porte le texte INTÉGRAL révisé des instructions, pas un extrait')
+    if (contenu.length > INSTRUCTIONS_PROJET_MAX) throw new Error(`Trop long (${contenu.length} caractères, maximum ${INSTRUCTIONS_PROJET_MAX}) : des instructions de projet se lisent à chaque conversation — distille`)
+    if (!String(payload.motif || '').trim()) throw new Error('Motif requis : quels actes corrigés ou refusés, quelle règle générale en ressort')
+    const resume = String(payload.resume || '').replace(/\s+/g, ' ').trim()
+    if (!resume) throw new Error(`Résumé requis : UNE phrase (≤ ${RESUME_MAX} caractères) — ce que change la révision`)
+    if (resume.length > RESUME_MAX) throw new Error(`Résumé trop long (${resume.length} caractères, maximum ${RESUME_MAX}) : reformule-le PLUS COURT — le détail va dans le motif`)
+    if (readInstructionsProjet(keys).trim() === contenu) return { doublon: true, message: 'Le texte proposé est identique aux instructions actuelles — proposition NON déposée' }
+    const pendante = propositions.find((p) => p.statut === 'en_attente' && p.type === 'instructions_projet')
+    if (pendante) return { doublon: true, message: 'Une révision des instructions du projet est déjà en attente — le magistrat n\'a pas encore tranché' }
+    payload.contenu = contenu
+    payload.resume = resume
+    payload.motif = String(payload.motif).trim()
+    numero = ''
+  }
+
   if (type === 'mec') {
     const nom = String(payload.nom || '').trim()
     if (!nom) throw new Error('Nom du mis en cause requis')
@@ -267,6 +288,7 @@ function defaultTitre(type, payload) {
   if (type === 'camp_carto') return `Camp : ${payload.label || '?'} (${Array.isArray(payload.membres) ? payload.membres.length : 0} membres)`
   if (type === 'trame') return payload.existante ? `Trame « ${payload.nom} » — amélioration proposée` : `Nouvelle trame proposée : ${payload.nom}`
   if (type === 'skill') return payload.existante ? `Skill « ${payload.nom} » — amélioration proposée` : `Nouvelle skill proposée : ${payload.nom}`
+  if (type === 'instructions_projet') return 'Instructions du projet Claude web — révision proposée'
   if (type === 'lien') return `Lien de renseignement : ${payload.sourceNom} ↔ ${payload.targetNom}${payload.label ? ` (${payload.label})` : ''}`
   if (type === 'mec') return `Nouveau mis en cause : ${payload.nom}${payload.role ? ` (${payload.role})` : ''}`
   if (type === 'acte') {
@@ -336,6 +358,10 @@ export async function decideProposition(keys, { id, action, par, motif }) {
         contenu: prop.payload.contenu,
         description: prop.payload.description || courante?.description,
       })
+    } else if (prop.type === 'instructions_projet') {
+      // version archivée ; le magistrat COPIE ensuite le texte dans son projet
+      // claude.ai (bouton du panneau) — Claude web le lit aussi par le connecteur
+      applique = await writeInstructionsProjet(keys, prop.payload.contenu, auteur)
     }
   }
 

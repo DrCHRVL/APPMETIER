@@ -331,6 +331,15 @@ export async function writeMemoryEnvelope(envelope: AttacheEnvelope): Promise<vo
   await writeVersionedEnvelope('memory', envelope)
 }
 
+/** Instructions du projet Claude web (version de référence tenue dans SIRAL) — même modèle que la mémoire. */
+export function readInstructionsProjetEnvelope(): AttacheEnvelope | null {
+  return readJson<AttacheEnvelope | null>(attacheDir('instructions-projet.json'), null)
+}
+
+export async function writeInstructionsProjetEnvelope(envelope: AttacheEnvelope): Promise<void> {
+  await writeVersionedEnvelope('instructions-projet', envelope)
+}
+
 /** Consignes permanentes (le « prompt » du magistrat) — même modèle que la mémoire. */
 export function readInstructionsEnvelope(): AttacheEnvelope | null {
   return readJson<AttacheEnvelope | null>(attacheDir('instructions.json'), null)
@@ -427,7 +436,7 @@ export const writeSkillEnvelope = (id: string, envelope: AttacheEnvelope) => wri
 export const deleteSkillEnvelope = (id: string) => deleteCollectionEnvelope('skills', id)
 
 /** Écrit une enveloppe d'attaché en archivant la version précédente (jamais d'écrasement sec). */
-async function writeVersionedEnvelope(name: 'memory' | 'instructions' | 'consignes', envelope: AttacheEnvelope): Promise<void> {
+async function writeVersionedEnvelope(name: 'memory' | 'instructions' | 'consignes' | 'instructions-projet', envelope: AttacheEnvelope): Promise<void> {
   const p = attacheDir(name + '.json')
   try {
     await withFileLock('attache-' + name, async () => {

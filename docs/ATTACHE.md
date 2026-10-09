@@ -37,11 +37,16 @@ OpenDocument (« trames de forme ») ont été retirées : l'export PDF/Word
 officiel reconstruit l'habillage du parquet.
 
 Le **fichier global** d'un dossier (page Assistant de justice, section
-« Fichier global » ; outil `dossier_global` du connecteur) — toutes les
-pièces en texte dans un seul `.txt`, sommaire puis un bloc par pièce — est
-la voie par défaut pour un travail de fond (réquisitoire définitif, synthèse)
-dans Claude web ; les chantiers d'analyse profonde restent disponibles
-derrière, pour un dépouillement de nuit par lots.
+« Fichier global » ; outil `dossier_global` du connecteur) — fiche du
+dossier, chronologie et registre en tête, puis toutes les pièces en texte,
+classées par thème, numérotées de façon stable — est la voie par défaut pour
+un travail de fond (réquisitoire définitif, synthèse) dans Claude web ; le
+**dossier de rédaction** (`.zip`) y ajoute trames, skills, base ★, actes
+précédents et instructions du projet. Les chantiers d'analyse profonde
+restent disponibles derrière, pour un dépouillement de nuit par lots. Et la
+boucle d'apprentissage se referme là où la rédaction se fait : l'attaché
+**propose des révisions des instructions du projet Claude web** à partir des
+actes corrigés ou refusés (voir « Instructions du projet Claude web »).
 
 ## Ce qu'il fait
 
@@ -641,16 +646,61 @@ derrière, pour un dépouillement de nuit par lots.
   `lire_document` passe sans déversement.
 - **Fichier global du dossier** : page « Assistant de justice », section
   « Fichier global » — toutes les pièces d'un dossier (enquête ou
-  instruction) en **texte**, dans **un seul `.txt`** : sommaire numéroté,
-  puis un bloc par pièce ouvert par sa cote (`📄 chemin`), copies exactes
-  non répétées ; filtre par pochette pour un dossier volumineux. Compilé par
-  le service à partir des caches d'extraction (ingestion de fond, OCR des
-  scans muets) — rien n'est ré-extrait, sauf un nombre borné de pièces
-  jamais extraites (recompiler étend la couverture). Bouton « Sommaire »
-  (pièces, taille, non extraites) et « Télécharger le .txt », à verser dans
-  le projet Claude web ; le connecteur lit le même fichier par pages
-  (`dossier_global`). C'est la voie par défaut pour un réquisitoire
-  définitif ou une synthèse : Claude web lit, Claude web rédige.
+  instruction) en **texte**, dans **un seul `.txt`**, exploitable
+  directement par Claude web. Trois propriétés :
+  - **enrichi** : en tête, la **fiche du dossier** (description, mis en
+    cause, NATINF, échéancier — ce que rend `lire_dossier`), la
+    **chronologie** et le **registre des pièces** (type, date, personnes,
+    résumé, entités) — tout le contexte sans appel d'outil préalable ; puis
+    le sommaire et un bloc par pièce ouvert par `📄 P-0042 — chemin` ;
+  - **classé par thème** : auditions et déclarations, synthèses, téléphonie
+    et géolocalisation, expertises, surveillances et saisies, décisions et
+    actes de procédure, autres — déterministe (type de la mini-fiche du
+    registre et nom de fichier, zone de dépôt en repli), zéro jeton ; c'est
+    l'ordre de lecture d'un réquisitoire, et le fichier se télécharge
+    **par thème** (sélecteur, ou pastilles du sommaire) ;
+  - **incrémental, mis en cache, numéroté de façon stable** : le corps
+    (textes des pièces) est conservé chiffré dans `attache/global/`, sous la
+    signature de l'index des pièces ; tant que rien n'a bougé, servir le
+    fichier ne lit rien, et une pièce ajoutée est la seule relue. Chaque
+    pièce reçoit un numéro `P-xxxx` dans l'ordre de son dépôt, **jamais
+    renuméroté** : le sommaire est un index stable que Claude web cite d'une
+    conversation à l'autre. Le **flux tendu** recompile le dossier qu'il
+    vient de traiter ; une passe de fond (poste « fichiers globaux » du
+    moniteur) rattrape le reste, trois dossiers par tick. Copies exactes non
+    répétées ; filtre par pochette ; les pièces jamais extraites se
+    complètent à la recompilation suivante (20 extractions fraîches au plus).
+  Boutons « Sommaire » (thèmes, pièces, taille, corps à jour au…) et
+  « Télécharger le .txt » ; le connecteur lit le même fichier par pages et
+  par thème (`dossier_global`).
+- **Dossier de rédaction (`.zip`)** : même section, bouton « Dossier de
+  rédaction » avec un **acte visé** facultatif (« réquisitoire définitif »,
+  « prolongation géoloc »). Le service assemble en une archive ce qu'un
+  projet Claude web attend : le fichier global, les **trames** et **skills**
+  qui rejoignent l'acte visé (toutes si aucun acte n'est nommé — un modèle
+  `modele-*` est signalé comme tel), les documents **★ réflexes** de la base
+  de connaissances et ceux en rapport avec l'acte, les **actes précédents**
+  du même type rangés dans le dossier, les **instructions du projet** et un
+  `LISEZMOI.md` qui dit quoi faire de chaque fichier. Tout en texte : le
+  projet reçoit sa base de connaissances en un geste
+  (`scripts/attache/redaction.mjs`, route `GET /dossier-redaction`).
+- **Instructions du projet Claude web — la boucle d'apprentissage se referme
+  là où la rédaction se fait** : Paramètres → Attaché IA → « Instructions du
+  projet Claude web ». La version de **référence** des instructions
+  permanentes du projet claude.ai dans lequel le magistrat rédige, tenue dans
+  SIRAL (chiffrée, versionnée — `attache/instructions-projet.json`), éditable,
+  avec un bouton **Copier** pour la coller dans le projet. Les actes rangés
+  depuis Claude web puis **corrigés à la main** (`production_diff`) ou
+  **refusés avec motif** sont des signaux d'apprentissage : la
+  **consolidation** en tire des règles de rédaction générales et dépose une
+  **proposition de révision** du texte complet (`proposer_instructions_projet`
+  — bloc « Propositions de méthode », diff ligne à ligne, résumé, motif citant
+  les actes). ✓ enregistre la nouvelle version (archivée), puis Copier →
+  coller. En conversation, « ajoute cette règle aux instructions de mon
+  projet » l'écrit directement (`instructions_projet_enregistrer`, interdit
+  aux runs autonomes). Claude web lit cette version par le connecteur
+  (`instructions_projet_lire`) au début d'une rédaction : la leçon agit même
+  avant d'avoir été collée.
 - **Dépose lui-même une « analyse profonde » quand le travail déborde**
   (chantiers de nuit, relégués derrière le fichier global) : chercher une
   adresse ou une ligne dans les pièces de tous les dossiers, croiser

@@ -35,6 +35,7 @@ import {
   texteDocumentIntegral,
 } from './dossier.mjs'
 import { readRegistre, writeRegistre, registreFichesStep, numeroDepuisDocKey } from './registre.mjs'
+import { rafraichirFichierGlobal } from './global.mjs'
 import { ingestPass, readIngestState } from './ingest.mjs'
 import { analyseDocuments } from './analyse.mjs'
 import { addProposition, listPropositions } from './propositions.mjs'
@@ -528,6 +529,10 @@ export async function traiterDossier(keys, numero, { onHold = async () => false 
       }
       writeEtat(st)
     }
+    // Le FICHIER GLOBAL du dossier suit le mouvement : pièces ingérées et
+    // fichées, on recompile son corps (textes repris du cache, seules les
+    // pièces nouvelles sont lues). Zéro jeton, jamais bloquant.
+    if (!bilan.differe && !bilan.ignore) await rafraichirFichierGlobal(keys, num)
     return bilan
   }
 
