@@ -1597,12 +1597,14 @@ export async function actualiserDescription(keys, { numero, description }) {
   if (!texte) throw new Error('Description vide')
   return mutate(keys, numero, (e) => {
     const ancienne = String(e.description || '')
-    if (ancienne.trim()) {
-      e.descriptionHistory = e.descriptionHistory || []
-      e.descriptionHistory.push({ date: new Date().toISOString(), description: ancienne, remplacePar: authorOf(keys) })
-      // garde-fou : capé aux 20 dernières versions (le coffre versionné garde tout le reste)
-      if (e.descriptionHistory.length > 20) e.descriptionHistory = e.descriptionHistory.slice(-20)
-    }
+    // Entrée d'historique MÊME quand l'ancienne était vide : c'est elle qui
+    // permet au navigateur (DataMergeService.mergeEnquetes) d'adopter la
+    // description du serveur — sans elle, une première description écrite
+    // sur un dossier vide se perdait à la fusion et l'écran restait vide.
+    e.descriptionHistory = e.descriptionHistory || []
+    e.descriptionHistory.push({ date: new Date().toISOString(), description: ancienne, remplacePar: authorOf(keys) })
+    // garde-fou : capé aux 20 dernières versions (le coffre versionné garde tout le reste)
+    if (e.descriptionHistory.length > 20) e.descriptionHistory = e.descriptionHistory.slice(-20)
     // Texte BRUT (sauts de ligne réels) : la fiche d'enquête l'affiche en
     // « whitespace-pre-wrap » et le module instruction via renderFormattedText
     // — les deux rendent le texte plat proprement. Surtout PAS d'HTML ni de

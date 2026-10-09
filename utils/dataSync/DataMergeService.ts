@@ -311,11 +311,15 @@ export class DataMergeService {
     // serveur uniquement quand le local affiche encore EXACTEMENT le texte que
     // l'attaché a remplacé (dernière entrée d'historique) — preuve que le
     // magistrat n'a pas fait d'édition manuelle divergente entre-temps.
-    type DescHist = Array<{ description?: string }>;
+    // (Comparaison sur la DERNIÈRE entrée et non sur la longueur : l'historique
+    // est capé à 20 côté attaché, la longueur cesse donc de croître.)
+    type DescHist = Array<{ date?: string; description?: string }>;
     const localHist  = Array.isArray((local  as { descriptionHistory?: DescHist }).descriptionHistory)  ? (local  as { descriptionHistory?: DescHist }).descriptionHistory! : [];
     const serverHist = Array.isArray((server as { descriptionHistory?: DescHist }).descriptionHistory) ? (server as { descriptionHistory?: DescHist }).descriptionHistory! : [];
     let descOverride: { description: Enquete['description']; descriptionHistory: DescHist } | null = null;
-    if (serverHist.length > localHist.length) {
+    const serverLast = serverHist[serverHist.length - 1];
+    const localLast = localHist[localHist.length - 1];
+    if (serverLast && (serverHist.length > localHist.length || serverLast.date !== localLast?.date)) {
       const dernierTexteRemplace = String(serverHist[serverHist.length - 1]?.description ?? '');
       if (String(local.description ?? '') === dernierTexteRemplace) {
         descOverride = { description: server.description, descriptionHistory: serverHist };

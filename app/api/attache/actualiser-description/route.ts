@@ -10,9 +10,10 @@ import { handle, jsonResponse } from '@/lib/server/auth'
 import { requireAttacheAdmin, attacheFetch } from '@/lib/server/attache'
 
 export const dynamic = 'force-dynamic'
-// Le run est awaité côté service (modèle économe, ≤ 8 min) pour que le
-// navigateur enchaîne sur syncAndRefresh et affiche la nouvelle description.
-export const maxDuration = 600
+// Le run est awaité côté service (mini-fiches des pièces nouvelles puis run
+// ≤ 8 min) pour que le navigateur enchaîne sur syncAndRefresh et affiche la
+// nouvelle description.
+export const maxDuration = 900
 
 export async function POST(req: Request) {
   return handle(async () => {
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
     const res = await attacheFetch('/actualiser-description', {
       method: 'POST',
       body: { numero },
-      timeoutMs: 9 * 60 * 1000,
+      timeoutMs: 14 * 60 * 1000,
     })
     return jsonResponse(await res.json().catch(() => ({ ok: false, error: 'Réponse illisible du service attaché' })), { status: res.status })
   })

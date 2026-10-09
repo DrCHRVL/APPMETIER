@@ -19,7 +19,7 @@ import crypto from 'node:crypto'
 import { loadMasterKey, decryptJson, encryptJson } from './attache/crypto.mjs'
 import { loadKeyring, grantKeyring, revokeKeyring, keyringStatus, allowedScopes } from './attache/keyring.mjs'
 import { handleConnectorMessage } from './attache-mcp.mjs'
-import { attacheTj, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
+import { attacheTj, docServerKey, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride, purgeInbox } from './attache/mail.mjs'
 import { listChantiers, createChantier, createChantiersEnMasse, reprendreMasse, actionChantier, detailChantier, chantierStep, chantierActif, forceActive } from './attache/chantier.mjs'
@@ -29,7 +29,8 @@ import { runAgent, checkClaudeCli, testClaudeAuth, listConversations, readConver
 import { usageSummary } from './attache/usage.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { genererGraphique } from './attache/statsGraphiques.mjs'
-import { dossierSyntheseSignals } from './attache/dossier.mjs'
+import { loadContentieux, numeroCanonique } from './attache/dossier.mjs'
+import { donneesDescription, couverturePieces } from './attache/description.mjs'
 import { ingestPass } from './attache/ingest.mjs'
 import { passeRecoupements, dernierResultat } from './attache/recoupements.mjs'
 import { registreFichesStep } from './attache/registre.mjs'
@@ -44,9 +45,9 @@ import { listEnvelopesDossier, writeEnvelope, deleteProduction, readProduction, 
 import { recordLearningSignal, consolidationDue, consolidationPrompt, learningStatus, learningState, latestSignalTs } from './attache/apprentissage.mjs'
 import { corpusActesValides, etudeDue, etudePrompt, etudeState, etudeStatus } from './attache/etude.mjs'
 import { MEMORY_BUDGET } from './attache/memory.mjs'
-import { economicalModel } from './attache/subagents.mjs'
+import { economicalModel, runSubagents } from './attache/subagents.mjs'
 import { consumptionGovernor } from './attache/budget.mjs'
-import { prompt as promptConsigne, catalogueAvecSocles } from './attache/consignes.mjs'
+import { prompt as promptConsigne, catalogueAvecSocles, SOCLES } from './attache/consignes.mjs'
 
 const PORT = Number(process.env.SIRAL_ATTACHE_PORT || 8787)
 const POLL_MINUTES = Math.max(1, Number(process.env.SIRAL_ATTACHE_POLL_MIN || 5))
@@ -491,21 +492,25 @@ async function maybeScheduledEtude() {
 }
 
 // ── Actualisation « à la demande » de la description (« l'objet ») d'un dossier ──
-// Icône « Actualiser » à côté du titre Description : un run COURT et ÉCONOME
-// reprend la synthèse depuis le dossier (CR, registre des pièces) et la fait
-// progresser, en deux parties (SYNTHÈSE + MIS EN CAUSE et charges), en prise
-// de notes. Le FIL DE L'EAU, lui, ne passe plus par ici : c'est le FLUX TENDU
-// (attache/flux.mjs) qui intègre le neuf à chaque mouvement du dossier.
-// Dossier trop volumineux pour un run court (≥ DESC_CHANTIER_SEUIL pièces
-// serveur, hors jumeaux MD/) : bascule sur un CHANTIER de dépouillement —
-// basculerEnChantier, partagé avec le flux — et le dit CLAIREMENT au magistrat.
+// Icône « Actualiser » à côté du titre Description : le moteur JOINT tout le
+// dossier (tous les CR, actes, sommaire du registre de toutes les pièces
+// serveur — attache/description.mjs) et un run sur le modèle principal rédige
+// la description complète, en deux parties (SYNTHÈSE + MIS EN CAUSE et
+// charges), en prise de notes. L'écriture est VÉRIFIÉE après le run. Le FIL DE
+// L'EAU, lui, passe par le FLUX TENDU (attache/flux.mjs).
+// Pièces sans mini-fiche trop nombreuses (≥ DESC_CHANTIER_SEUIL) : bascule sur
+// un CHANTIER de dépouillement — basculerEnChantier, partagé avec le flux — et
+// le dit CLAIREMENT au magistrat.
 
 // Le TEXTE du prompt vit dans attache/consignes.mjs (socle « description ») :
 // le magistrat le lit, le complète ou le remplace depuis Paramètres → Attaché IA.
 function descriptionPrompt(keys, numero) {
   return promptConsigne(keys, 'description', {
-    entete: `ACTUALISATION DE LA DESCRIPTION du dossier « ${numero} » — tâche de fond, silencieuse et économe en jetons.`,
+    entete: `ACTUALISATION DE LA DESCRIPTION du dossier « ${numero} » — demandée par le magistrat, silencieuse.`,
     vars: { dossier: numero },
+    // TOUT le dossier joint (CR intégraux, actes, sommaire de toutes les pièces
+    // serveur) : le run n'a plus à aller le chercher — ni à s'arrêter à mi-chemin.
+    donnees: donneesDescription(keys, numero),
   })
 }
 
@@ -523,6 +528,9 @@ function mecPrompt(keys, numero) {
   })
 }
 
+// Lots de mini-fiches tentés avant la description (pièces tout juste versées).
+const DESC_LOTS_FICHES = 3
+
 let descriptionRunning = false
 async function runActualiserDescription(numero, trigger = 'auto') {
   const num = String(numero || '').trim()
@@ -534,49 +542,72 @@ async function runActualiserDescription(numero, trigger = 'auto') {
   if (!keys) return { ok: false, error: 'trousseau non remis' }
   descriptionRunning = true
   try {
-    // Dossier volumineux : basculer en chantier PLUTÔT que de tenter (et
-    // souvent rater) une lecture rapide — voir DESC_CHANTIER_SEUIL ci-dessus.
-    const signal = dossierSyntheseSignals(keys).find((d) => d.numero === num)
-    if ((signal?.docs || 0) >= DESC_CHANTIER_SEUIL) {
+    // Pièces nouvelles : ingestion (zéro jeton) puis quelques lots de
+    // mini-fiches, pour que le sommaire joint couvre les derniers versements.
+    const docKey = docServerKey(numeroCanonique(keys, num))
+    try { await ingestPass(keys, { docKeys: [docKey], maxDossiers: 1, maxExtractions: 40, maxShas: 400, maxProbes: 600 }) } catch { /* jamais bloquant */ }
+    for (let i = 0; i < DESC_LOTS_FICHES; i++) {
+      let r = null
+      try { r = await registreFichesStep(keys, { docKey }) } catch { r = null }
+      if (!r || !r.restantes) break
+    }
+    // Trop de pièces encore SANS fiche (versement massif) : chantier de dépouillement plutôt qu'une description bâtie à
+    // l'aveugle — et on le dit clairement au magistrat.
+    const cov = couverturePieces(keys, num)
+    if (cov.sansFiche.length >= DESC_CHANTIER_SEUIL) {
       try {
-        const b = await basculerEnChantier(keys, { numero: num, pieces: signal.docs, trigger })
+        const b = await basculerEnChantier(keys, { numero: num, pieces: cov.sansFiche.length, trigger })
         console.log(`[attache] description « ${num} » (${trigger}) : chantier ${b.chantier.id} ${b.cree ? 'créé' : `déjà « ${b.chantier.etat} »`}, pas de run`)
         return { ok: true, chantier: b.chantier, message: b.message }
       } catch (e) {
         // Cas attendu le plus courant : toutes les pièces sont déjà couvertes
-        // par les fiches d'un chantier précédent — rien de neuf à basculer, la
-        // lecture rapide (registre) suffit. On journalise et on poursuit.
-        console.log(`[attache] description « ${num} » (${trigger}) : bascule chantier écartée (${e?.message || e}) — lecture rapide`)
+        // par les fiches d'un chantier précédent — on poursuit avec le registre.
+        console.log(`[attache] description « ${num} » (${trigger}) : bascule chantier écartée (${e?.message || e}) — run direct`)
       }
     }
-    console.log(`[attache] actualisation description « ${num} » (${trigger})`)
+    console.log(`[attache] actualisation description « ${num} » (${trigger}) — ${cov.fichees.length}/${cov.total} pièce(s) fichée(s)`)
     // Le run tient AUSSI la section « Mis en cause » en cohérence : la partie
     // MIS EN CAUSE de la description ne parle que des personnes enregistrées,
     // donc tout nom relevé au passage et absent du dossier part en proposition
     // ✓/✗. On compte avant/après (coût nul) pour le dire au magistrat.
     const avantMec = countPropositionsMec(keys, num)
+    const avantDesc = descriptionDe(keys, num)
     const result = await runAgent({
       keys,
       prompt: descriptionPrompt(keys, num),
       runLabel: 'description',
       title: `Description ${num} ${new Date().toISOString().slice(0, 10)}`,
-      // Travail de fond léger : modèle économe, effort faible, peu de tours —
-      // « minimum de jetons ».
-      model: economicalModel(agentConfig()),
-      effort: 'low',
-      // 8 était trop juste : lire_dossier + registre_lire + actualiser_description
-      // laissent à peine de marge pour la cohérence des mis en cause (étape 5,
-      // recouper_personnes + proposer_mec par nom relevé) sans retomber en
-      // error_max_turns — cf. scripts/attache/dossier.mjs:324.
+      // Demandée par le magistrat, qui veut une description de QUALITÉ : le
+      // modèle principal (pas l'économe). Toute la matière est jointe, donc
+      // peu de tours suffisent.
+      model: agentConfig().model || undefined,
+      effort: 'medium',
       maxTurns: 12,
       timeoutMs: 8 * 60 * 1000,
     })
     const proposees = Math.max(0, countPropositionsMec(keys, num) - avantMec)
-    await audit(keys, 'description_actualisee', { numero: num, trigger, ok: result.ok, proposees, convId: result.convId, erreur: result.error })
-    return { ok: result.ok, proposees, convId: result.convId, error: result.error }
+    // Vérification DÉTERMINISTE : le run a-t-il vraiment écrit ? Sans elle, un
+    // run terminé sans appeler actualiser_description passait pour un succès
+    // (« Description actualisée ») alors que la description restait vide.
+    const ecrite = descriptionDe(keys, num) !== avantDesc
+    const error = result.ok && !ecrite
+      ? 'L\'attaché a terminé sans écrire de description — réessayez ; si cela persiste, voyez son prompt dans Paramètres → Attaché IA.'
+      : result.error
+    await audit(keys, 'description_actualisee', { numero: num, trigger, ok: result.ok && ecrite, ecrite, proposees, pieces: cov.total, fichees: cov.fichees.length, convId: result.convId, erreur: error })
+    return { ok: result.ok && ecrite, proposees, convId: result.convId, error }
   } finally {
     descriptionRunning = false
   }
+}
+
+/** Description actuelle d'un dossier (lecture du coffre, coût nul). */
+function descriptionDe(keys, numero) {
+  try {
+    const { data } = loadContentieux(keys)
+    const canon = numeroCanonique(keys, numero)
+    const e = (data.enquetes || []).find((x) => String(x.numero).trim() === canon.trim())
+    return String(e?.description || '')
+  } catch { return '' }
 }
 
 let mecRunning = false
@@ -1684,6 +1715,43 @@ const server = http.createServer(async (req, res) => {
     // d'administration pour que le magistrat voie ce qu'il complète ou remplace.
     if (route === 'GET /consignes-catalogue') {
       return json(res, 200, { catalogue: catalogueAvecSocles() })
+    }
+
+    if (route === 'POST /consignes-ameliorer') {
+      // Ligne de chat « améliorer ce prompt » (Paramètres → Attaché IA) : le
+      // magistrat dit ce qu'il veut changer, un run en lecture seule rend le
+      // prompt RÉÉCRIT — rien n'est enregistré ici : le navigateur le montre,
+      // le magistrat l'adopte ou non, puis l'enregistre (chiffré) lui-même.
+      const body = await readBody(req)
+      const id = String(body.id || '')
+      const actuel = String(body.texte || '').slice(0, 40_000)
+      const demande = String(body.demande || '').trim().slice(0, 4_000)
+      if (!SOCLES[id]) return json(res, 400, { ok: false, error: 'Prompt inconnu' })
+      if (!demande) return json(res, 400, { ok: false, error: 'Demande vide' })
+      const entree = catalogueAvecSocles().find((c) => c.id === id)
+      const consigne = [
+        `Tu révises le PROMPT d'une tâche automatique de l'attaché de justice : « ${entree?.label || id} ».`,
+        entree?.quand ? `Contexte d'usage : ${entree.quand}` : '',
+        (entree?.variables || []).length ? `Variables à CONSERVER telles quelles : ${entree.variables.join(', ')}.` : '',
+        'Conserve les noms d\'outils (actualiser_description, proposer_mec…), le format imposé et les règles de sûreté, sauf si la demande les vise expressément.',
+        'Applique la DEMANDE DU MAGISTRAT ci-dessous, sans rien changer d\'autre que ce qu\'elle implique.',
+        'TA RÉPONSE EST LE PROMPT COMPLET RÉVISÉ, EN TEXTE BRUT, ET RIEN D\'AUTRE : aucun préambule, aucun commentaire, aucune balise.',
+        '',
+        '───── PROMPT ACTUEL ─────',
+        actuel || SOCLES[id],
+        '',
+        '───── DEMANDE DU MAGISTRAT ─────',
+        demande,
+      ].filter((l) => l !== '').join('\n')
+      const [r] = await runSubagents({
+        taches: [{ titre: `Révision du prompt ${id}`, consigne }],
+        modele: agentConfig().model || undefined,
+      })
+      const texte = String(r?.resultat || '').replace(/^```[a-z]*\n?|```\s*$/g, '').trim()
+      if (!r?.ok || !texte) return json(res, 502, { ok: false, error: r?.erreur || 'Révision impossible pour le moment' })
+      const kAudit = loadKeyring()
+      if (kAudit) await audit(kAudit, 'consigne_revision_proposee', { id, demande: demande.slice(0, 200) }).catch(() => {})
+      return json(res, 200, { ok: true, texte })
     }
 
     // ── Chantiers d'analyse profonde ──
