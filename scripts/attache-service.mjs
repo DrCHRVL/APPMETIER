@@ -2080,6 +2080,11 @@ const server = http.createServer(async (req, res) => {
       })
       const send = (ev) => { try { res.write(`data: ${JSON.stringify(ev)}\n\n`) } catch {} }
       const heartbeat = setInterval(() => { try { res.write(': ping\n\n') } catch {} }, 15_000)
+      // Si le navigateur se déconnecte en cours de run (onglet fermé, veille
+      // iPhone), le heartbeat continuait d'écrire toutes les 15 s dans une
+      // socket morte jusqu'à la fin du run (jusqu'à 20 min) : on coupe le timer
+      // dès la fermeture. Le run, lui, va au bout pour déposer ses propositions.
+      req.on('close', () => clearInterval(heartbeat))
 
       await audit(keys, 'chat_message', { convId: body.convId || '(nouvelle)', dossier: body.dossier || null, carto: Boolean(body.carto), apercu: message.slice(0, 200) })
       const result = await runAgent({

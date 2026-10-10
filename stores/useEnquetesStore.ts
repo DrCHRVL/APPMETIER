@@ -599,6 +599,16 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
 
   syncAndRefresh: async () => {
     const { contentieuxId } = get();
+    // 0) Vider d'abord les éditions locales en attente (fenêtre de throttle de
+    //    SAVE_THROTTLE) AVANT de tirer le serveur. Sans ce flush, triggerSync
+    //    fusionnerait un disque qui ignore encore la saisie en cours, puis
+    //    loadEnquetes (plus bas) réécraserait _enquetesRef avec ce disque
+    //    périmé alors que _isDirty reste vrai — le prochain tic de throttle
+    //    persisterait alors la version SANS la saisie : perte définitive. Le
+    //    pull « siral-pull-applied » se garde déjà ainsi (test _isDirty) ; cette
+    //    voie, déclenchée par l'actualisation de l'attaché, doit l'être aussi.
+    await get().flushPendingSave();
+    _saveThrottled.cancel();
     // 1) Tirer le coffre serveur maintenant (l'attaché IA écrit côté serveur ;
     //    le cache local n'est mis à jour que par la sync). En cas de conflit /
     //    hors-ligne, triggerSync n'écrit rien : on recharge quand même, sans
