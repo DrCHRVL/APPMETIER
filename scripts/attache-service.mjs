@@ -530,8 +530,9 @@ function descriptionPrompt(keys, numero) {
 // Texte du prompt : socle « mec » d'attache/consignes.mjs (réglable par le magistrat).
 function mecPrompt(keys, numero) {
   return promptConsigne(keys, 'mec', {
-    entete: `ACTUALISATION DES MIS EN CAUSE du dossier « ${numero} » — tâche de fond, silencieuse et économe en jetons.`,
+    entete: `ACTUALISATION DES MIS EN CAUSE du dossier « ${numero} » — demandée par le magistrat, silencieuse.`,
     vars: { dossier: numero },
+    donnees: donneesDescription(keys, numero),
   })
 }
 
@@ -727,16 +728,29 @@ async function runActualiserMec(numero, trigger = 'manuel') {
   try {
     console.log(`[attache] actualisation mis en cause « ${num} » (${trigger})`)
     const avant = countPropositionsMec(keys, num)
+    // Pièces nouvelles : ingestion (zéro jeton) puis quelques lots de mini-fiches,
+    // pour que le sommaire joint (personnes par pièce) couvre les derniers versements.
+    const docKey = docServerKey(numeroCanonique(keys, num))
+    try { await ingestPass(keys, { docKeys: [docKey], maxDossiers: 1, maxExtractions: 40, maxShas: 400, maxProbes: 600 }) } catch { /* jamais bloquant */ }
+    const lots = Math.min(DESC_LOTS_FICHES, Math.ceil(couverturePieces(keys, num).sansFiche.length / 8))
+    for (let i = 0; i < lots; i++) {
+      let r = null
+      try { r = await registreFichesStep(keys, { docKey }) } catch { r = null }
+      if (!r || !r.restantes) break
+    }
     const result = await runAgent({
       keys,
+      // Tout le dossier joint (tous les CR en intégral, actes, sommaire de toutes
+      // les pièces) : le run n'a plus qu'à repérer les noms manquants.
       prompt: mecPrompt(keys, num),
       runLabel: 'mec',
       title: `Mis en cause ${num} ${new Date().toISOString().slice(0, 10)}`,
-      // Même régime que la description : modèle économe, effort faible, peu de tours.
-      model: economicalModel(agentConfig()),
-      effort: 'low',
-      maxTurns: 8,
-      timeoutMs: 8 * 60 * 1000,
+      // La matière est jointe ; les tours servent aux lectures ciblées, au
+      // recoupement et aux propositions.
+      model: agentConfig().model || undefined,
+      effort: 'medium',
+      maxTurns: 20,
+      timeoutMs: 7 * 60 * 1000,
     })
     const proposees = Math.max(0, countPropositionsMec(keys, num) - avant)
     await audit(keys, 'mec_actualises', { numero: num, trigger, ok: result.ok, proposees, convId: result.convId, erreur: result.error })
