@@ -2,6 +2,7 @@ import { GeolocData, EcouteData, AutreActe, ActeStatus, Enquete, ModificationEnt
 import { DateUtils } from './dateUtils';
 import { SiralBridge } from './siralBridge';
 import { deletedIdsSyncService } from './dataSync/DeletedIdsSyncService';
+import { enqueteTombstoneKey } from './dataSync/deletedEnqueteScope';
 
 const DELETED_ENQUETE_IDS_KEY = 'deleted_ids';
 const DELETED_ACTE_IDS_KEY    = 'deleted_acte_ids';
@@ -14,10 +15,19 @@ async function appendTombstone(key: string, id: number): Promise<void> {
   await SiralBridge.setData(key, [...normalized, { id, deletedAt: new Date().toISOString() }]);
 }
 
-/** Mémorise l'ID d'une enquête supprimée pour empêcher sa résurrection via sync. */
-export async function trackDeletedEnqueteId(id: number): Promise<void> {
+/**
+ * Mémorise l'ID d'une enquête supprimée pour empêcher sa résurrection via sync.
+ * Le contentieux est RATTACHÉ au tombstone : les ids d'enquête étant attribués
+ * par contentieux, un même numéro existe ailleurs et ne doit pas être supprimé
+ * à tort. Omettre le contentieux pose un tombstone vestige (vaut partout).
+ */
+export async function trackDeletedEnqueteId(id: number, contentieux?: string): Promise<void> {
   try {
-    await appendTombstone(DELETED_ENQUETE_IDS_KEY, id);
+    const existing = await SiralBridge.getData<Array<{ id: number; contentieux?: string; deletedAt: string }>>(DELETED_ENQUETE_IDS_KEY, []);
+    const arr = Array.isArray(existing) ? existing : [];
+    const key = enqueteTombstoneKey({ id, contentieux });
+    const normalized = arr.filter(e => enqueteTombstoneKey(e) !== key);
+    await SiralBridge.setData(DELETED_ENQUETE_IDS_KEY, [...normalized, { id, contentieux, deletedAt: new Date().toISOString() }]);
     deletedIdsSyncService.schedulePush();
   } catch (error) {
     console.error('❌ Erreur mémorisation ID enquête supprimée:', error);

@@ -59,6 +59,14 @@ export interface AlertSyncFile extends GlobalSyncMetadata {
 export interface DeletedTombstone {
   id: number;
   deletedAt: string;
+  /**
+   * Contentieux d'origine — RENSEIGNÉ pour les tombstones d'ENQUÊTE (dont les
+   * ids sont attribués par contentieux et donc réutilisés d'un contentieux à
+   * l'autre). Absent pour les actes / CR / mis en cause (ids uniques, horodatés)
+   * et pour les vestiges du format global antérieur, qui valent alors sur tous
+   * les contentieux.
+   */
+  contentieux?: string;
 }
 
 export interface DeletedIdsSyncFile extends GlobalSyncMetadata {

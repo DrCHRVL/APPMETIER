@@ -764,13 +764,14 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
   },
 
   deleteEnquete: (id: number) => {
+    const { contentieuxId } = get();
     set(state => ({
       ...updateOwn(state, prev => prev.filter(e => e.id !== id)),
       selectedEnquete: null,
     }));
-    // Pose un tombstone pour éviter que l'enquête ne revienne quand un
-    // collègue avec un cache plus ancien re-pousse son état.
-    trackDeletedEnqueteId(id).catch(() => {});
+    // Pose un tombstone (rattaché au contentieux) pour éviter que l'enquête ne
+    // revienne quand un collègue avec un cache plus ancien re-pousse son état.
+    trackDeletedEnqueteId(id, contentieuxId).catch(() => {});
     _saveThrottled();
   },
 
@@ -1090,6 +1091,12 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
       }
       return changes;
     });
+    // Tombstone côté source (comme deleteEnquete) : sans lui, l'enquête retirée
+    // du contentieux d'origine ressuscite à la fusion de sync (présente côté
+    // serveur, absente localement, non tombstonée → ré-ajoutée), laissant un
+    // doublon dans les deux contentieux. Rattaché au contentieux source, il ne
+    // peut pas supprimer une enquête de même numéro ailleurs.
+    trackDeletedEnqueteId(enqueteId, contentieuxId).catch(() => {});
     _saveThrottled();
     await manager.setEnquetes(contentieuxId, get().ownEnquetes);
 
