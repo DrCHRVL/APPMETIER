@@ -12,6 +12,7 @@ import { tagSyncService } from './TagSyncService';
 import { audienceSyncService } from './AudienceSyncService';
 import { alertSyncService } from './AlertSyncService';
 import { deletedIdsSyncService } from './DeletedIdsSyncService';
+import { scopeEnqueteTombstones, enqueteTombstoneKey } from './deletedEnqueteScope';
 import { contentieuxAlertsSyncService } from './ContentieuxAlertsSyncService';
 import {
   SyncData,
@@ -305,7 +306,7 @@ class ContentieuxSyncInstance {
       SiralBridge.getData(this.prefix('customTags'), []),
       SiralBridge.getData(this.prefix('alertRules'), []),
       SiralBridge.getData(this.prefix('alertValidations'), {}),
-      SiralBridge.getData<Array<{ id: number }>>('deleted_ids', []),
+      SiralBridge.getData<Array<{ id: number; contentieux?: string }>>('deleted_ids', []),
       SiralBridge.getData<Array<{ id: number }>>('deleted_acte_ids', []),
       SiralBridge.getData<Array<{ id: number }>>('deleted_cr_ids', []),
       SiralBridge.getData<Array<{ id: number }>>('deleted_mec_ids', []),
@@ -322,7 +323,10 @@ class ContentieuxSyncInstance {
       customTags: Array.isArray(customTags) ? customTags : [],
       alertRules: Array.isArray(alertRules) ? alertRules : [],
       alertValidations: alertValidations || {},
-      deletedIds:     toIds(deletedEnq),
+      // Tombstones d'enquête : limités à CE contentieux (+ vestiges globaux).
+      // Un id supprimé ailleurs ne doit pas faire disparaître l'enquête de même
+      // numéro d'un autre contentieux à la fusion.
+      deletedIds:     scopeEnqueteTombstones(deletedEnq, this.contentieuxId),
       deletedActeIds: toIds(deletedActe),
       deletedCRIds:   toIds(deletedCR),
       deletedMECIds:  toIds(deletedMEC),
@@ -348,7 +352,10 @@ class ContentieuxSyncInstance {
     // Propager les tombstones fraîchement fusionnés vers les clés globales
     // pour que les prochaines fusions per-contentieux en tiennent compte
     // immédiatement, sans attendre le prochain DeletedIdsSyncService.
-    await this.mergeTombstonesToLocal('deleted_ids',      data.deletedIds);
+    // Enquêtes : on RATTACHE le contentieux courant aux ids propagés — sans
+    // quoi ils redeviendraient des vestiges globaux (valant partout) et
+    // rouvriraient la porte à la suppression croisée que cette voie corrige.
+    await this.mergeTombstonesToLocal('deleted_ids',      data.deletedIds, this.contentieuxId);
     await this.mergeTombstonesToLocal('deleted_acte_ids', data.deletedActeIds);
     await this.mergeTombstonesToLocal('deleted_cr_ids',   data.deletedCRIds);
     await this.mergeTombstonesToLocal('deleted_mec_ids',  data.deletedMECIds);
@@ -375,18 +382,26 @@ class ContentieuxSyncInstance {
 
   /** Union locale + IDs fournis par le merge, en conservant la date la plus
    *  récente. L'appel est non bloquant si `ids` est vide/undefined. */
-  private async mergeTombstonesToLocal(key: string, ids: number[] | undefined): Promise<void> {
+  private async mergeTombstonesToLocal(key: string, ids: number[] | undefined, contentieux?: string): Promise<void> {
     if (!ids || ids.length === 0) return;
-    const existing = await SiralBridge.getData<Array<{ id: number; deletedAt: string }>>(key, []);
+    type Tomb = { id: number; contentieux?: string; deletedAt: string };
+    const existing = await SiralBridge.getData<Tomb[]>(key, []);
     const arr = Array.isArray(existing) ? existing : [];
-    const byId = new Map<number, { id: number; deletedAt: string }>();
-    for (const t of arr) if (t && typeof t.id === 'number') byId.set(t.id, t);
+    // Enquêtes (contentieux fourni) : clé = (contentieux, id) — un même id vit
+    // dans plusieurs contentieux. Autres : clé = id (ids uniques).
+    const keyOf = contentieux
+      ? (t: { id: number; contentieux?: string }) => enqueteTombstoneKey(t)
+      : (t: { id: number }) => String(t.id);
+    const byKey = new Map<string, Tomb>();
+    for (const t of arr) if (t && typeof t.id === 'number') byKey.set(keyOf(t), t);
     const now = new Date().toISOString();
     for (const id of ids) {
-      if (!byId.has(id)) byId.set(id, { id, deletedAt: now });
+      const entry: Tomb = contentieux ? { id, contentieux, deletedAt: now } : { id, deletedAt: now };
+      const k = keyOf(entry);
+      if (!byKey.has(k)) byKey.set(k, entry);
     }
-    if (byId.size !== arr.length) {
-      await SiralBridge.setData(key, Array.from(byId.values()));
+    if (byKey.size !== arr.length) {
+      await SiralBridge.setData(key, Array.from(byKey.values()));
     }
   }
 

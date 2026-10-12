@@ -12,6 +12,7 @@
 import { SiralBridge } from '@/utils/siralBridge';
 import { DeletedIdsSyncFile, DeletedTombstone } from '@/types/globalSyncTypes';
 import { getCurrentUserInfo, buildMetadata, emitSyncCompleted } from './globalSyncCommon';
+import { enqueteTombstoneKey } from './deletedEnqueteScope';
 
 const DELETED_ENQUETE_IDS_KEY = 'deleted_ids';
 const DELETED_ACTE_IDS_KEY    = 'deleted_acte_ids';
@@ -27,14 +28,19 @@ function isDeletedIdsSyncAvailable(): boolean {
     && !!window.siralBridge?.globalSync_pushDeletedIds;
 }
 
-// ─── Fusion : union par ID, on garde la date la plus récente ─────────────────
-function mergeTombstones(a: DeletedTombstone[], b: DeletedTombstone[]): DeletedTombstone[] {
-  const map = new Map<number, DeletedTombstone>();
+// ─── Fusion : union par clé, on garde la date la plus récente ────────────────
+// `scoped` (enquêtes) : clé = couple (contentieux, id), car un id d'enquête est
+// réutilisé d'un contentieux à l'autre et ses tombstones ne doivent pas se
+// confondre. Actes / CR / mis en cause : clé = id (ids uniques, horodatés).
+function mergeTombstones(a: DeletedTombstone[], b: DeletedTombstone[], scoped = false): DeletedTombstone[] {
+  const map = new Map<string, DeletedTombstone>();
+  const keyOf = scoped ? enqueteTombstoneKey : (t: DeletedTombstone) => String(t.id);
   for (const t of [...a, ...b]) {
     if (!t || typeof t.id !== 'number') continue;
-    const prev = map.get(t.id);
+    const k = keyOf(t);
+    const prev = map.get(k);
     if (!prev || (t.deletedAt || '') >= (prev.deletedAt || '')) {
-      map.set(t.id, t);
+      map.set(k, t);
     }
   }
   return Array.from(map.values());
@@ -167,13 +173,13 @@ export class DeletedIdsSyncService {
       const base = serverFile
         ? { enq: serverEnq, acte: serverActe, cr: serverCR, mec: serverMEC }
         : {
-            enq:  mergeTombstones(legacy.enqueteIds, serverEnq),
+            enq:  mergeTombstones(legacy.enqueteIds, serverEnq, true),
             acte: mergeTombstones(legacy.acteIds,    serverActe),
             cr:   mergeTombstones(legacy.crIds,      serverCR),
             mec:  mergeTombstones(legacy.mecIds,     serverMEC),
           };
 
-      const mergedEnq  = mergeTombstones(localEnq,  base.enq);
+      const mergedEnq  = mergeTombstones(localEnq,  base.enq, true);
       const mergedActe = mergeTombstones(localActe, base.acte);
       const mergedCR   = mergeTombstones(localCR,   base.cr);
       const mergedMEC  = mergeTombstones(localMEC,  base.mec);
