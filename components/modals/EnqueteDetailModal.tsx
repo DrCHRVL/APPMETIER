@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
+import { MagistratBadge } from '../MagistratBadge';
 import { Input } from '../ui/input';
 import { Enquete, CompteRendu, ModificationEntry, OPPhase } from '@/types/interfaces';
 import { getOPPhases, getOPPhaseEndDate, nextOPPhaseId, OP_DEFAULT_DURATION_DAYS } from '@/utils/opPhases';
@@ -376,6 +377,10 @@ const EnqueteDetailModalImpl = ({
                 ) : (
                   <DialogTitle className="text-base flex flex-wrap items-center gap-2">
                     Enquête N° {enquete.numero}
+                    <MagistratBadge
+                      magistratReferent={enquete.magistratReferent}
+                      contentieuxId={enquete.contentieuxOrigine || contentieuxId || 'crimorg'}
+                    />
                     {enquete.overboardPins && enquete.overboardPins.length > 0 && (
                       enquete.overboardPins.map(pin => (
                         <Badge
