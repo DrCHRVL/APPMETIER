@@ -39,7 +39,7 @@ import { runSubagents } from './attache/subagents.mjs'
 import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
 import { modifierDossierInstruction, elementInstruction, misEnExamenInstruction, COLLECTIONS_INSTRUCTION } from './attache/instruEcriture.mjs'
 import { enregistrerAudience, resultatAudienceMarkdown, ISSUES_AUDIENCE, DECISIONS_AUDIENCE } from './attache/audience.mjs'
-import { listDepot, readDepotText, readMailPieceText, rangerDocument, rangerPieceDansKb, ecarterDepot, ZONES } from './attache/depot.mjs'
+import { listDepot, readDepotText, readMailPieceText, rangerDocument, rangerPieceDansKb, verserDocumentCarto, ecarterDepot, ZONES } from './attache/depot.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { lireRegistre, recouperRegistres } from './attache/registre.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
@@ -142,7 +142,7 @@ const OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME = new Set([
   'modifier_dossier', 'archiver_dossier', 'ajouter_mec', 'modifier_mec',
   'enregistrer_audience',
   'instru_modifier_dossier', 'instru_element', 'instru_mis_en_examen',
-  'actualiser_description', 'ranger_document', 'depot_ecarter',
+  'actualiser_description', 'ranger_document', 'carto_verser_document', 'depot_ecarter',
   'routine_enregistrer', 'routine_suspendre', 'routine_supprimer',
   'instructions_projet_enregistrer',
   // le devis (chantier_proposer) reste permis : il attend le magistrat.
@@ -1668,6 +1668,24 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
       required: ['dossier'],
     },
     handler: async (a) => lireDocumentExNihilo(keys, { dossier: a.dossier, document: a.document, offset: a.offset }),
+  },
+  {
+    name: 'carto_verser_document',
+    description: 'VERSE une pièce confiée (dépôt du trombone ou pièce jointe d\'un mail transféré) sur un DOSSIER MANUEL de la cartographie (dossier « ex nihilo » — ni enquête ni instruction : ex. « Réseau X (quartier…) »). Pour une enquête ou une instruction, c\'est ranger_document. Le TEXTE est extrait côté serveur (PDF/ODT/DOCX/RTF/texte/Excel) et conservé sur le dossier, comme le trombone du formulaire du dossier sur la carte ; il devient lisible par carto_lire_document. Libellé du dossier : celui de carto_lire_fiches (casse et accents indifférents). Plafonds : 400 k caractères par document, 1 M par dossier. Un scan illisible est REFUSÉ (rien versé). Une pièce du dépôt est retirée du dépôt après versement. RÉSERVÉ à une instruction explicite du magistrat ou à une consigne de rangement désignant ce dossier.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        source: { type: 'string', enum: ['depot', 'mail'] },
+        rel: { type: 'string', description: 'source=depot : rel exact de depot_lister' },
+        mailId: { type: 'string', description: 'source=mail : id du message' },
+        piece: { type: 'string', description: 'source=mail : nom exact de la pièce jointe' },
+        dossier: { type: 'string', description: 'Libellé du dossier manuel de la carte (carto_lire_fiches)' },
+        nom: { type: 'string', description: 'Nom du document (défaut : nom d\'origine)' },
+      },
+      required: ['source', 'dossier'],
+    },
+    handler: async (a) => verserDocumentCarto(keys, a),
+    write: true,
   },
   {
     name: 'carto_histoire',

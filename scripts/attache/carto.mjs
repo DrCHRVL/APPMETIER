@@ -99,6 +99,51 @@ export function listerFiches(keys) {
   }
 }
 
+/** Plafonds alignés sur le téléversement navigateur (DOSSIER_EXN_DOC_MAX_CHARS / _TOTAL_MAX_CHARS). */
+export const DOC_EXN_MAX_CHARS = 400_000
+export const DOCS_EXN_TOTAL_MAX_CHARS = 1_000_000
+
+/**
+ * VERSE un document (déjà converti en texte) sur un dossier ex nihilo — même
+ * effet que le trombone du formulaire du dossier sur la carte. Libellé du
+ * dossier insensible à la casse et aux accents. Un nom déjà pris reçoit un
+ * suffixe _2, _3… (jamais d'écrasement). Plafonds : 400 k caractères par
+ * document, 1 M cumulé par dossier.
+ */
+export async function ajouterDocumentExNihilo(keys, { dossier, nom, texte }) {
+  const lbl = String(dossier || '').trim()
+  if (!lbl) throw new Error('Libellé du dossier ex nihilo requis')
+  const contenu = String(texte || '').trim()
+  if (!contenu) throw new Error('Document vide : rien à verser')
+  const ov = loadOverlay(keys)
+  const liste = ov?.dossiersExNihilo || []
+  const d = liste.find((x) => String(x.label || '').trim().toLowerCase() === lbl.toLowerCase())
+    || liste.find((x) => normalizeMecName(x.label || '') === normalizeMecName(lbl))
+  if (!d) throw new Error(`Dossier ex nihilo « ${dossier} » introuvable — voir carto_lire_fiches (dossiers manuels de la carte)`)
+  d.documents = d.documents || []
+  const total = d.documents.reduce((n, x) => n + String(x.texte || '').length, 0)
+  if (total + contenu.length > DOCS_EXN_TOTAL_MAX_CHARS) {
+    throw new Error(`Plafond du dossier dépassé (${Math.round(DOCS_EXN_TOTAL_MAX_CHARS / 1000)} k caractères au total, ${Math.round(total / 1000)} k déjà versés) — allège ou scinde le document.`)
+  }
+  let base = String(nom || '').trim() || 'document'
+  const pris = new Set(d.documents.map((x) => String(x.nom || '').toLowerCase()))
+  let final = base
+  for (let n = 2; pris.has(final.toLowerCase()); n++) {
+    const dot = base.lastIndexOf('.')
+    final = dot > 0 ? `${base.slice(0, dot)}_${n}${base.slice(dot)}` : `${base}_${n}`
+  }
+  const now = Date.now()
+  d.documents.push({
+    id: 'doc_' + now.toString(36) + '_' + crypto.randomBytes(3).toString('hex'),
+    nom: final,
+    texte: contenu,
+    addedAt: now,
+  })
+  d.updatedAt = now
+  await saveOverlay(keys, ov)
+  return { ok: true, dossier: d.label, document: final, caracteres: contenu.length, documentsDuDossier: d.documents.length }
+}
+
 /**
  * Lit un DOCUMENT versé sur un dossier ex nihilo (synthèse ou dossier
  * complet, converti en texte au téléversement). Paginé : `offset` en

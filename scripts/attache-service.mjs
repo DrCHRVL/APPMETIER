@@ -1270,6 +1270,7 @@ const server = http.createServer(async (req, res) => {
           'proposer_note_mec',
           'carto_lire_fiches',
           'carto_lire_document',
+          'carto_verser_document',
           'carto_histoire',
           'chantier_histoire',
           'devis_deux_etapes',
