@@ -607,22 +607,37 @@ export async function appendMecNoteEnrichissement(keys, { nom, notes, alias }) {
  * la carte (→ son id), sinon un nom de personne (→ clé canonique). Permet
  * les liens personne ↔ dossier manuel, pas seulement personne ↔ personne.
  */
-function lienEndpoint(ov, nom) {
+function lienEndpoint(ov, nom, connus) {
   const clean = String(nom || '').trim()
   if (!clean) return ''
   const dexn = (ov?.dossiersExNihilo || []).find(
     (d) => String(d.label || '').trim().toLowerCase() === clean.toLowerCase(),
   )
   if (dexn) return dexn.id
-  return mecCanonId(clean)
+  // L'id d'un nœud est le nom normalisé DANS SON ORDRE D'ORIGINE : on retrouve
+  // le nœud existant par clé triée (casse, accents, ordre des mots), sans
+  // jamais fabriquer un id qui ne correspondrait à aucun nœud.
+  return connus.get(mecCanonId(clean)) || ''
 }
 
 /** Ajoute un lien de renseignement à la carte (appliqué à la validation ✓). */
 export async function appendLien(keys, { sourceNom, targetNom, label, notes }) {
   const ovResolve = loadOverlay(keys)
-  const source = lienEndpoint(ovResolve, sourceNom)
-  const target = lienEndpoint(ovResolve, targetNom)
-  if (!source || !target) throw new Error('Deux extrémités valides sont requises (nom de personne, ou libellé exact d\'un dossier ex nihilo)')
+  const connus = new Map()
+  for (const e of loadContentieux(keys).data.enquetes || []) {
+    for (const m of e.misEnCause || []) {
+      const k = mecCanonId(m.nom)
+      if (k && !connus.has(k)) connus.set(k, normalizeMecName(m.nom))
+    }
+  }
+  for (const m of ovResolve?.mecsExNihilo || []) {
+    const k = mecCanonId(m.displayName || m.id)
+    if (k) connus.set(k, m.id)
+  }
+  const source = lienEndpoint(ovResolve, sourceNom, connus)
+  const target = lienEndpoint(ovResolve, targetNom, connus)
+  if (!source) throw new Error(`Aucun nœud de la carte ne correspond à « ${sourceNom} » : lien non créé`)
+  if (!target) throw new Error(`Aucun nœud de la carte ne correspond à « ${targetNom} » : lien non créé`)
   if (source === target) throw new Error('Source et cible identiques')
   const ov = loadOverlay(keys) || emptyOverlay()
   ov.liensRenseignement = ov.liensRenseignement || []
