@@ -28,6 +28,7 @@ import { saveKbEntry, setKbReflexe } from './kb.mjs'
 import { enfiler } from './flux.mjs'
 
 import { enqueteExiste, numeroCanonique } from './dossier.mjs'
+import { ajouterDocumentExNihilo, DOC_EXN_MAX_CHARS } from './carto.mjs'
 import { instructionExiste } from './instru.mjs'
 import { readInboxMessage } from './mail.mjs'
 
@@ -203,6 +204,31 @@ export async function rangerDocument(keys, { source, rel, mailId, piece, numero,
     ok: true, dossier: numero, chemin: finalRel,
     ...(dejaLa ? { doublonExact: dejaLa.rel, noteDoublon: `Ce dossier contient DÉJÀ une pièce au contenu strictement identique : « ${dejaLa.rel} » (empreinte sha256 égale). Rangée quand même — signale-le au magistrat s'il n'attendait pas de copie.` } : {}),
     note: 'Pièce rangée — le flux tendu la fiche et l\'intègre de lui-même (actes proposés, CR si faits nouveaux, mis en cause proposés, description) : ne relance pas ces détections toi-même. Lis-la (lire_document) seulement si TA tâche en cours l\'exige.',
+  }
+}
+
+/**
+ * Verse une pièce (dépôt ou mail transféré) sur un DOSSIER MANUEL de la carte
+ * (dossier ex nihilo) : le TEXTE est extrait côté serveur, comme le
+ * navigateur au téléversement — seul le texte est conservé. Une pièce du
+ * dépôt est consommée après versement ; une pièce de mail reste dans la boîte.
+ */
+export async function verserDocumentCarto(keys, { source, rel, mailId, piece, dossier, nom }) {
+  const { plain, originalName, depotRel } = await resolvePiece(keys, { source, rel, mailId, piece })
+  if (!plain) throw new Error('Déchiffrement impossible (format inattendu) — rien n\'a été versé')
+  const extrait = await extractTextByName(plain, originalName, { max: DOC_EXN_MAX_CHARS })
+  if (!extrait.ok) {
+    if (extrait.scanned) {
+      throw new Error(`Pièce « ${originalName} » : PDF scanné sans couche texte (OCR de secours ${extrait.error ? '— ' + extrait.error : 'indisponible'}). Demande une version texte/lisible — RIEN n'a été versé.`)
+    }
+    throw new Error(`Pièce « ${originalName} » : ${extrait.error}. Impossible d'en extraire le texte — RIEN n'a été versé.`)
+  }
+  const res = await ajouterDocumentExNihilo(keys, { dossier, nom: String(nom || '').trim() || originalName, texte: extrait.texte })
+  if (source !== 'mail' && depotRel) deleteDocBlob(attacheTj(), DEPOT_KEY, depotRel)
+  return {
+    ...res,
+    ...(extrait.tronque ? { tronque: true, noteTronque: `Texte tronqué à ${DOC_EXN_MAX_CHARS} caractères.` } : {}),
+    note: 'Document versé sur le dossier manuel de la carte (lisible par carto_lire_document). Il apparaît dans le formulaire du dossier sur la cartographie.',
   }
 }
 
