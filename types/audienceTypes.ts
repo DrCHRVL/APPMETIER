@@ -198,9 +198,9 @@ export interface PendingCondamnation {
   nom: string;
   dateAudiencePending: string;
   /**
-   * Voie, défèrement et rattachement du renvoyé, quand le renvoi a été
-   * enregistré avec eux (connecteur, scripts/attache/audience.mjs). Absents
-   * des renvois saisis dans la fenêtre, qui ne les demande pas.
+   * Voie, défèrement et rattachement du renvoyé. La voie n'est connue que
+   * des renvois dictés au connecteur (scripts/attache/audience.mjs) ; le
+   * défèrement est aussi saisi dans la fenêtre « Résultats d'audience ».
    */
   typeAudience?: TypeAudience;
   defere?: boolean;

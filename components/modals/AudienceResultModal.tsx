@@ -122,7 +122,9 @@ export const AudienceResultModal = ({
       dateDefere: p.dateDefere || pendingDateDefere,
       isPending: true,
       dateAudiencePending: p.dateAudiencePending || '',
-      renvoiDetaille: p.typeAudience !== undefined || p.defere !== undefined
+      // Voie connue (renvoi dicté au connecteur) : la fenêtre ne l'affiche pas
+      // pour une personne en attente, elle doit seulement la conserver.
+      renvoiDetaille: p.typeAudience !== undefined
     }));
     return [...finalized, ...pending];
   };
@@ -344,10 +346,9 @@ export const AudienceResultModal = ({
           dateDefere: c.defere ? (c.dateDefere || pendingDateDefere || undefined) : c.dateDefere,
         }));
 
-      // Renvoyés dont le défèrement est connu (renvoi enregistré avec lui) :
-      // déférés, ils comptent dès maintenant, au niveau du dossier, jusqu'à
-      // leur jugement — même règle que le connecteur (scripts/attache/audience.mjs).
-      const renvoyesDeferes = pendingCondamnations.filter(c => c.renvoiDetaille && c.defere);
+      // Renvoyés déférés : ils comptent dès maintenant, au niveau du dossier,
+      // jusqu'à leur jugement — même règle que le connecteur (scripts/attache/audience.mjs).
+      const renvoyesDeferes = pendingCondamnations.filter(c => c.defere);
 
       // Vérifier si des défèrements étaient attendus (depuis audience en attente).
       // Une relaxe compte : la personne a bien été déférée, seule la
@@ -382,14 +383,12 @@ export const AudienceResultModal = ({
         pendingCondamnations: pendingCondamnations.map(c => ({
           nom: c.nom || '',
           dateAudiencePending: c.dateAudiencePending || '',
-          // La fenêtre ne montre ni la voie ni le défèrement d'une personne en
-          // attente : s'ils avaient été enregistrés, ils ne doivent pas se perdre.
-          ...(c.renvoiDetaille ? {
-            typeAudience: c.typeAudience,
-            defere: c.defere,
-            ...(c.defere && c.dateDefere ? { dateDefere: c.dateDefere } : {}),
-            ...(c.misEnCauseId != null ? { misEnCauseId: c.misEnCauseId } : {}),
-          } : {}),
+          // La fenêtre ne montre pas la voie d'une personne en attente : si
+          // elle avait été enregistrée, elle ne doit pas se perdre.
+          ...(c.renvoiDetaille ? { typeAudience: c.typeAudience } : {}),
+          defere: c.defere,
+          ...(c.defere && c.dateDefere ? { dateDefere: c.dateDefere } : {}),
+          ...(c.misEnCauseId != null ? { misEnCauseId: c.misEnCauseId } : {}),
         })),
         isPartiallyPending: hasPartialResults,
         // Champs que ce modal n'édite pas : ils doivent survivre à une
@@ -814,6 +813,31 @@ export const AudienceResultModal = ({
                   </div>
                   )}
                 </>
+              )}
+
+              {/* Défèrement d'une personne en attente : déférée, elle compte
+                  dès maintenant dans les statistiques, à sa date de défèrement */}
+              {condamnation.isPending && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex items-center space-x-2">
+                    <Label>Déférement</Label>
+                    <Switch
+                      checked={condamnation.defere}
+                      onCheckedChange={(checked) => setDefere(index, checked)}
+                    />
+                  </div>
+                  {condamnation.defere && (
+                    <div>
+                      <Label>Date du déférement</Label>
+                      <Input
+                        type="date"
+                        value={condamnation.dateDefere || ''}
+                        onChange={(e) => updateCondamnation(index, 'dateDefere', e.target.value)}
+                        className="border-blue-300"
+                      />
+                    </div>
+                  )}
+                </div>
               )}
 
               {condamnation.isPending && (
