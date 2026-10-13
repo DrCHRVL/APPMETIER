@@ -165,6 +165,10 @@ const CENTERED_HANDLE_STYLE: React.CSSProperties = {
   transform: 'translate(-50%, -50%)',
 };
 
+// Le rôle d'un suspect est un champ libre qui sert souvent de bloc-notes : au-delà
+// de ce seuil il n'est pas affiché dans la bulle (illisible), seulement en infobulle.
+const SUSPECT_ROLE_MAX_LEN = 24;
+
 const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
   const { displayName, dossierIds, focused, radius, recent, contentieuxIds, dimmed, manualBonus, isPinned, isVictime, isSuspect, suspectRole, isCondamne, campLabel, role } = data as MecNodeData & { isSuspect?: boolean; suspectRole?: string; isCondamne?: boolean; campLabel?: string; role?: string };
   const size = radius * 2;
@@ -188,7 +192,7 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
               ? 'ring-2 ring-violet-400/70 shadow-md hover:scale-105'
               : 'shadow-md hover:scale-105';
   const titleExtra = (isSuspect
-    ? ` • Suspect${suspectRole ? ` (${suspectRole})` : ''}`
+    ? ` • Suspect${suspectRole ? ` (${suspectRole.length > 300 ? `${suspectRole.slice(0, 300)}…` : suspectRole})` : ''}`
     : isCondamne
       ? ' • Condamné (résultat d\'audience)'
       : isBridge
@@ -235,7 +239,7 @@ const MecNodeView = ({ data }: NodeProps<Node<MecNodeData>>) => {
         )}
         {isSuspect && (
           <span className="opacity-80 italic" style={{ fontSize: Math.max(8, Math.min(11, radius / 4.5)) }}>
-            {suspectRole ? `(${suspectRole})` : '(Suspect)'}
+            {suspectRole && suspectRole.length <= SUSPECT_ROLE_MAX_LEN ? `(${suspectRole})` : '(Suspect)'}
           </span>
         )}
         {isCondamne && (
