@@ -19,15 +19,17 @@ export const MagistratBadge = ({ magistratReferent, contentieuxId, onChange }: M
   if (!magistratReferent && !onChange) return null;
 
   const label = referent?.displayName ?? magistratReferent;
+  // Si le nom affiché n'a qu'un mot, l'identifiant ("prenom.nom") donne les deux lettres.
+  const initialsSource = /[\s\-._]/.test((label || '').trim()) ? label : magistratReferent;
   const chip = magistratReferent ? (
     <span
-      className="h-4 min-w-4 px-1 rounded-full text-[9px] font-bold leading-4 text-white inline-flex items-center justify-center"
+      className="h-6 min-w-6 px-1 rounded-full text-[11px] font-bold leading-6 text-white inline-flex items-center justify-center"
       style={{ backgroundColor: getMagistratColor(magistratReferent) }}
     >
-      {getInitials(label || '?')}
+      {getInitials(initialsSource || '?')}
     </span>
   ) : (
-    <span className="h-4 w-4 rounded-full border border-dashed border-gray-300 inline-block" />
+    <span className="h-6 w-6 rounded-full border border-dashed border-gray-300 inline-block" />
   );
 
   const title = magistratReferent ? `Magistrat référent : ${label}` : 'Attribuer un magistrat référent';
