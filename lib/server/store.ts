@@ -184,7 +184,7 @@ export async function writeVault(tj: string, name: string, envelope: VaultEnvelo
     if (current) {
       const vdir = versionsDir(tj, name)
       ensureDir(vdir)
-      const archName = `${stamp}~${(current.savedBy || 'inconnu').replace(/[^a-zA-Z0-9._-]/g, '_')}.json`
+      const archName = `${stamp}~${crypto.randomBytes(4).toString('hex')}~${(current.savedBy || 'inconnu').replace(/[^a-zA-Z0-9._-]/g, '_')}.json`
       atomicWrite(path.join(vdir, archName), JSON.stringify(current))
       pruneVersions(tj, name)
     }
@@ -227,7 +227,7 @@ export async function deleteVault(tj: string, name: string): Promise<boolean> {
     const vdir = versionsDir(tj, name)
     ensureDir(vdir)
     const stamp = new Date().toISOString().replace(/:/g, '_')
-    const archName = `${stamp}~${(current.savedBy || 'inconnu').replace(/[^a-zA-Z0-9._-]/g, '_')}.json`
+    const archName = `${stamp}~${crypto.randomBytes(4).toString('hex')}~${(current.savedBy || 'inconnu').replace(/[^a-zA-Z0-9._-]/g, '_')}.json`
     atomicWrite(path.join(vdir, archName), JSON.stringify(current))
     fs.unlinkSync(vaultPath(tj, name))
     return true

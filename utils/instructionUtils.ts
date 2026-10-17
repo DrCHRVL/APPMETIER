@@ -160,7 +160,9 @@ export const getDossierAgeJours = (dossier: DossierInstruction): number => {
 /** Âge du dossier formaté (en mois ou années) */
 export const formatDossierAge = (jours: number): string => {
   if (jours < 30) return `${jours} j`;
-  if (jours < 365) return `${Math.floor(jours / 30)} mois`;
+  // Plafonné à 11 mois : à 360–364 j, floor(jours/30) donnerait « 12 mois »,
+  // incohérent juste avant le passage à « 1 an » (même plafond que la branche ≥ 365 j).
+  if (jours < 365) return `${Math.min(11, Math.floor(jours / 30))} mois`;
   const annees = Math.floor(jours / 365);
   // Le reliquat en mois est plafonné à 11 : (jours % 365) peut atteindre 364,
   // soit 12 après division par 30, ce qui afficherait « 1 an 12 mois ».

@@ -389,7 +389,7 @@ export async function writeCollectionEnvelope(collection: AttacheCollection, id:
       if (fs.existsSync(p)) {
         const vdir = attacheDir(collection, '.versions', id)
         ensureDir(vdir)
-        fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '.json'))
+        fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '~' + crypto.randomBytes(4).toString('hex') + '.json'))
       }
       ensureDir(path.dirname(p))
       atomicWrite(p, JSON.stringify(envelope, null, 2))
@@ -415,7 +415,7 @@ export async function deleteCollectionEnvelope(collection: AttacheCollection, id
       if (!fs.existsSync(p)) return false
       const vdir = attacheDir(collection, '.versions', id)
       ensureDir(vdir)
-      fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '~suppression.json'))
+      fs.copyFileSync(p, path.join(vdir, new Date().toISOString().replace(/:/g, '_') + '~' + crypto.randomBytes(4).toString('hex') + '~suppression.json'))
       fs.unlinkSync(p)
       return true
     })
@@ -444,7 +444,7 @@ async function writeVersionedEnvelope(name: 'memory' | 'instructions' | 'consign
         const vdir = path.join(path.dirname(p), '.versions', name)
         ensureDir(vdir)
         const stamp = new Date().toISOString().replace(/:/g, '_')
-        fs.copyFileSync(p, path.join(vdir, stamp + '.json'))
+        fs.copyFileSync(p, path.join(vdir, stamp + '~' + crypto.randomBytes(4).toString('hex') + '.json'))
       }
       atomicWrite(p, JSON.stringify(envelope, null, 2))
     })
