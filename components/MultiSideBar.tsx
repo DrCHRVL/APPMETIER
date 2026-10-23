@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   FileText, CheckCircle2, BarChart, Settings, Target,
-  Plus, Scale, Activity, Eye, PieChart, Network, LayoutDashboard, Landmark, ChevronDown
+  Plus, Scale, Activity, Eye, PieChart, Network, LayoutDashboard, Landmark, ChevronDown, Globe2
 } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId } from '@/types/userTypes';
@@ -28,6 +28,8 @@ interface MultiSideBarProps {
   enqueteCounts?: Record<string, number>;
   /** Nombre d'instructions en cours (petit compteur) */
   instructionCount?: number;
+  /** Demandes d'entraide dont une échéance est dépassée (pastille rouge) */
+  entraideRetards?: number;
   /** Résultats de recherche dans les autres contentieux (pastilles) */
   crossSearchResults?: CrossSearchResult[];
   /** Nombre d'utilisateurs en attente d'approbation (badge sur Paramètres) */
@@ -152,6 +154,7 @@ export const MultiSideBar = ({
   instructionAlertCount = 0,
   enqueteCounts = {},
   instructionCount = 0,
+  entraideRetards = 0,
   crossSearchResults = [],
   showAssistant = false,
   assistantInjoignable = false,
@@ -438,6 +441,34 @@ export const MultiSideBar = ({
             >
               <Activity className={`h-4 w-4 flex-shrink-0 ${currentView === 'air' ? 'text-white' : 'text-white/60'}`} />
               {isOpen && <span className="truncate">Suivi AIR</span>}
+            </button>
+          </>
+        )}
+
+        {/* Entraide internationale — module activable, registre partagé */}
+        {!jldRestricted && hasModule('entraide') && (
+          <>
+            <div className="my-2 border-t border-white/10" />
+            <button
+              className={`
+                w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm
+                transition-all duration-150 relative group
+                ${currentView === 'entraide'
+                  ? 'bg-white/20 text-white font-semibold shadow-sm'
+                  : 'font-medium text-white/70 hover:bg-white/8 hover:text-white'
+                }
+              `}
+              style={currentView === 'entraide' ? {
+                boxShadow: 'inset 3px 0 0 rgba(255,255,255,0.85)'
+              } : {}}
+              onClick={() => onViewChange('entraide')}
+              title={entraideRetards > 0 ? `${entraideRetards} échéance(s) dépassée(s)` : undefined}
+            >
+              <Globe2 className={`h-4 w-4 flex-shrink-0 ${currentView === 'entraide' ? 'text-white' : 'text-white/60'}`} />
+              {isOpen && <span className="truncate">Entraide internationale</span>}
+              {isOpen && entraideRetards > 0 && (
+                <span className="ml-auto text-[10.5px] font-semibold text-white bg-red-500 rounded-full px-1.5 min-w-[18px] text-center">{entraideRetards}</span>
+              )}
             </button>
           </>
         )}

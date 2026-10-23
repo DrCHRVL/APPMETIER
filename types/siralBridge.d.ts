@@ -129,6 +129,10 @@ interface SiralBridgeApi {
   globalSync_pushCartographieConfig?: (payload: import('./globalSyncTypes').CartographieConfigSyncFile) => Promise<boolean>;
   globalSync_pullAIRConfig?: () => Promise<import('./globalSyncTypes').AIRConfigSyncFile | null>;
   globalSync_pushAIRConfig?: (payload: import('./globalSyncTypes').AIRConfigSyncFile) => Promise<boolean>;
+  /** Registre partagé du module Entraide. Lève une erreur si le serveur est injoignable
+   *  (distinct de null = coffre encore inexistant) : jamais d'écrasement sur une lecture ratée. */
+  globalSync_pullEntraide?: () => Promise<import('./entraideTypes').EntraideSyncFile | null>;
+  globalSync_pushEntraide?: (payload: import('./entraideTypes').EntraideSyncFile) => Promise<boolean>;
   globalSync_pullCartographieContributions?: () => Promise<import('./globalSyncTypes').CartographieContributionsSyncFile | null>;
   globalSync_pushCartographieContributions?: (payload: import('./globalSyncTypes').CartographieContributionsSyncFile) => Promise<boolean>;
   globalSync_readLegacyAppData?: () => Promise<any | null>;

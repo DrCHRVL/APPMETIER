@@ -7,6 +7,8 @@ import { GeneralStats } from '../stats/GeneralStats';
 import { AudienceStats } from '../stats/AudienceStats';
 import { InfractionStats } from '../stats/InfractionStats';
 import { InstructionStats } from '../stats/InstructionStats';
+import { EntraideStats } from '../stats/EntraideStats';
+import { useUserStore } from '@/stores/useUserStore';
 import { ExportPdfButton } from '../pdf/ExportPdfButton';
 
 interface StatsPageProps {
@@ -18,6 +20,7 @@ interface StatsPageProps {
 export const StatsPage = ({ enquetes, contentieuxId, instructions }: StatsPageProps) => {
   const { isLoading } = useAudience();
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const avecEntraide = useUserStore((s) => s.user?.modules.includes('entraide') ?? false);
 
   if (isLoading) {
     return <div>Chargement des statistiques...</div>;
@@ -92,6 +95,13 @@ export const StatsPage = ({ enquetes, contentieuxId, instructions }: StatsPagePr
             <div className="pdf-section">
               <h3>Statistiques instruction</h3>
               <InstructionStats dossiers={instructions} selectedYear={selectedYear} />
+            </div>
+          )}
+
+          {avecEntraide && (
+            <div className="pdf-section">
+              <h3>ENTRAIDE</h3>
+              <EntraideStats selectedYear={selectedYear} />
             </div>
           )}
         </div>
