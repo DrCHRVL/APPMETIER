@@ -4,8 +4,8 @@
 // reste à faire. La chronologie se remplit par les boutons ; seules les dates
 // se corrigent à la main.
 
-import React, { useMemo, useState } from 'react';
-import { X, Trash2, Download, Mail, Copy, Plus, Check } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { X, Trash2, Download, Mail, Copy, Plus, Check, FileSearch, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { useToast } from '@/contexts/ToastContext';
@@ -29,6 +29,8 @@ import { lignesDemande } from '@/utils/entraide/textes';
 import { actionAvecFormulaire, executerAction, signataireDe, telechargerCourrier } from './actionsEntraide';
 import { AutoriteSelect } from './AutoriteSelect';
 import { MesuresInput } from './MesuresInput';
+import { LecturePieceVue } from './LecturePieceVue';
+import { lecturesDemande, lirePiece, personnesEnTexte, useLecturePieceDisponible, type LecturePiece } from '@/utils/entraide/lecturePiece';
 import { BadgeEcheance, BadgeType } from './badges';
 import { nomUtilisateur, utilisateursEntraide } from './utilisateurs';
 import { nouvelId, type EntraideApi } from '@/hooks/useEntraide';
@@ -64,6 +66,15 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
   const [note, setNote] = useState('');
   const [legale, setLegale] = useState({ date: '', libelle: '' });
   const [confirmSuppr, setConfirmSuppr] = useState(false);
+  const lecturePossible = useLecturePieceDisponible();
+  const [lectures, setLectures] = useState<LecturePiece[]>([]);
+  const [enLecture, setEnLecture] = useState(false);
+  useEffect(() => {
+    if (!lecturePossible) return;
+    let vivant = true;
+    lecturesDemande(demandeId).then((l) => { if (vivant) setLectures(l); });
+    return () => { vivant = false; };
+  }, [lecturePossible, demandeId]);
 
   const jour = aujourdhui();
   const etat = useMemo(() => (d ? etatDemande(d, jour) : null), [d, jour]);
@@ -112,6 +123,33 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
   };
 
   const champ = 'w-full rounded-md border px-2 py-1 text-sm';
+
+  const lire = async (fichier: File) => {
+    setEnLecture(true);
+    try {
+      const r = await lirePiece(fichier, d.id);
+      setLectures(r.lectures || [r.analyse, ...lectures]);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Lecture impossible', 'error');
+    } finally {
+      setEnLecture(false);
+    }
+  };
+
+  /** Reprend dans la fiche ce qui y manque encore. */
+  const reprendre = async (l: LecturePiece) => {
+    const patch: Partial<typeof d> = {};
+    if (!d.personnes && l.personnes.length) patch.personnes = personnesEnTexte(l);
+    if (!d.refEtrangere && l.autorite.reference) patch.refEtrangere = l.autorite.reference;
+    const mesures = Array.from(new Set([...(d.mesures || []), ...l.mesures]));
+    if (mesures.length !== (d.mesures || []).length) patch.mesures = mesures;
+    if (l.dateButoir && !(d.echeancesLegales || []).some((x) => x.date === l.dateButoir)) {
+      patch.echeancesLegales = [...(d.echeancesLegales || []), { id: nouvelId('l'), date: l.dateButoir, libelle: 'Date butoir fixée par l’autorité requérante' }];
+    }
+    if (!Object.keys(patch).length) { showToast('La fiche contient déjà ces éléments', 'info'); return; }
+    await api.modifierDemande(d.id, patch);
+    showToast('Fiche complétée', 'success');
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -208,6 +246,25 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
                 <Button size="sm" variant="outline" onClick={() => setFormulaire(null)}>Annuler</Button>
                 <Button size="sm" onClick={confirmerFormulaire}>Valider</Button>
               </div>
+            </div>
+          )}
+
+          {lecturePossible && (
+            <div className="rounded-lg border bg-white p-4">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <h3 className="text-sm font-semibold">Synthèse de la pièce</h3>
+                <div className="flex gap-2">
+                  {lectures[0] && <Button size="sm" variant="outline" onClick={() => reprendre(lectures[0])}>Reprendre dans la fiche</Button>}
+                  <label className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs cursor-pointer hover:bg-gray-50 ${enLecture ? 'opacity-60 pointer-events-none' : ''}`}>
+                    {enLecture ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSearch className="h-3.5 w-3.5" />}
+                    {enLecture ? 'Lecture…' : lectures.length ? 'Lire une autre pièce' : 'Lire une pièce'}
+                    <input type="file" className="hidden" accept=".pdf,.odt,.docx,.doc,.rtf,.txt"
+                      onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) lire(f); }} />
+                  </label>
+                </div>
+              </div>
+              {lectures[0] ? <LecturePieceVue l={lectures[0]} /> : <p className="text-xs text-gray-500">Aucune pièce lue pour cette demande.</p>}
+              {lectures.length > 1 && <p className="mt-1 text-[11px] text-gray-400">{lectures.length - 1} lecture(s) antérieure(s) conservée(s).</p>}
             </div>
           )}
 

@@ -55,6 +55,19 @@ titulaire (« Valider et signer »). Mails : `utils/entraide/mails.ts`
 Section « ENTRAIDE » de la page Statistiques ; source unique
 `lib/stats/entraideCore.mjs`, chaque carte porte sa règle.
 
+## Lecture d'une pièce (administrateur seul)
+
+Bouton « Lire une pièce » dans la création d'une demande et dans la fiche,
+visible du seul administrateur du TJ confié à l'attaché (route
+`/api/attache/entraide-analyse`, 404 pour toute autre session ; masqué par
+l'interrupteur de visibilité). Le service extrait le texte (OCR si scan) et
+rend en un tour une fiche : synthèse des faits, ce qui est demandé, lieux
+d'exécution, personnes, autorité et référence, mesures du catalogue, date
+butoir, points de vigilance — qui préremplit les champs encore vides.
+La pièce n'est pas conservée ; la fiche de lecture est gardée chiffrée dans
+l'espace de l'attaché (`entraide-analyses/<id>.json`), hors registre partagé
+(`scripts/attache/entraideAnalyse.mjs`).
+
 ## Connecteur Claude web
 
 `entraide_lister`, `entraide_lire`, `entraide_referentiel`, `entraide_stats`
@@ -64,4 +77,5 @@ aux runs autonomes). `entraide_importer` est idempotent (clé : onglet + ligne
 d'origine) : la reprise du tableau Excel peut être rejouée sans doublon.
 
 Tests : `node scripts/entraide-core.test.mjs`,
-`node scripts/attache-entraide.test.mjs`.
+`node scripts/attache-entraide.test.mjs`,
+`node scripts/attache-entraide-lecture.test.mjs`.

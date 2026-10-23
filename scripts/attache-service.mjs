@@ -40,6 +40,7 @@ import { enfiler as fluxEnfiler, balayer as fluxBalayer, pomper as fluxPomper, f
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
+import { lirePieceEntraide, sauverLecture, lireLectures } from './attache/entraideAnalyse.mjs'
 import { classerTrames, classerKb, classerSkills } from './attache/classer.mjs'
 import { readDossierMemory } from './attache/dossierMemory.mjs'
 import { listEnvelopesDossier, writeEnvelope, deleteProduction, readProduction, sommaireProductions } from './attache/productions.mjs'
@@ -1704,6 +1705,38 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 400) })
       }
+    }
+
+    // Entraide : lecture d'une pièce téléversée (octets en clair, non conservés).
+    // La fiche de lecture n'est gardée que si la demande est désignée et le
+    // trousseau remis — chiffrée, dans l'espace de l'attaché.
+    if (route === 'POST /entraide-analyse') {
+      const body = await readBody(req, 30 * 1024 * 1024)
+      const keys = loadKeyring()
+      if (body.action === 'sauver') {
+        if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+        const lectures = await sauverLecture(keys, String(body.demandeId || ''), body.analyse)
+        return json(res, 200, { ok: true, lectures })
+      }
+      const nom = String(body.nom || 'piece.pdf').slice(0, 200)
+      const b64 = typeof body.b64 === 'string' ? body.b64 : ''
+      if (!b64) return json(res, 400, { ok: false, error: 'Aucune pièce fournie' })
+      try {
+        const out = await lirePieceEntraide({ nom, octets: Buffer.from(b64, 'base64') })
+        if (!out.ok) return json(res, 502, out)
+        let lectures
+        if (keys && body.demandeId) lectures = await sauverLecture(keys, String(body.demandeId), out.analyse)
+        if (keys) await audit(keys, 'entraide_lecture', { piece: nom, demande: body.demandeId || null })
+        return json(res, 200, { ...out, ...(lectures ? { lectures } : {}) })
+      } catch (e) {
+        return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 400) })
+      }
+    }
+
+    if (route === 'GET /entraide-analyse') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 200, { lectures: [] })
+      return json(res, 200, { lectures: lireLectures(keys, url.searchParams.get('id') || '') })
     }
 
     if (route === 'GET /routines') {

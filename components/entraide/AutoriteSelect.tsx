@@ -15,6 +15,8 @@ interface Props {
   valeur: AutoriteEtrangere | null;
   onChoisir: (a: AutoriteEtrangere | null, requete: string) => void;
   onCreer: (a: Omit<AutoriteEtrangere, 'id' | 'dateMiseAJour'>) => Promise<AutoriteEtrangere>;
+  /** Autorité lue dans une pièce : proposée à la création, préremplie. */
+  suggestion?: { nom: string; ville?: string; pays?: string } | null;
 }
 
 const NATURES: Array<[AutoriteNature, string]> = [
@@ -22,7 +24,7 @@ const NATURES: Array<[AutoriteNature, string]> = [
   ['ministere', 'Ministère / autorité centrale'], ['police', 'Police'], ['autre', 'Autre'],
 ];
 
-export const AutoriteSelect: React.FC<Props> = ({ autorites, pays, valeur, onChoisir, onCreer }) => {
+export const AutoriteSelect: React.FC<Props> = ({ autorites, pays, valeur, onChoisir, onCreer, suggestion }) => {
   const [requete, setRequete] = useState('');
   const [ouvert, setOuvert] = useState(false);
   const [creation, setCreation] = useState<null | Omit<AutoriteEtrangere, 'id' | 'dateMiseAJour'>>(null);
@@ -83,6 +85,15 @@ export const AutoriteSelect: React.FC<Props> = ({ autorites, pays, valeur, onCho
 
   return (
     <div className="relative">
+      {suggestion?.nom && (
+        <button type="button" className="mb-1 block w-full truncate rounded border border-dashed border-[#2B5746]/40 bg-[#2B5746]/5 px-2 py-1 text-left text-xs text-[#2B5746]"
+          onClick={() => {
+            const p = suggestion.pays || pays || '';
+            setCreation({ nom: suggestion.nom, nature: /tribunal|court|gericht|juge|judge/i.test(suggestion.nom) ? 'tribunal' : 'parquet', ville: suggestion.ville || '', adresse: '', pays: p, langue: paysDe(p)?.langue || 'en', email: '', motsCles: [] });
+          }}>
+          Lu dans la pièce : {suggestion.nom}{suggestion.ville ? `, ${suggestion.ville}` : ''} — créer la fiche
+        </button>
+      )}
       <input
         className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm"
         placeholder="Tapez un nom, une ville, un mot-clé… (ex. Tournai)"

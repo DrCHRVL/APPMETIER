@@ -5,11 +5,13 @@
 // magistrat. Tout le reste (étape, échéances) se déduira des clics suivants.
 
 import React, { useMemo, useState } from 'react';
-import { X } from 'lucide-react';
+import { X, FileSearch, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { useToast } from '@/contexts/ToastContext';
-import { aujourdhui, PAYS, paysDe, TYPE_LABELS } from '@/utils/entraide/logique';
+import { aujourdhui, chercherAutorites, normaliser, PAYS, paysDe, TYPE_LABELS } from '@/utils/entraide/logique';
+import { lirePiece, personnesEnTexte, rattacherLecture, useLecturePieceDisponible, type LecturePiece } from '@/utils/entraide/lecturePiece';
+import { LecturePieceVue } from './LecturePieceVue';
 import { AutoriteSelect } from './AutoriteSelect';
 import { MesuresInput } from './MesuresInput';
 import { utilisateursEntraide } from './utilisateurs';
@@ -51,6 +53,41 @@ export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree }) 
   const [serviceAutre, setServiceAutre] = useState('');
   const [magistrat, setMagistrat] = useState(api.moi);
   const [echeanceLegale, setEcheanceLegale] = useState({ date: '', libelle: '' });
+  const lecturePossible = useLecturePieceDisponible();
+  const [lecture, setLecture] = useState<LecturePiece | null>(null);
+  const [enLecture, setEnLecture] = useState(false);
+
+  /** Préremplit les champs encore vides d'après la lecture de la pièce. */
+  const appliquerLecture = (l: LecturePiece) => {
+    if (l.sens) setSens(l.sens);
+    if (l.type) setType(l.type);
+    const p = l.pays || l.autorite.pays;
+    if (p && !pays && !autorite) setPays(p);
+    if (l.autorite.reference && !refEtrangere) setRefEtrangere(l.autorite.reference);
+    if (!objet) setObjet([l.infractions, l.lieux[0]?.ville].filter(Boolean).join(' – '));
+    if (!personnes && l.personnes.length) setPersonnes(personnesEnTexte(l));
+    if (l.mesures.length) setMesures((m) => Array.from(new Set([...m, ...l.mesures])));
+    if (l.dateButoir && !echeanceLegale.date) setEcheanceLegale({ date: l.dateButoir, libelle: 'Date butoir fixée par l’autorité requérante' });
+    if (!autorite && l.autorite.nom) {
+      const requete = [l.autorite.ville, l.autorite.nom].filter(Boolean).join(' ');
+      const trouvee = chercherAutorites(api.data.autorites, l.autorite.ville || l.autorite.nom, p)
+        .find((a) => normaliser(a.nom) === normaliser(l.autorite.nom) || (!!l.autorite.ville && normaliser(a.ville) === normaliser(l.autorite.ville)));
+      if (trouvee) { setAutorite(trouvee); setRequeteAutorite(requete); setPays(trouvee.pays); }
+    }
+  };
+
+  const lire = async (fichier: File) => {
+    setEnLecture(true);
+    try {
+      const { analyse } = await lirePiece(fichier);
+      setLecture(analyse);
+      appliquerLecture(analyse);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Lecture impossible', 'error');
+    } finally {
+      setEnLecture(false);
+    }
+  };
 
   const utilisateurs = useMemo(() => utilisateursEntraide(), []);
   const frequences = useMemo(() => {
@@ -81,6 +118,7 @@ export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree }) 
       echeancesLegales: echeanceLegale.date ? [{ id: nouvelId('l'), date: echeanceLegale.date, libelle: echeanceLegale.libelle || 'Échéance légale' }] : undefined,
     });
     if (autorite && requeteAutorite) api.apprendreAutorite(autorite.id, requeteAutorite);
+    if (lecture) rattacherLecture(id, lecture);
     showToast('Demande créée', 'success');
     onCree(id);
   };
@@ -90,10 +128,26 @@ export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree }) 
       <div className="bg-white rounded-xl shadow-2xl w-[92vw] max-w-[720px] max-h-[92vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
           <h2 className="text-base font-semibold text-gray-800">Nouvelle demande d'entraide</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="h-5 w-5 text-gray-500" /></button>
+          <div className="flex items-center gap-1">
+            {lecturePossible && (
+              <label className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm cursor-pointer hover:bg-gray-50 ${enLecture ? 'opacity-60 pointer-events-none' : ''}`}
+                title="Préremplir à partir de la demande reçue (PDF, scan, ODT, DOCX)">
+                {enLecture ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSearch className="h-4 w-4" />}
+                {enLecture ? 'Lecture…' : 'Lire une pièce'}
+                <input type="file" className="hidden" accept=".pdf,.odt,.docx,.doc,.rtf,.txt"
+                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) lire(f); }} />
+              </label>
+            )}
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="h-5 w-5 text-gray-500" /></button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {lecture && (
+            <div className="rounded-lg border border-[#2B5746]/25 bg-[#2B5746]/5 p-3">
+              <LecturePieceVue l={lecture} compact />
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             {(['recue', 'emise'] as EntraideSens[]).map((s) => (
               <button key={s} type="button" onClick={() => setSens(s)}
@@ -136,6 +190,7 @@ export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree }) 
                 valeur={autorite}
                 onChoisir={(a, q) => { setAutorite(a); setRequeteAutorite(q); if (a) setPays(a.pays); }}
                 onCreer={(a) => api.enregistrerAutorite(a)}
+                suggestion={lecture?.autorite.nom ? { nom: lecture.autorite.nom, ville: lecture.autorite.ville, pays: lecture.autorite.pays || lecture.pays } : null}
               />
             </Champ>
           </div>
