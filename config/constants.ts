@@ -53,6 +53,7 @@ export const APP_CONFIG = {
     AUDIENCE_RESULTATS: 'audience_resultats',
     LAST_SAVE: 'lastSave',
     AIR_MESURES: 'air_mesures',
+    ENTRAIDE: 'entraide', // Module Entraide internationale (copie locale du coffre partagé)
     ALERTS: 'alerts',
     ALERT_VALIDATIONS: 'alert_validations',
     VISUAL_ALERT_RULES: 'visualAlertRules',

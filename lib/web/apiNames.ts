@@ -27,6 +27,7 @@ export const SIRAL_BRIDGE_API_NAMES = [
   'globalSync_pullCartographie', 'globalSync_pushCartographie',
   'globalSync_pullCartographieConfig', 'globalSync_pushCartographieConfig',
   'globalSync_pullAIRConfig', 'globalSync_pushAIRConfig',
+  'globalSync_pullEntraide', 'globalSync_pushEntraide',
   'globalSync_pullCartographieContributions', 'globalSync_pushCartographieContributions',
   'globalSync_readLegacyAppData',
   'globalSync_pullUserPreferences', 'globalSync_pushUserPreferences',

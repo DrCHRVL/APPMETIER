@@ -76,6 +76,11 @@ const AIRPage = dynamic(
   }
 );
 
+const EntraidePage = dynamic(
+  () => import('@/components/pages/EntraidePage').then(m => ({ default: m.EntraidePage })),
+  { ssr: false }
+);
+
 // Imports pour les instructions judiciaires (refonte PR1)
 const InstructionsPage = dynamic(
   () => import('@/components/pages/InstructionsPage').then(m => ({ default: m.InstructionsPage })),
@@ -123,6 +128,7 @@ import { useInstructionAlerts } from '@/hooks/useInstructionAlerts';
 import type { DossierInstruction } from '@/types/instructionTypes';
 
 import { useAIR } from '@/hooks/useAIR';
+import { useEntraideAlertes } from '@/hooks/useEntraideAlertes';
 import { useCombinedAlerts } from '@/hooks/useCombinedAlerts';
 import { useVisualAlerts } from '@/hooks/useVisualAlerts';
 import { contentieuxAlertsSyncService } from '@/utils/dataSync/ContentieuxAlertsSyncService';
@@ -530,6 +536,10 @@ function AppContent() {
     const enabled = hasModule('air');
     airSyncService.configure(enabled ? (user?.windowsUsername || null) : null);
   }, [hasModule, user?.windowsUsername]);
+
+  // Entraide internationale : registre PARTAGÉ (coffre `entraide`), échéances
+  // dépassées pour la pastille de la barre latérale, rappels push.
+  const { retards: entraideRetards } = useEntraideAlertes(hasModule('entraide'), user?.windowsUsername || '');
 
   useEffect(() => {
     setIsClient(true);
@@ -1931,6 +1941,7 @@ return (
           instructionAlertCount={instructionAlerts.length}
           enqueteCounts={sidebarEnqueteCounts}
           instructionCount={sidebarInstructionCount}
+          entraideRetards={entraideRetards}
           crossSearchResults={crossSearchResults}
           showAssistant={iaVisible}
           assistantInjoignable={attacheInjoignable}
@@ -1952,6 +1963,7 @@ return (
               instructionAlertCount={instructionAlerts.length}
               enqueteCounts={sidebarEnqueteCounts}
               instructionCount={sidebarInstructionCount}
+              entraideRetards={entraideRetards}
               crossSearchResults={crossSearchResults}
               showAssistant={iaVisible}
               assistantInjoignable={attacheInjoignable}
@@ -2247,6 +2259,10 @@ return (
               onAddMesure={handleAddMesure}
               onImportMesures={handleImportMesures}
             />
+          )}
+
+          {baseView === 'entraide' && hasModule('entraide') && (
+            <EntraidePage searchTerm={debouncedSearchTerm} />
           )}
 
           {baseView === 'stats' && (

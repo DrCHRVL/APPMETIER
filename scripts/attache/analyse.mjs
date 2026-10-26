@@ -20,6 +20,7 @@
  */
 import { spawn } from 'node:child_process'
 import { attacheDir, attacheContentieux, ensureDir } from './store.mjs'
+import { extractUsage } from './usage.mjs'
 
 const CLAUDE_BIN = process.env.SIRAL_ATTACHE_CLAUDE_BIN || 'claude'
 const ANALYSE_MODEL = process.env.SIRAL_ATTACHE_ANALYSE_MODEL || 'sonnet'
@@ -238,7 +239,8 @@ export function runClaudeJson(userPrompt, opts = {}) {
       if (!data || typeof data !== 'object') {
         return done({ ok: false, error: 'réponse du modèle non exploitable (JSON absent)' })
       }
-      done({ ok: true, data })
+      // Bilan de jetons rendu à l'appelant, qui le consigne sous son libellé de run.
+      done({ ok: true, data, usage: envelope ? extractUsage(envelope) : null })
     })
   })
 }

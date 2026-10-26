@@ -31,6 +31,7 @@ const MODULE_LABELS: Record<ModuleId, string> = {
   air: 'Suivi AIR',
   instructions: 'Instructions judiciaires',
   mindmap: 'Cartographie mis en cause',
+  entraide: 'Entraide internationale',
 };
 
 // Explications publiques (admin intentionnellement absent — reste confidentiel)

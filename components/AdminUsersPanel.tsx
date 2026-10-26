@@ -36,6 +36,7 @@ const MODULE_LABELS: Record<ModuleId, string> = {
   air: 'Suivi AIR',
   instructions: 'Instructions judiciaires',
   mindmap: 'Cartographie mis en cause',
+  entraide: 'Entraide internationale',
 };
 
 /** Libellés courts des contentieux pour l'aperçu des clés livrées. */

@@ -39,6 +39,7 @@ import { runSubagents } from './attache/subagents.mjs'
 import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
 import { modifierDossierInstruction, elementInstruction, misEnExamenInstruction, COLLECTIONS_INSTRUCTION } from './attache/instruEcriture.mjs'
 import { enregistrerAudience, resultatAudienceMarkdown, ISSUES_AUDIENCE, DECISIONS_AUDIENCE } from './attache/audience.mjs'
+import { listerEntraide, lireEntraide, statsEntraide, referentielEntraide, creerEntraide, importerEntraide, modifierEntraide, evenementEntraide, autoriteEntraide, EVENEMENTS_ENTRAIDE } from './attache/entraide.mjs'
 import { listDepot, readDepotText, readMailPieceText, rangerDocument, rangerPieceDansKb, verserDocumentCarto, ecarterDepot, ZONES } from './attache/depot.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { lireRegistre, recouperRegistres } from './attache/registre.mjs'
@@ -142,6 +143,7 @@ const OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME = new Set([
   'modifier_dossier', 'archiver_dossier', 'ajouter_mec', 'modifier_mec',
   'enregistrer_audience',
   'instru_modifier_dossier', 'instru_element', 'instru_mis_en_examen',
+  'entraide_creer', 'entraide_modifier', 'entraide_evenement', 'entraide_autorite', 'entraide_importer',
   'actualiser_description', 'ranger_document', 'carto_verser_document', 'depot_ecarter',
   'routine_enregistrer', 'routine_suspendre', 'routine_supprimer',
   'instructions_projet_enregistrer',
@@ -984,6 +986,142 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
     description: 'Chronologie probatoire fusionnée du dossier : actes SIRAL (débuts, fins, prolongations, poses, attentes JLD), CR, modifications (apparition de MEC), DML archivées et cotes NPP datées — triée par date. Base de tout réquisitoire, rapport ou préparation d\'audience.',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
     handler: async (a) => buildChronologie(keys, a.numero) ?? { erreur: 'Dossier introuvable' },
+  },
+  // ── Module Entraide internationale (registre partagé, coffre `entraide`) ──
+  {
+    name: 'entraide_lister',
+    description: 'Demandes du module ENTRAIDE INTERNATIONALE (DEE, dénonciations officielles, CRI, exécution, civil ; reçues ou émises), TRIÉES PAR URGENCE : étape, chez qui (greffe, magistrat, enquêteurs, autorité étrangère), prochaine échéance (interne ou légale) et jours restants (négatif = retard). Paginé. Filtres : portee (en_cours par défaut | cloturees | toutes), type, sens, magistrat, enRetard, filtre (n° ESABORA, pays, autorité, objet, personne). Détail : entraide_lire.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        portee: { type: 'string', enum: ['en_cours', 'cloturees', 'toutes'] },
+        type: { type: 'string', enum: ['dee', 'do', 'cri', 'execution', 'civil'] },
+        sens: { type: 'string', enum: ['recue', 'emise'] },
+        magistrat: { type: 'string', description: 'Identifiant (windowsUsername) du magistrat en charge' },
+        enRetard: { type: 'boolean' },
+        filtre: { type: 'string' },
+        offset: { type: 'number' },
+        limit: { type: 'number', description: 'Défaut 80, max 300' },
+      },
+    },
+    handler: async (a) => listerEntraide(keys, a || {}),
+  },
+  {
+    name: 'entraide_lire',
+    description: 'Fiche complète d\'une demande d\'entraide : identification, mesures, échéance interne, DÉLAIS LÉGAUX (DEE reçue : annexe B à 7 j, exécution à 120 j ; échéances saisies : prescription…) avec leur statut, courrier en attente de signature, prochaines actions proposées et CHRONOLOGIE. `ref` = n° ESABORA ou id.',
+    inputSchema: { type: 'object', properties: { ref: { type: 'string' } }, required: ['ref'] },
+    handler: async (a) => lireEntraide(keys, a.ref),
+  },
+  {
+    name: 'entraide_referentiel',
+    description: 'Référentiels du module Entraide : autorités étrangères enregistrées (avec langue et mots-clés appris), services enquêteurs, catalogue des MESURES (identifiants à utiliser dans entraide_creer), libellés des étapes et des événements.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => referentielEntraide(keys),
+  },
+  {
+    name: 'entraide_stats',
+    description: 'Section « ENTRAIDE » de la page Statistiques, pour une année (défaut : l\'année en cours, arrêtée à aujourd\'hui) — MÊMES chiffres que l\'écran, carte par carte avec leur règle : entrées, clôtures, stock, délai médian de retour des enquêteurs, taux de DEE exécutées dans le délai légal, AR annexe B, traduction, relances, puis durées par type, services enquêteurs, ancienneté, pays, évolution mensuelle. Citer les nombres tels quels.',
+    inputSchema: { type: 'object', properties: { annee: { type: 'integer' } } },
+    handler: async (a) => statsEntraide(keys, a.annee),
+  },
+  {
+    name: 'entraide_creer',
+    description: 'Crée une demande d\'entraide dans le registre partagé. type : dee | do | cri | execution | civil ; sens : recue | emise ; refEsabora = N/réf ESABORA tel qu\'affiché ; dateEnregistrement (réception si reçue) AAAA-MM-JJ ; autorite = nom (rattachée à la fiche existante si elle est connue — voir entraide_referentiel) ; service = libellé ou id du service saisi (reçue) ; mesures = identifiants du catalogue ; magistrat = windowsUsername. `evenements` (facultatif) reprend un historique : [{type, date, doc?, langue?, delaiMois?, echeance?, partiel?, note?}] — types : ' + EVENEMENTS_ENTRAIDE.join(', ') + '. Écriture versionnée (réversible). RÉSERVÉ à une instruction EXPLICITE du magistrat.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['dee', 'do', 'cri', 'execution', 'civil'] },
+        sens: { type: 'string', enum: ['recue', 'emise'] },
+        refEsabora: { type: 'string' },
+        refEtrangere: { type: 'string' },
+        dateEnregistrement: { type: 'string' },
+        pays: { type: 'string' },
+        autorite: { type: 'string' },
+        objet: { type: 'string' },
+        personnes: { type: 'string' },
+        mesures: { type: 'array', items: { type: 'string' } },
+        service: { type: 'string' },
+        magistrat: { type: 'string' },
+        observations: { type: 'string' },
+        echeancesLegales: { type: 'array', items: { type: 'object', properties: { date: { type: 'string' }, libelle: { type: 'string' } } } },
+        evenements: { type: 'array', items: { type: 'object' } },
+      },
+      required: ['type', 'sens', 'refEsabora', 'pays'],
+    },
+    handler: async (a) => creerEntraide(keys, a),
+    write: true,
+  },
+  {
+    name: 'entraide_modifier',
+    description: 'Modifie une demande d\'entraide (seuls les champs fournis changent) : refEsabora, refEtrangere, type, sens, pays, autorite, objet, personnes, mesures (remplace la liste), service, magistrat, observations, texteMesures (paragraphe « Bien vouloir… », une ligne par mesure), echeanceLegale {date, libelle} (ajoutée). Écriture versionnée. RÉSERVÉ à une instruction EXPLICITE du magistrat.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'n° ESABORA ou id' },
+        refEsabora: { type: 'string' }, refEtrangere: { type: 'string' },
+        type: { type: 'string', enum: ['dee', 'do', 'cri', 'execution', 'civil'] }, sens: { type: 'string', enum: ['recue', 'emise'] },
+        pays: { type: 'string' }, autorite: { type: 'string' }, objet: { type: 'string' }, personnes: { type: 'string' },
+        mesures: { type: 'array', items: { type: 'string' } }, service: { type: 'string' }, magistrat: { type: 'string' },
+        observations: { type: 'string' }, texteMesures: { type: 'string' },
+        echeanceLegale: { type: 'object', properties: { date: { type: 'string' }, libelle: { type: 'string' } } },
+      },
+      required: ['ref'],
+    },
+    handler: async (a) => modifierEntraide(keys, a),
+    write: true,
+  },
+  {
+    name: 'entraide_evenement',
+    description: 'Fait avancer une demande d\'entraide en ajoutant un ÉVÉNEMENT daté à sa chronologie (l\'étape et l\'échéance s\'en déduisent) — ex. envoi_enqueteurs (ouvre 3 mois), relance_enqueteurs, retour_enqueteurs (partiel:true si partiel), envoi_autorite (émise : ouvre 4 mois), relance_autorite, prorogation (delaiMois ou echeance AAAA-MM-JJ), retour_execution, ar_recu, cloture, note. operation "modifier" (date, note) ou "supprimer" avec `id` d\'événement (voir entraide_lire). Types : ' + EVENEMENTS_ENTRAIDE.join(', ') + '. RÉSERVÉ à une instruction EXPLICITE du magistrat.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'n° ESABORA ou id' },
+        operation: { type: 'string', enum: ['ajouter', 'modifier', 'supprimer'] },
+        id: { type: 'string', description: 'id de l\'événement (modifier / supprimer)' },
+        type: { type: 'string', enum: EVENEMENTS_ENTRAIDE },
+        date: { type: 'string' },
+        doc: { type: 'string', enum: ['t1', 't2', 't3', 't4'] },
+        langue: { type: 'string', enum: ['fr', 'en'] },
+        delaiMois: { type: 'integer' },
+        echeance: { type: 'string' },
+        partiel: { type: 'boolean' },
+        note: { type: 'string' },
+      },
+      required: ['ref'],
+    },
+    handler: async (a) => evenementEntraide(keys, a),
+    write: true,
+  },
+  {
+    name: 'entraide_autorite',
+    description: 'Crée, complète ou supprime une AUTORITÉ ÉTRANGÈRE du référentiel Entraide (nom, nature : parquet | tribunal | juge | ministere | police | autre, ville, adresse, pays, langue des courriers fr | en, email, motsCles ajoutés). Une autorité existante se désigne par id ou par son nom exact. RÉSERVÉ à une instruction EXPLICITE du magistrat.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        operation: { type: 'string', enum: ['enregistrer', 'supprimer'] },
+        id: { type: 'string' }, nom: { type: 'string' },
+        nature: { type: 'string', enum: ['parquet', 'tribunal', 'juge', 'ministere', 'police', 'autre'] },
+        ville: { type: 'string' }, adresse: { type: 'string' }, pays: { type: 'string' },
+        langue: { type: 'string', enum: ['fr', 'en'] }, email: { type: 'string' },
+        motsCles: { type: 'array', items: { type: 'string' } },
+      },
+    },
+    handler: async (a) => autoriteEntraide(keys, a),
+    write: true,
+  },
+  {
+    name: 'entraide_importer',
+    description: 'IMPORT EN LOT dans le registre Entraide (reprise d\'un tableau de suivi) : `autorites` [{nom, pays, nature?, ville?, adresse?, langue?, email?, motsCles?}] puis `demandes` (mêmes champs que entraide_creer, avec `origine` {onglet, ligne}). IDEMPOTENT : une demande dont l\'origine est déjà présente est mise à jour, jamais dupliquée — un import peut être rejoué. Rend le décompte (créées, mises à jour, erreurs ligne par ligne). Envoyer par lots de 50 à 100 demandes. RÉSERVÉ à une instruction EXPLICITE du magistrat.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        autorites: { type: 'array', items: { type: 'object' } },
+        demandes: { type: 'array', items: { type: 'object' } },
+      },
+    },
+    handler: async (a) => importerEntraide(keys, a || {}),
+    write: true,
   },
   {
     name: 'stats_ecran',
@@ -2010,7 +2148,7 @@ const OUTILS_HORS_CONNECTEUR = new Set(['sous_agents', 'poser_question'])
 
 const INSTRUCTIONS_CONNECTEUR = [
   `SIRAL — application métier du parquet (contentieux ${attacheContentieux()}). Tu agis pour le compte du magistrat administrateur, authentifié via OAuth.`,
-  'Points d\'entrée : lister_dossiers (enquêtes) · instru_lister (module instruction ; écritures : instru_modifier_dossier, instru_element, instru_mis_en_examen) · lire_dossier (détail, sections paginées) · enregistrer_audience (résultats d\'audience dictés par le magistrat — défèrements, orientations, peines, relaxes, renvois, classement, OI — puis archivage) · dossier_arborescence puis lire_document (pièces) · pieces_chercher (LOCALISER une information dans les pièces et les fiches sans tout relire) · registre_lire (sommaire pièce par pièce : type, date, personnes, entités, résumé) · registre_recouper (entités partagées entre dossiers, pièces citées) · stats_ecran / stats_synthese / stats_graphique (chiffres et graphiques).',
+  'Points d\'entrée : lister_dossiers (enquêtes) · instru_lister (module instruction ; écritures : instru_modifier_dossier, instru_element, instru_mis_en_examen) · lire_dossier (détail, sections paginées) · enregistrer_audience (résultats d\'audience dictés par le magistrat — défèrements, orientations, peines, relaxes, renvois, classement, OI — puis archivage) · dossier_arborescence puis lire_document (pièces) · pieces_chercher (LOCALISER une information dans les pièces et les fiches sans tout relire) · registre_lire (sommaire pièce par pièce : type, date, personnes, entités, résumé) · registre_recouper (entités partagées entre dossiers, pièces citées) · stats_ecran / stats_synthese / stats_graphique (chiffres et graphiques) · entraide_lister (module Entraide internationale, registre partagé ; écritures : entraide_creer, entraide_evenement, entraide_modifier, entraide_autorite, entraide_importer ; chiffres : entraide_stats).',
   'STATISTIQUES — le magistrat lit une PAGE « Statistiques » organisée par ANNÉE (sélecteur en haut) et en quatre sections : Statistiques générales · Types d\'infractions · Résultats d\'audience · Statistiques instruction. Ses chiffres sont ceux de cette page.',
   '  1. Toute question sur « mes statistiques », un chiffre affiché, un écart, une année civile → stats_ecran (annee) : il rend la page CARTE PAR CARTE, avec le titre exact de chaque carte, sa valeur et sa règle de calcul. Une période non calendaire (semestre, trimestre, « depuis mars ») → stats_synthese (du/au). Les années disponibles → stats_annees.',
   '  2. NE JAMAIS RECALCULER un chiffre déjà rendu, ni le reconstituer en additionnant des listes de dossiers : les règles de la page sont subtiles (procédures terminées HORS classements et ouvertures d\'information ; orientations comptées 1 par dossier mais 1 par prévenu en CRPC ; RELAXES comptées à part, hors condamnations et hors moyennes de peine, mais leur défèrement reste compté ; déférements comptés à leur date réelle et non à la date d\'audience ; saisies d\'enquête ≠ confiscations d\'audience ; l\'année en cours s\'arrête au mois courant). Un recalcul « de bon sens » donne un autre nombre que l\'écran — c\'est l\'erreur à ne pas commettre. Reprendre la valeur, et citer la carte d\'où elle vient.',
