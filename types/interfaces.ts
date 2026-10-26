@@ -528,8 +528,8 @@ export interface AIRImportData {
 export type AIRStatus = 'en_cours' | 'termine' | 'echec' | 'reussite';
 
 /**
- * Type consommé par le code d'alerte AIR (useCombinedAlerts /
- * AlertManager.checkAIRMesure). En plus du modèle courant `AIRImportData`
+ * Type consommé par le code d'alerte AIR (useCombinedAlerts). En plus du
+ * modèle courant `AIRImportData`
  * (qui expose `nomPrenom`, `dateReception`, …), il déclare des champs hérités
  * (`id`, `identite`, `dateDebut`, `details.rdv`) que ce code lit encore.
  *
