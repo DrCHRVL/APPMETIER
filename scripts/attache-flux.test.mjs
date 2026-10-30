@@ -162,6 +162,7 @@ attendu('un acte proposé (confiance faible écartée)', propsActe.length === 1 
 attendu('CR écrit et MEC proposé comptés', b1.crEcrit === 1 && b1.mecProposes === 1 && b1.descriptionChangee === true, JSON.stringify(b1))
 const prompt1 = appels.runs[0] || ''
 attendu('prompt : fiches jointes', prompt1.includes('PV/D1_audition_MARTIN.txt') && prompt1.includes('reconnaît fournir'))
+attendu('prompt : TEXTE des pièces nouvelles joint, pas seulement la fiche', prompt1.includes('Texte de la pièce') && prompt1.includes('il fournit la résine à DURAND Kévin. DUPONT Jean, témoin'))
 attendu('prompt : candidat MARTIN (rôle mis en cause), pas DUPONT (témoin), pas DURAND (enregistré)',
   /CANDIDATS MIS EN CAUSE[\s\S]*MARTIN Paul/.test(prompt1) && !/CANDIDATS MIS EN CAUSE[\s\S]*DUPONT/.test(prompt1) && !/CANDIDATS MIS EN CAUSE[\s\S]*DURAND/.test(prompt1))
 attendu('prompt : analyse des actes jointe (proposés, incohérence, CR suggéré)', prompt1.includes('1 acte(s) PROPOSÉ(S)') && prompt1.includes('INCOHÉRENCE natinf_absent') && prompt1.includes('Projet de CR de réception'))
@@ -191,6 +192,9 @@ attendu('relève : CR ajouté par l\'app → dossier en file (raison tick)', r.e
 const b3 = await flux.traiterDossier(keys, NUM)
 const prompt3 = appels.runs[1] || ''
 attendu('passage : le CR nouveau est joint (HTML retiré), aucune pièce', b3.crs === 1 && b3.pieces === 0 && b3.run === true && prompt3.includes('CR NOUVEAUX (1)') && prompt3.includes('MARTIN vu au garage') && !prompt3.includes('<b>'), JSON.stringify(b3))
+attendu('passage : TOUS les CR existants joints en texte intégral (le nouveau n\'y est pas doublé)',
+  /COMPTES RENDUS EXISTANTS[\s\S]*FAITS NOUVEAUX : MARTIN Paul fournit la résine \(PV\/D1\)/.test(prompt3)
+  && !/COMPTES RENDUS EXISTANTS[\s\S]*MARTIN vu au garage[\s\S]*CR NOUVEAUX/.test(prompt3))
 
 // ── 6. Versement massif → chantier
 for (let i = 0; i < flux.CHANTIER_SEUIL; i++) verse(`PV/Masse/D${1000 + i}.txt`, `Procès-verbal numéro ${i} : constatations.`)
@@ -224,6 +228,15 @@ attendu('file vidée', flux.fileAttente().enAttente.length === 0)
   const b5 = await flux.traiterDossier(keys, NUM2)
   attendu('la pièce qui a provoqué le réveil est traitée, pas écartée en silence',
     b5.pieces === 1 && b5.run === true, JSON.stringify(b5))
+
+  // ── 8. Run en échec sans message : le bilan porte une erreur (le bandeau
+  // ne doit pas afficher « Rien de neuf » sur un passage qui n'a pas abouti).
+  flux.configurerFlux({ runAgent: async () => ({ ok: false }) })
+  writeDocBlob(attacheTj(), KEY2, 'PV/D2_second.txt',
+    encryptDocBlob(keyGlobal, Buffer.from('Procès-verbal : seconde pièce.', 'utf8')), { savedBy: 'greffe' })
+  flux.enfiler(keys, { docKey: KEY2, raison: 'document', par: 'greffe' })
+  const b6 = await flux.traiterDossier(keys, NUM2)
+  attendu('run en échec : erreur au bilan', b6.run === true && b6.ok === false && Boolean(b6.erreur), JSON.stringify(b6))
 }
 
 console.log(echecs.length ? `\n${echecs.length} échec(s) : ${echecs.join(' ; ')}` : '\nTous les tests passent.')
