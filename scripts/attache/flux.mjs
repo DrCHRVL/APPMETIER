@@ -66,6 +66,13 @@ const bounded = (v, min, max, dflt) => {
 export const CHANTIER_SEUIL = bounded(process.env.SIRAL_ATTACHE_DESC_CHANTIER_SEUIL, 10, 1000, 100)
 const CR_NOUVEAUX_MAX = 5
 const CR_CHARS_MAX = 2_500
+// Comparaison : TOUS les CR existants en texte intégral (les plus récents
+// d'abord, dans la limite du budget), et le TEXTE des pièces nouvelles — une
+// mini-fiche de 700 caractères ne suffit pas à juger du neuf d'une chronologie
+// ou d'un rapport de synthèse.
+const CR_EXISTANTS_CHARS_MAX = 60_000
+const PIECE_TEXTE_MAX = 30_000
+const PIECES_TEXTE_TOTAL = 90_000
 const DESCRIPTION_CHARS_MAX = 6_000
 const ZONES_ACTES = ['Actes/', 'Geoloc/', 'Ecoutes/', 'DML/']
 const DERNIERS_MAX = 20
@@ -444,7 +451,18 @@ async function analyserActes(keys, e, docKey, rels) {
 }
 
 function promptFlux(keys, e, { fiches, crs, actes, candidats, actesAnalyse }) {
-  const crIndex = (e.comptesRendus || []).slice(-15).map((c) => `${c.date} — ${stripHtml(c.description).replace(/\s+/g, ' ').slice(0, 140)}`)
+  const nouveaux = new Set(crs.map((c) => Number(c.id)))
+  const crExistants = []
+  let budget = CR_EXISTANTS_CHARS_MAX
+  let omis = 0
+  for (const c of (e.comptesRendus || []).filter((x) => !nouveaux.has(Number(x.id))).reverse()) {
+    const txt = stripHtml(c.description)
+    if (budget <= 0) { omis++; continue }
+    const part = txt.slice(0, budget)
+    budget -= part.length
+    crExistants.push(`[${c.date}${c.enqueteur ? ` — ${c.enqueteur}` : ''}]`, part + (part.length < txt.length ? ' […]' : ''), '')
+  }
+  if (omis) crExistants.push(`(${omis} CR plus ancien(s) non joint(s) — budget atteint)`)
   const donnees = [
     '',
     '───── DOSSIER ─────',
@@ -455,8 +473,8 @@ function promptFlux(keys, e, { fiches, crs, actes, candidats, actesAnalyse }) {
     '───── DESCRIPTION ACTUELLE ─────',
     String(e.description || '(vide)').slice(0, DESCRIPTION_CHARS_MAX),
     '',
-    '───── INDEX DES CR EXISTANTS (les 15 derniers) ─────',
-    ...(crIndex.length ? crIndex : ['(aucun)']),
+    '───── COMPTES RENDUS EXISTANTS (tous, texte intégral, du plus récent au plus ancien) ─────',
+    ...(crExistants.length ? crExistants : ['(aucun)']),
   ]
   if (crs.length) {
     donnees.push('', `───── CR NOUVEAUX (${crs.length}) ─────`)
@@ -480,6 +498,7 @@ function promptFlux(keys, e, { fiches, crs, actes, candidats, actesAnalyse }) {
         f.resume ? `  ${f.resume}` : '  (pas de fiche : pièce illisible ou non textuelle)',
         pers ? `  Personnes : ${pers}` : null,
         ent ? `  Entités : ${ent}` : null,
+        f.texte ? `  ── Texte de la pièce ──\n${f.texte}\n  ── fin de la pièce ──` : null,
       )
     }
   }
@@ -601,6 +620,18 @@ export async function traiterDossier(keys, numero, { onHold = async () => false 
     const r = reg.pieces[rel] || {}
     return { chemin: rel, ...(r.fiche || {}), entites: r.entites }
   })
+  // Texte des pièces nouvelles (copie markdown ou cache — zéro extraction).
+  let resteTexte = PIECES_TEXTE_TOTAL
+  for (const f of fiches) {
+    if (resteTexte <= 0) break
+    let res
+    try { res = await texteDocumentIntegral(keys, docKey, f.chemin, { extraire: false }) } catch { res = { ok: false } }
+    if (!res.ok || !String(res.texte || '').trim()) continue
+    const txt = String(res.texte)
+    const max = Math.min(PIECE_TEXTE_MAX, resteTexte)
+    f.texte = txt.length > max ? `${txt.slice(0, max)}\n[… pièce tronquée — suite : lire_document]` : txt
+    resteTexte -= Math.min(txt.length, max)
+  }
   const candidats = candidatsMec(keys, e, fiches)
   const avantCr = (e.comptesRendus || []).length
   const avantMec = listPropositions(keys, { numero: num, enAttente: true }).filter((p) => p.type === 'mec').length
@@ -626,5 +657,5 @@ export async function traiterDossier(keys, numero, { onHold = async () => false 
   for (const rel of pretes) if (regApres.pieces[rel]) regApres.pieces[rel].flux = { le: new Date().toISOString(), ...(result.ok ? {} : { erreur: true }) }
   writeRegistre(keys, docKey, regApres)
   await audit(keys, 'flux_traite', { numero: num, ...bilan, ok: result.ok, convId: result.convId, erreur: result.error })
-  return fin({ ok: result.ok, erreur: result.error || undefined })
+  return fin({ ok: result.ok, erreur: result.ok ? undefined : (result.error || 'le passage n\'a pas abouti') })
 }
