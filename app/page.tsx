@@ -539,7 +539,9 @@ function AppContent() {
 
   // Entraide internationale : registre PARTAGÉ (coffre `entraide`), échéances
   // dépassées pour la pastille de la barre latérale, rappels push.
-  const { retards: entraideRetards } = useEntraideAlertes(hasModule('entraide'), user?.windowsUsername || '');
+  const { retards: entraideRetards, demandes: demandesEntraide } = useEntraideAlertes(hasModule('entraide'), user?.windowsUsername || '');
+  // Fiche d'entraide à ouvrir depuis la recherche globale (n : rejouer le même id).
+  const [entraideFiche, setEntraideFiche] = useState<{ id: string; n: number } | null>(null);
 
   useEffect(() => {
     setIsClient(true);
@@ -1754,11 +1756,13 @@ function AppContent() {
       instructions: hasModule('instructions'),
       air: hasModule('air'),
       mindmap: hasModule('mindmap'),
+      entraide: hasModule('entraide'),
     },
     hasOverboard: hasOverboard(),
     showAssistant: iaVisible,
     knownPersons: knownPersons.persons,
     dossiersExNihilo,
+    demandesEntraide,
   });
 
   // Exécute un résultat de la recherche globale (clic ou Entrée) : ouverture de
@@ -1833,6 +1837,14 @@ function AppContent() {
       case 'air': {
         await handleViewChange('air');
         handleSearchChange(String(data.nomPrenom || ''));
+        return;
+      }
+      case 'entraide': {
+        // Ouvre la fiche de la demande (clôturée comprise) ; le terme tapé ne
+        // doit pas rester comme filtre du registre.
+        await handleViewChange('entraide');
+        handleSearchChange('');
+        setEntraideFiche({ id: String(data.id || ''), n: Date.now() });
         return;
       }
       case 'personne': {
@@ -2262,7 +2274,7 @@ return (
           )}
 
           {baseView === 'entraide' && hasModule('entraide') && (
-            <EntraidePage searchTerm={debouncedSearchTerm} />
+            <EntraidePage searchTerm={debouncedSearchTerm} ficheDemandee={entraideFiche} />
           )}
 
           {baseView === 'stats' && (

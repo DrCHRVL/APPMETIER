@@ -5,18 +5,20 @@
 // magistrat. Tout le reste (étape, échéances) se déduira des clics suivants.
 
 import React, { useMemo, useState } from 'react';
-import { X, FileSearch, Loader2 } from 'lucide-react';
+import { X, FileSearch, Loader2, Flag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { useToast } from '@/contexts/ToastContext';
-import { aujourdhui, chercherAutorites, normaliser, PAYS, paysDe, TYPE_LABELS } from '@/utils/entraide/logique';
+import { aujourdhui, chercherAutorites, DRAPEAU_LABELS, normaliser, PAYS, paysDe, TYPE_LABELS } from '@/utils/entraide/logique';
 import { lirePiece, personnesEnTexte, rattacherLecture, useLecturePieceDisponible, type LecturePiece } from '@/utils/entraide/lecturePiece';
 import { LecturePieceVue } from './LecturePieceVue';
 import { AutoriteSelect } from './AutoriteSelect';
+import { NatinfChamp } from './NatinfChamp';
+import { AutreUniteInput } from './AutreUniteInput';
 import { MesuresInput } from './MesuresInput';
 import { utilisateursEntraide } from './utilisateurs';
 import { nouvelId, type EntraideApi } from '@/hooks/useEntraide';
-import type { AutoriteEtrangere, EntraideSens, EntraideType } from '@/types/entraideTypes';
+import type { AutoriteEtrangere, EntraideDrapeau, EntraideSens, EntraideType } from '@/types/entraideTypes';
 
 interface Props {
   api: EntraideApi;
@@ -49,6 +51,8 @@ export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree }) 
   const [objet, setObjet] = useState('');
   const [personnes, setPersonnes] = useState('');
   const [mesures, setMesures] = useState<string[]>([]);
+  const [natinf, setNatinf] = useState<string[]>([]);
+  const [drapeau, setDrapeau] = useState<EntraideDrapeau | undefined>(undefined);
   const [serviceId, setServiceId] = useState('');
   const [serviceAutre, setServiceAutre] = useState('');
   const [magistrat, setMagistrat] = useState(api.moi);
@@ -111,7 +115,9 @@ export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree }) 
       objet: objet.trim(),
       personnes: personnes.trim() || undefined,
       mesures,
-      serviceId: sens === 'recue' ? serviceId || undefined : undefined,
+      natinf: natinf.length ? natinf : undefined,
+      drapeau,
+      serviceId: sens === 'recue' && serviceId !== '__autre' ? serviceId || undefined : undefined,
       serviceAutre: sens === 'recue' && serviceId === '__autre' ? serviceAutre.trim() : undefined,
       magistrat: magistrat || undefined,
       dateEnregistrement: date,
@@ -201,7 +207,10 @@ export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree }) 
           <Champ label="Objet">
             <input className="w-full rounded-md border px-3 py-1.5 text-sm" placeholder="Ex. délit de fuite – audition d'un témoin" value={objet} onChange={(e) => setObjet(e.target.value)} />
           </Champ>
-          <Champ label="Personne(s) visée(s)">
+          <Champ label="Infraction (NATINF — équivalent en droit français)">
+            <NatinfChamp valeur={natinf} onChange={setNatinf} />
+          </Champ>
+          <Champ label="Personne(s) visée(s) ou victime(s)">
             <input className="w-full rounded-md border px-3 py-1.5 text-sm" placeholder="Ex. M. Paul X., né le 01/01/1980, demeurant …" value={personnes} onChange={(e) => setPersonnes(e.target.value)} />
           </Champ>
           <Champ label="Mesures demandées">
@@ -217,7 +226,7 @@ export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree }) 
                   <option value="__autre">Autre unité…</option>
                 </select>
                 {serviceId === '__autre' && (
-                  <input className="mt-1.5 w-full rounded-md border px-3 py-1.5 text-sm" placeholder="Ex. BR de Péronne" value={serviceAutre} onChange={(e) => setServiceAutre(e.target.value)} />
+                  <AutreUniteInput className="mt-1.5 w-full rounded-md border px-3 py-1.5 text-sm" demandes={api.data.demandes} valeur={serviceAutre} onChange={setServiceAutre} />
                 )}
               </Champ>
             )}
@@ -227,6 +236,17 @@ export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree }) 
                 {utilisateurs.map((u) => <option key={u.windowsUsername} value={u.windowsUsername}>{u.displayName}</option>)}
               </select>
             </Champ>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-gray-600">Drapeau :</span>
+            {(['orange', 'rouge'] as EntraideDrapeau[]).map((c) => (
+              <button key={c} type="button" onClick={() => setDrapeau(drapeau === c ? undefined : c)}
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs ${drapeau === c ? (c === 'rouge' ? 'bg-red-100 border-red-300 text-red-800' : 'bg-orange-100 border-orange-300 text-orange-800') : 'bg-white text-gray-700'}`}>
+                <Flag className={`h-3 w-3 ${c === 'rouge' ? 'text-red-600' : 'text-orange-500'} ${drapeau === c ? 'fill-current' : ''}`} />{DRAPEAU_LABELS[c]}
+              </button>
+            ))}
+            <span className="text-[11px] text-gray-500">délais de retour raccourcis, pré-alerte plus tôt</span>
           </div>
 
           <details className="rounded-md border border-gray-200 px-3 py-2">

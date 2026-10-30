@@ -11,13 +11,19 @@ import type {
   DemandeEntraide,
   EntraideAction,
   EntraideDocId,
+  EntraideDrapeau,
   EntraideEtat,
   EntraideEvenementType,
+  EntraideIssue,
   EntraideLangue,
   EntraideType,
+  ServiceEnqueteur,
 } from '@/types/entraideTypes';
 
 export const DELAIS = core.DELAIS;
+export const delaisDe = core.delaisDe as (d: DemandeEntraide) => typeof core.DELAIS & { enqueteursMois: number; emiseMois: number; relanceMois: number; procheJours: number };
+export const DRAPEAU_LABELS = core.DRAPEAU_LABELS as Record<EntraideDrapeau, string>;
+export const ISSUE_LABELS = core.ISSUE_LABELS as Record<EntraideIssue, string>;
 export const TYPE_LABELS = core.TYPE_LABELS as Record<EntraideType, string>;
 export const TYPE_COURTS = core.TYPE_COURTS as Record<EntraideType, string>;
 export const SENS_LABELS = core.SENS_LABELS as Record<'recue' | 'emise', string>;
@@ -30,6 +36,7 @@ export const aujourdhui = core.aujourdhui as (maintenant?: Date) => string;
 export const ajouterMois = core.ajouterMois as (iso: string, n: number) => string | null;
 export const ajouterJours = core.ajouterJours as (iso: string, n: number) => string | null;
 export const joursEntre = core.joursEntre as (de: string, a: string) => number | null;
+export const dateDepart = core.dateDepart as (d: DemandeEntraide) => string | null;
 export const dateFr = core.dateFr as (iso?: string | null) => string;
 export const estDate = core.estDate as (iso?: string | null) => boolean;
 export const etatDemande = core.etatDemande as (d: DemandeEntraide, jour?: string) => EntraideEtat;
@@ -53,6 +60,9 @@ export const paysDe = refs.paysDe as (nom?: string | null) => PaysEntraide | nul
 export const autoritesJudiciairesDe = refs.autoritesJudiciairesDe as (pays?: string | null) => string;
 export const CASES_TRAME = refs.CASES_TRAME as string[];
 export const SERVICES_DEPART = refs.SERVICES_DEPART as ServiceDepart[];
+export const migrerServices = refs.migrerServices as (
+  services: ServiceEnqueteur[], demandes: DemandeEntraide[],
+) => { services: Array<ServiceEnqueteur & { modifie?: boolean }>; supprimes: string[] } | null;
 export const FAMILLES_MESURES = refs.FAMILLES_MESURES as Record<string, string>;
 export const MESURES = refs.MESURES as MesureEntraide[];
 export const chercherMesures = refs.chercherMesures as (requete: string, frequences?: Record<string, number>) => MesureEntraide[];

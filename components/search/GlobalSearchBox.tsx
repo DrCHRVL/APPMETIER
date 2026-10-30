@@ -21,7 +21,7 @@ import {
 } from 'react';
 import {
   Search, FileText, Scale, Activity, Network, ArrowUpRight, Zap, History,
-  CornerDownLeft, SearchX, FileSearch, Loader2, MessageSquare,
+  CornerDownLeft, SearchX, FileSearch, Loader2, MessageSquare, Globe2,
 } from 'lucide-react';
 import type { GlobalSearchDoc, GlobalHit, GlobalHitGroup } from '@/utils/globalSearch';
 import type { GlobalSearchApi } from '@/hooks/useGlobalSearch';
@@ -57,6 +57,7 @@ const KIND_ICONS: Record<GlobalSearchDoc['kind'], typeof FileText> = {
   compte_rendu: MessageSquare,
   instruction: Scale,
   air: Activity,
+  entraide: Globe2,
   personne: Network,
   dossier_carto: Network,
   page: ArrowUpRight,
@@ -317,7 +318,7 @@ export const GlobalSearchBox = ({
             )}
             {row.doc.archived && (
               <span className="flex-shrink-0 text-[9.5px] font-bold uppercase tracking-wide bg-gray-100 text-gray-500 rounded-full px-1.5 py-px">
-                {statut === 'instruction' ? 'à l’instruction' : 'terminée'}
+                {statut === 'instruction' ? 'à l’instruction' : row.doc.kind === 'entraide' ? 'clôturée' : 'terminée'}
               </span>
             )}
           </span>

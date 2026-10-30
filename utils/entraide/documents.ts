@@ -8,7 +8,7 @@
 
 import PizZip from 'pizzip';
 import { PAPETERIE } from '@/lib/web/papeterie';
-import { aujourdhui, CASES_TRAME, paysDe } from './logique';
+import { aujourdhui, CASES_TRAME, delaisDe, paysDe } from './logique';
 import {
   autreUnite,
   contact,
@@ -64,6 +64,13 @@ function xmlLignes(s: string): string {
   return String(s ?? '').split('\n').map(xml).join('<text:line-break/>');
 }
 
+/** Délai de retour imprimé sur T1/T2 : raccourci si la demande porte un drapeau. */
+function delaiRetour(d: DemandeEntraide): string {
+  const mois = delaisDe(d).enqueteursMois;
+  const texte = mois === 1 ? 'd’un mois' : `de ${['', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six'][mois] || mois} mois`;
+  return d.drapeau === 'rouge' ? `${texte} (dossier prioritaire)` : texte;
+}
+
 /** Variables du modèle (texte brut ; échappées à l'insertion). */
 export function variablesDocument(ctx: ContexteDocument): Record<string, string> {
   const { demande: d, langue, autorite, service, signataire } = ctx;
@@ -95,6 +102,7 @@ export function variablesDocument(ctx: ContexteDocument): Record<string, string>
     contact_mail: signataire?.email || '',
     signataire: signataire?.prenomNom || '',
     fonction: langue === 'en' ? fonctionAnglaise(signataire?.fonction || '') : (signataire?.fonction || ''),
+    delai_retour: delaiRetour(d),
   };
   for (const c of [...CASES_TRAME, 'tribunal', 'parquet']) v[`cb_${c}`] = '□';
   for (const c of cases) v[`cb_${c}`] = '☒';

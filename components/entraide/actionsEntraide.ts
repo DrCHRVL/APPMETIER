@@ -18,7 +18,7 @@ import type {
   SignataireEntraide,
 } from '@/types/entraideTypes';
 
-/** Actions qui ne demandent qu'un clic : un événement à la date du jour. */
+/** Actions qui se résument à un événement daté (confirmé par l'écran). */
 const SIMPLES: Record<string, EntraideEvenementType> = {
   ar_annexe_b: 'ar_annexe_b',
   traduction_demandee: 'traduction_demandee',
@@ -31,11 +31,6 @@ const SIMPLES: Record<string, EntraideEvenementType> = {
   cloturer: 'cloture',
   reouvrir: 'reouverture',
 };
-
-/** Ces actions ouvrent un petit formulaire (délai, langue) au lieu d'agir d'un clic. */
-export function actionAvecFormulaire(a: EntraideAction): boolean {
-  return a.action === 'prorogation' || (a.action === 'preparer' && (a.doc === 't3' || a.doc === 't4'));
-}
 
 export interface ContexteAction {
   api: EntraideApi;
@@ -84,6 +79,14 @@ export async function executerAction(
     return;
   }
   switch (a.action) {
+    case 'do_accepter':
+    case 'do_refuser':
+      await api.ajouterEvenement(d.id, { type: 'cloture', date, issue: a.action === 'do_accepter' ? 'acceptee' : 'refusee' });
+      return;
+    case 'ar_recu_cloturer':
+      await api.ajouterEvenement(d.id, { type: 'ar_recu', date });
+      await api.ajouterEvenement(d.id, { type: 'cloture', date });
+      return;
     case 'retour_partiel':
       await api.ajouterEvenement(d.id, { type: 'retour_enqueteurs', date, partiel: true });
       return;

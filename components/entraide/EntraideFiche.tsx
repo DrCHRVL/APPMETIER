@@ -4,19 +4,21 @@
 // reste à faire. La chronologie se remplit par les boutons ; seules les dates
 // se corrigent à la main.
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { X, Trash2, Download, Mail, Copy, Plus, Check, FileSearch, Loader2 } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { X, Trash2, Download, Mail, Copy, Plus, Check, FileSearch, Loader2, Flag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { useToast } from '@/contexts/ToastContext';
 import { copyPlainToClipboard } from '@/utils/richTextExport';
 import {
-  ajouterMois,
   aujourdhui,
   dateFr,
   DOC_LABELS,
+  DRAPEAU_LABELS,
   etatDemande,
   EVENEMENT_LABELS,
+  ISSUE_LABELS,
+  joursEntre,
   MESURES,
   prochainesActions,
   SENS_LABELS,
@@ -26,7 +28,12 @@ import {
 import { languesDisponibles } from '@/utils/entraide/documents';
 import { lienMailto, mailsDemande } from '@/utils/entraide/mails';
 import { lignesDemande } from '@/utils/entraide/textes';
-import { actionAvecFormulaire, executerAction, signataireDe, telechargerCourrier } from './actionsEntraide';
+import { executerAction, signataireDe, telechargerCourrier } from './actionsEntraide';
+import { ConfirmationAction, type OptionsAction } from './ConfirmationAction';
+import { NatinfChamp, NatinfLibelles } from './NatinfChamp';
+import { AutreUniteInput } from './AutreUniteInput';
+import { RichTextEditor } from '@/components/instruction/RichTextEditor';
+import { renderFormattedText } from '@/lib/formatCR';
 import { AutoriteSelect } from './AutoriteSelect';
 import { MesuresInput } from './MesuresInput';
 import { LecturePieceVue } from './LecturePieceVue';
@@ -34,7 +41,7 @@ import { lecturesDemande, lirePiece, personnesEnTexte, useLecturePieceDisponible
 import { BadgeEcheance, BadgeType } from './badges';
 import { nomUtilisateur, utilisateursEntraide } from './utilisateurs';
 import { nouvelId, type EntraideApi } from '@/hooks/useEntraide';
-import type { EntraideAction, EntraideDocId, EntraideLangue } from '@/types/entraideTypes';
+import type { DemandeEntraide, EntraideAction, EntraideDocId, EntraideDrapeau } from '@/types/entraideTypes';
 
 interface Props {
   api: EntraideApi;
@@ -44,8 +51,54 @@ interface Props {
 
 const ETAPES_RECUE = ['Réception', 'Soit-transmis', 'Enquêteurs', 'Avis du magistrat', 'Retour à l’autorité', 'AR international', 'Clôture'];
 const ETAPES_EMISE = ['Enregistrement', 'Traduction', 'Envoi', 'Attente de l’étranger', 'Exécution reçue', 'Clôture'];
+const ETAPES_DO_RECUE = ['Réception', 'Décision : enquête ou classement', 'Clôture'];
+const ETAPES_DO_EMISE = ['Enregistrement', 'Envoi', 'Accusé de réception', 'Clôture'];
 
-function indexEtape(sens: 'recue' | 'emise', etape: string, doc?: EntraideDocId): number {
+function etapesDe(d: DemandeEntraide): string[] {
+  if (d.type === 'do') return d.sens === 'recue' ? ETAPES_DO_RECUE : ETAPES_DO_EMISE;
+  return d.sens === 'recue' ? ETAPES_RECUE : ETAPES_EMISE;
+}
+
+/** Observations : HTML (éditeur) ou texte brut (reprise Excel, connecteur). */
+function observationsHtml(v?: string): string {
+  if (!v) return '';
+  return /<[a-z][\s\S]*>/i.test(v) ? v : renderFormattedText(v).replace(/\n/g, '<br>');
+}
+
+/** Champ Observations en texte enrichi, enregistré après une courte pause de frappe. */
+const ObservationsEditeur: React.FC<{ api: EntraideApi; id: string; valeur?: string }> = ({ api, id, valeur }) => {
+  const minuteur = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const enAttente = useRef<string | null>(null);
+  const initiale = useMemo(() => observationsHtml(valeur), [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ecrire = () => {
+    if (enAttente.current === null) return;
+    api.modifierDemande(id, { observations: enAttente.current });
+    enAttente.current = null;
+  };
+  useEffect(() => () => { if (minuteur.current) clearTimeout(minuteur.current); ecrire(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <RichTextEditor
+      id={id}
+      value={initiale}
+      minHeight={140}
+      maxHeight="45vh"
+      placeholder="Observations, suivi, consignes… (gras, italique, surlignage, listes)"
+      onChange={(html) => {
+        enAttente.current = html;
+        if (minuteur.current) clearTimeout(minuteur.current);
+        minuteur.current = setTimeout(ecrire, 800);
+      }}
+    />
+  );
+};
+
+function indexEtape(d: DemandeEntraide, etape: string, doc?: EntraideDocId): number {
+  const sens = d.sens;
+  if (d.type === 'do') {
+    if (etape === 'cloturee') return sens === 'recue' ? 3 : 4;
+    if (sens === 'recue') return 1;
+    return etape === 'attente_ar' ? 2 : 1;
+  }
   if (sens === 'recue') {
     const m: Record<string, number> = { a_traiter: 1, en_traduction: 1, chez_enqueteurs: 2, avis_magistrat: 3, attente_ar: 5, a_cloturer: 6, cloturee: 7 };
     if (etape === 'a_signer' || etape === 'a_envoyer') return doc === 't3' ? 4 : doc === 't2' ? 2 : 1;
@@ -57,11 +110,11 @@ function indexEtape(sens: 'recue' | 'emise', etape: string, doc?: EntraideDocId)
 
 export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
   const { showToast } = useToast();
-  useEscapeKey(onClose);
   const d = api.data.demandes.find((x) => x.id === demandeId);
-  const [formulaire, setFormulaire] = useState<EntraideAction | null>(null);
-  const [langue, setLangue] = useState<EntraideLangue>('fr');
-  const [delai, setDelai] = useState<{ mois: number; date: string }>({ mois: 3, date: '' });
+  const [aConfirmer, setAConfirmer] = useState<EntraideAction | null>(null);
+  const [titre, setTitre] = useState<string | null>(null);
+  // Échap ferme la fenêtre ouverte par-dessus (confirmation, titre), pas la fiche.
+  useEscapeKey(onClose, !aConfirmer && titre === null);
   const [edition, setEdition] = useState(false);
   const [note, setNote] = useState('');
   const [legale, setLegale] = useState({ date: '', libelle: '' });
@@ -91,25 +144,21 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
   const monSignataire = api.index.signataire.get(api.moi.toLowerCase()) || null;
   const ctx = { api, demande: d, monSignataire, notifier: showToast };
   const evenements = [...d.evenements].sort((a, b) => b.date.localeCompare(a.date) || b.creeLe.localeCompare(a.creeLe));
-  const etapes = d.sens === 'recue' ? ETAPES_RECUE : ETAPES_EMISE;
-  const idx = indexEtape(d.sens, etat.etape, etat.docEnAttente?.doc);
+  const etapes = etapesDe(d);
+  const idx = indexEtape(d, etat.etape, etat.docEnAttente?.doc);
   const docs: EntraideDocId[] = d.sens === 'recue' ? ['t1', 't2', 't3'] : ['t4'];
   const mails = mailsDemande(d, { autorite, service, signataire: monSignataire || signataireDe(api, d) });
 
-  const lancer = async (a: EntraideAction) => {
-    if (actionAvecFormulaire(a)) {
-      setLangue(autorite?.langue || 'fr');
-      setFormulaire(a);
-      return;
+  const confirmer = async (o: OptionsAction) => {
+    if (!aConfirmer) return;
+    try {
+      await executerAction(ctx, aConfirmer, o);
+      setAConfirmer(null);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Échec', 'error');
     }
-    try { await executerAction(ctx, a); } catch (e) { showToast(e instanceof Error ? e.message : 'Échec', 'error'); }
   };
-
-  const confirmerFormulaire = async () => {
-    if (!formulaire) return;
-    await executerAction(ctx, formulaire, { langue, delaiMois: delai.mois, echeance: delai.date || undefined });
-    setFormulaire(null);
-  };
+  const retardExecution = etat.echeancesLegales.find((l) => l.code === 'execution_dee' && l.statut === 'depasse');
 
   /** Signature associée au dernier courrier de ce type (pour retélécharger la version signée). */
   const signePour = (doc: EntraideDocId): string | undefined => {
@@ -161,12 +210,36 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
               <BadgeType type={d.type} />
               <span className="font-semibold">{d.sens === 'recue' ? `← reçue de ${d.pays}` : `émise vers ${d.pays} →`}</span>
               <BadgeEcheance etat={etat} />
+              {d.drapeau && <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${d.drapeau === 'rouge' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}><Flag className="h-3 w-3 fill-current" />{DRAPEAU_LABELS[d.drapeau]}</span>}
             </div>
-            <h2 className="mt-1 text-base font-semibold text-gray-900 truncate">
-              <span className="font-mono">{d.refEsabora}</span>{d.objet ? ` · ${d.objet}` : ''}
-            </h2>
+            {titre === null ? (
+              <h2 className="mt-1 text-base font-semibold text-gray-900 truncate cursor-text hover:bg-gray-50 rounded px-1 -mx-1"
+                title={`${d.objet || ''}\n(cliquer pour modifier l’intitulé)`} onClick={() => setTitre(d.objet || '')}>
+                <span className="font-mono">{d.refEsabora}</span>{d.objet ? ` · ${d.objet}` : ' · ajouter un intitulé…'}
+              </h2>
+            ) : (
+              <div className="mt-1 flex items-center gap-1.5">
+                <span className="font-mono text-base font-semibold">{d.refEsabora}</span>
+                <input autoFocus className="flex-1 min-w-0 rounded border px-2 py-1 text-sm" value={titre}
+                  onChange={(e) => setTitre(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { api.modifierDemande(d.id, { objet: titre.trim() }); setTitre(null); }
+                    if (e.key === 'Escape') setTitre(null);
+                  }} />
+                <Button size="sm" onClick={() => { api.modifierDemande(d.id, { objet: titre.trim() }); setTitre(null); }}>OK</Button>
+                <Button size="sm" variant="outline" onClick={() => setTitre(null)}>Annuler</Button>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-1">
+            {(['orange', 'rouge'] as EntraideDrapeau[]).map((c) => (
+              <button key={c} title={d.drapeau === c ? `Retirer le drapeau « ${DRAPEAU_LABELS[c]} »` : `Drapeau ${c} : ${DRAPEAU_LABELS[c].toLowerCase()} (délais raccourcis, pré-alerte)`}
+                onClick={() => api.modifierDemande(d.id, { drapeau: d.drapeau === c ? undefined : c })}
+                className={`p-1.5 rounded-lg ${d.drapeau === c ? (c === 'rouge' ? 'bg-red-100' : 'bg-orange-100') : 'hover:bg-gray-100'}`}>
+                <Flag className={`h-4 w-4 ${c === 'rouge' ? 'text-red-600' : 'text-orange-500'} ${d.drapeau === c ? 'fill-current' : ''}`} />
+              </button>
+            ))}
+            <span className="w-2" />
             {confirmSuppr ? (
               <>
                 <span className="text-xs text-red-700 mr-1">Supprimer définitivement ?</span>
@@ -207,46 +280,14 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
             {actions.map((a) => (
               <Button key={`${a.action}:${a.doc || ''}`} size="sm" variant={a.primaire ? 'default' : 'outline'}
                 className={a.primaire ? 'bg-[#2B5746] hover:bg-[#2B5746]/90' : ''}
-                onClick={() => lancer(a)}>
+                onClick={() => setAConfirmer(a)}>
                 {a.libelle}
               </Button>
             ))}
           </div>
-          {formulaire && (
-            <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 flex flex-wrap items-end gap-3 text-sm">
-              {formulaire.action === 'prorogation' ? (
-                <>
-                  <div>
-                    <div className="text-xs text-gray-600 mb-1">Nouveau délai</div>
-                    <div className="flex gap-1">
-                      {[3, 4, 6].map((m) => (
-                        <button key={m} type="button" onClick={() => setDelai({ mois: m, date: '' })}
-                          className={`px-2.5 py-1 rounded border text-xs ${!delai.date && delai.mois === m ? 'bg-gray-900 text-white' : 'bg-white'}`}>{m} mois</button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-600 mb-1">… ou à représenter le</div>
-                    <input type="date" className="rounded border px-2 py-1 text-xs" value={delai.date} onChange={(e) => setDelai({ ...delai, date: e.target.value })} />
-                  </div>
-                  <span className="text-xs text-gray-500">Échéance : {dateFr(delai.date || ajouterMois(jour, delai.mois) || '')}</span>
-                </>
-              ) : (
-                <div>
-                  <div className="text-xs text-gray-600 mb-1">{DOC_LABELS[formulaire.doc!]} — langue</div>
-                  <div className="flex gap-1">
-                    {(['fr', 'en'] as EntraideLangue[]).map((l) => (
-                      <button key={l} type="button" onClick={() => setLangue(l)}
-                        className={`px-2.5 py-1 rounded border text-xs ${langue === l ? 'bg-gray-900 text-white' : 'bg-white'}`}>{l === 'fr' ? 'Français' : 'Anglais'}</button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div className="ml-auto flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => setFormulaire(null)}>Annuler</Button>
-                <Button size="sm" onClick={confirmerFormulaire}>Valider</Button>
-              </div>
-            </div>
+          {aConfirmer && (
+            <ConfirmationAction action={aConfirmer} demande={d} langueParDefaut={autorite?.langue || 'fr'}
+              onAnnuler={() => setAConfirmer(null)} onValider={confirmer} />
           )}
 
           {lecturePossible && (
@@ -291,7 +332,8 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
                       onCreer={(a) => api.enregistrerAutorite(a)} />
                   </div>
                   <label className="block text-xs text-gray-500">Objet<input className={champ} value={d.objet} onChange={(e) => api.modifierDemande(d.id, { objet: e.target.value })} /></label>
-                  <label className="block text-xs text-gray-500">Personne(s) visée(s)<input className={champ} value={d.personnes || ''} onChange={(e) => api.modifierDemande(d.id, { personnes: e.target.value })} /></label>
+                  <label className="block text-xs text-gray-500">Personne(s) visée(s) ou victime(s)<input className={champ} value={d.personnes || ''} onChange={(e) => api.modifierDemande(d.id, { personnes: e.target.value })} /></label>
+                  <div className="text-xs text-gray-500">Infraction (NATINF)<NatinfChamp valeur={d.natinf || []} onChange={(c) => api.modifierDemande(d.id, { natinf: c })} /></div>
                   <div className="text-xs text-gray-500">Mesures<MesuresInput valeur={d.mesures || []} onChange={(m) => api.modifierDemande(d.id, { mesures: m })} frequences={frequences} /></div>
                   {d.sens === 'recue' && (
                     <label className="block text-xs text-gray-500">Service enquêteur
@@ -300,7 +342,7 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
                         {api.data.services.filter((s) => !s.inactif || s.id === d.serviceId).map((s) => <option key={s.id} value={s.id}>{s.libelle}</option>)}
                         <option value="__autre">Autre unité…</option>
                       </select>
-                      {d.serviceAutre !== undefined && <input className={`${champ} mt-1`} value={d.serviceAutre} onChange={(e) => api.modifierDemande(d.id, { serviceAutre: e.target.value })} />}
+                      {d.serviceAutre !== undefined && <AutreUniteInput className={`${champ} mt-1`} demandes={api.data.demandes} valeur={d.serviceAutre} onChange={(v) => api.modifierDemande(d.id, { serviceAutre: v })} />}
                     </label>
                   )}
                   <label className="block text-xs text-gray-500">Magistrat en charge
@@ -312,7 +354,6 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
                   <label className="block text-xs text-gray-500">Paragraphe « Bien vouloir… » (une ligne par mesure)
                     <textarea className={champ} rows={4} value={d.texteMesures ?? lignesDemande(d).join('\n')} onChange={(e) => api.modifierDemande(d.id, { texteMesures: e.target.value })} />
                   </label>
-                  <label className="block text-xs text-gray-500">Observations<textarea className={champ} rows={2} value={d.observations || ''} onChange={(e) => api.modifierDemande(d.id, { observations: e.target.value })} /></label>
                 </div>
               ) : (
                 <dl className="grid grid-cols-[110px_1fr] gap-y-1.5 text-[13px]">
@@ -321,10 +362,10 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
                   <dt className="text-gray-500">Type</dt><dd>{TYPE_LABELS[d.type]} · {SENS_LABELS[d.sens]}</dd>
                   <dt className="text-gray-500">Autorité</dt><dd>{autorite?.nom || d.autoriteNom || '—'}</dd>
                   {d.sens === 'recue' && (<><dt className="text-gray-500">Service saisi</dt><dd>{service?.libelle || d.serviceAutre || '—'}</dd></>)}
-                  <dt className="text-gray-500">Personnes</dt><dd>{d.personnes || '—'}</dd>
+                  <dt className="text-gray-500">Personnes / victimes</dt><dd>{d.personnes || '—'}</dd>
+                  <dt className="text-gray-500">Infraction</dt><dd><NatinfLibelles codes={d.natinf} /></dd>
                   <dt className="text-gray-500">Mesures</dt><dd>{(d.mesures || []).map((id) => MESURES.find((m) => m.id === id)?.libelle || id).join(', ') || '—'}</dd>
                   <dt className="text-gray-500">Magistrat</dt><dd className="font-medium">{nomUtilisateur(d.magistrat) || '—'}</dd>
-                  {d.observations && (<><dt className="text-gray-500">Observations</dt><dd className="whitespace-pre-wrap">{d.observations}</dd></>)}
                   {d.origine && (<><dt className="text-gray-500">Origine</dt><dd className="text-gray-500">Excel · {d.origine.onglet} l. {d.origine.ligne}</dd></>)}
                 </dl>
               )}
@@ -350,7 +391,7 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
                 </div>
               ))}
               {etat.echeancesLegales.some((l) => l.code === 'execution_dee' && l.statut === 'depasse') && (
-                <p className="mt-2 rounded bg-red-50 px-2 py-1.5 text-xs text-red-800">Délai d’exécution dépassé : informer l’autorité d’émission du retard et du délai prévisible (art. 12 § 6 dir. 2014/41/UE).</p>
+                <p className="mt-2 rounded bg-red-50 px-2 py-1.5 text-xs text-red-800">Délai d’exécution dépassé depuis {joursEntre(retardExecution!.date, jour)} jours : informer l’autorité d’émission du retard et du délai prévisible (art. 12 § 6 dir. 2014/41/UE) — mail « Point de situation » ci-dessous.</p>
               )}
               <div className="mt-3 flex gap-1.5">
                 <input type="date" className="rounded border px-2 py-1 text-xs" value={legale.date} onChange={(e) => setLegale({ ...legale, date: e.target.value })} />
@@ -387,7 +428,7 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
                       <button className="ml-auto opacity-0 group-hover:opacity-100 text-red-600" title="Retirer cet événement" onClick={() => api.supprimerEvenement(d.id, e.id)}>×</button>
                     </div>
                     <div className="text-[13px] text-gray-800">
-                      {EVENEMENT_LABELS[e.type]}{e.doc ? ` — ${e.doc.toUpperCase()}${e.langue === 'en' ? ' (EN)' : ''}` : ''}{e.partiel ? ' (partiel)' : ''}
+                      {EVENEMENT_LABELS[e.type]}{e.issue ? ` — ${ISSUE_LABELS[e.issue]}` : ''}{e.doc ? ` — ${e.doc.toUpperCase()}${e.langue === 'en' ? ' (EN)' : ''}` : ''}{e.partiel ? ' (partiel)' : ''}
                       {e.echeance ? ` → ${dateFr(e.echeance)}` : e.delaiMois ? ` (${e.delaiMois} mois)` : ''}
                     </div>
                     {e.note && <div className="text-xs text-gray-600 whitespace-pre-wrap">{e.note}</div>}
@@ -395,6 +436,12 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
                 ))}
               </ol>
             </div>
+          </div>
+
+          {/* Observations */}
+          <div className="rounded-lg border bg-white p-4 text-sm">
+            <h3 className="text-sm font-semibold mb-2">Observations</h3>
+            <ObservationsEditeur api={api} id={d.id} valeur={d.observations} />
           </div>
 
           {/* Courriers et mails */}

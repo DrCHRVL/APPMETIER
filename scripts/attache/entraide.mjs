@@ -16,10 +16,22 @@ import { attacheTj, readVault, writeVault, withFileLock } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import {
   aujourdhui, estDate, etatDemande, prochainesActions, cleUrgence, chercherAutorites,
-  normaliser, texteRecherche, dateFr, EVENEMENT_LABELS, TYPE_LABELS, ETAPE_LABELS,
+  normaliser, texteRecherche, dateFr, EVENEMENT_LABELS, TYPE_LABELS, ETAPE_LABELS, DRAPEAU_LABELS, ISSUE_LABELS,
 } from '../../lib/entraide/core.mjs'
 import { paysDe, MESURES, SERVICES_DEPART } from '../../lib/entraide/referentiels.mjs'
 import { computeEntraideStats } from '../../lib/stats/entraideCore.mjs'
+import { natinfEntry, natinfLabel } from './natinf.mjs'
+
+/** Observations saisies en texte enrichi (HTML) → texte lisible. */
+function texteBrut(html) {
+  return String(html)
+    .replace(/<br\s*\/?>|<\/(p|div|li)>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '- ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
 
 const VAULT = 'entraide'
 const TYPES = ['dee', 'do', 'cri', 'execution', 'civil']
@@ -92,9 +104,22 @@ function resoudreService(data, s) {
   return hit ? { serviceId: hit.id } : { serviceAutre: String(s) }
 }
 
+/** Codes NATINF vérifiés au référentiel, dédoublonnés. */
+function controlerNatinf(codes) {
+  const liste = Array.from(new Set((codes || []).map((c) => String(c).trim()).filter(Boolean)))
+  const inconnus = liste.filter((c) => !natinfEntry(c))
+  if (inconnus.length) throw new Error(`NATINF inconnu(s) du référentiel : ${inconnus.join(', ')} — natinf_chercher d'abord`)
+  return liste
+}
+
 function controlerMesures(ids) {
   for (const id of ids || []) if (!MESURES.some((m) => m.id === id)) throw new Error(`Mesure inconnue : ${id} — mesures possibles : ${MESURES.map((m) => m.id).join(', ')}`)
   return ids || []
+}
+
+function issueValide(v) {
+  if (!['acceptee', 'refusee'].includes(v)) throw new Error('issue : acceptee | refusee (dénonciation officielle reçue)')
+  return v
 }
 
 function evenement(e, par) {
@@ -111,6 +136,7 @@ function evenement(e, par) {
     ...(e.delaiMois ? { delaiMois: Number(e.delaiMois) } : {}),
     ...(e.echeance ? { echeance: date(e.echeance, 'echeance') } : {}),
     ...(e.partiel ? { partiel: true } : {}),
+    ...(e.issue ? { issue: issueValide(e.issue) } : {}),
     ...(e.note ? { note: String(e.note) } : {}),
     creeLe: e.creeLe || maintenant(),
   }
@@ -135,6 +161,7 @@ function resume(d, data, jour) {
     niveau: e.niveau,
     ...(service || d.serviceAutre ? { service: service?.libelle || d.serviceAutre } : {}),
     ...(d.magistrat ? { magistrat: d.magistrat } : {}),
+    ...(d.drapeau ? { drapeau: `${d.drapeau} — ${DRAPEAU_LABELS[d.drapeau]}` } : {}),
   }
 }
 
@@ -175,15 +202,16 @@ export function lireEntraide(keys, ref) {
     refEtrangere: d.refEtrangere || null,
     personnes: d.personnes || null,
     mesures: (d.mesures || []).map((id) => MESURES.find((m) => m.id === id)?.libelle || id),
+    natinf: (d.natinf || []).map((c) => ({ code: c, libelle: natinfLabel(c) })),
     texteMesures: d.texteMesures || null,
-    observations: d.observations || null,
+    observations: d.observations ? texteBrut(d.observations) : null,
     dateEnregistrement: d.dateEnregistrement,
     echeanceInterne: e.echeance,
     echeancesLegales: e.echeancesLegales,
     courrierEnAttente: e.docEnAttente,
     prochainesActions: prochainesActions(d, e).map((x) => x.libelle),
     chronologie: [...d.evenements].sort((x, y) => x.date.localeCompare(y.date)).map((x) => ({
-      id: x.id, date: dateFr(x.date), evenement: EVENEMENT_LABELS[x.type] + (x.doc ? ` (${x.doc.toUpperCase()})` : '') + (x.partiel ? ' — partiel' : ''),
+      id: x.id, date: dateFr(x.date), evenement: EVENEMENT_LABELS[x.type] + (x.doc ? ` (${x.doc.toUpperCase()})` : '') + (x.partiel ? ' — partiel' : '') + (x.issue ? ` — ${ISSUE_LABELS[x.issue]}` : ''),
       ...(x.note ? { note: x.note } : {}), ...(x.par ? { par: x.par } : {}),
     })),
     ...(d.origine ? { origine: d.origine } : {}),
@@ -234,6 +262,7 @@ function construireDemande(data, a, par) {
     ...resoudreService(data, a.service),
     objet: String(a.objet || ''),
     mesures: controlerMesures(a.mesures),
+    ...(a.natinf?.length ? { natinf: controlerNatinf(a.natinf) } : {}),
     ...(a.personnes ? { personnes: String(a.personnes) } : {}),
     ...(a.magistrat ? { magistrat: String(a.magistrat) } : {}),
     ...(a.observations ? { observations: String(a.observations) } : {}),
@@ -317,6 +346,11 @@ export async function modifierEntraide(keys, a) {
     if (a.sens !== undefined && !SENS.includes(a.sens)) throw new Error('sens : recue | emise')
     for (const c of CHAMPS_MODIFIABLES) if (a[c] !== undefined) d[c] = String(a[c])
     if (a.mesures !== undefined) d.mesures = controlerMesures(a.mesures)
+    if (a.natinf !== undefined) d.natinf = controlerNatinf(a.natinf)
+    if (a.drapeau !== undefined) {
+      if (!['', 'orange', 'rouge'].includes(a.drapeau)) throw new Error('drapeau : orange | rouge | "" (retirer)')
+      if (a.drapeau) d.drapeau = a.drapeau; else delete d.drapeau
+    }
     if (a.autorite !== undefined) {
       const au = resoudreAutorite(data, a.autorite, d.pays)
       if (au) { d.autoriteId = au.id; d.autoriteNom = au.nom } else { delete d.autoriteId; d.autoriteNom = String(a.autorite) }
@@ -327,6 +361,29 @@ export async function modifierEntraide(keys, a) {
     }
     d.dateMiseAJour = maintenant()
     return { modifie: resume(d, data, aujourdhui()) }
+  })
+}
+
+/**
+ * Complément en LOT : `affectations` = [{ ref, natinf?, personnes?, mesures?,
+ * objet? }] (ref = id ou n° ESABORA non ambigu). Chaque champ fourni remplace
+ * celui de la demande ; tout ou rien si une référence, un code NATINF ou une
+ * mesure est inconnu.
+ */
+export async function completerEntraide(keys, { affectations = [] }) {
+  return ecrire(keys, (data) => {
+    const t = maintenant()
+    const faites = affectations.map((x) => {
+      const d = trouver(data, x.ref)
+      const patch = {}
+      if (x.natinf !== undefined) patch.natinf = controlerNatinf(x.natinf)
+      if (x.mesures !== undefined) patch.mesures = controlerMesures(x.mesures)
+      if (x.personnes !== undefined) patch.personnes = String(x.personnes)
+      if (x.objet !== undefined) patch.objet = String(x.objet)
+      return { d, patch }
+    })
+    for (const { d, patch } of faites) { Object.assign(d, patch); d.dateMiseAJour = t }
+    return { modifiees: faites.length }
   })
 }
 

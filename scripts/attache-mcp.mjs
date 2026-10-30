@@ -39,7 +39,7 @@ import { runSubagents } from './attache/subagents.mjs'
 import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
 import { modifierDossierInstruction, elementInstruction, misEnExamenInstruction, COLLECTIONS_INSTRUCTION } from './attache/instruEcriture.mjs'
 import { enregistrerAudience, resultatAudienceMarkdown, ISSUES_AUDIENCE, DECISIONS_AUDIENCE } from './attache/audience.mjs'
-import { listerEntraide, lireEntraide, statsEntraide, referentielEntraide, creerEntraide, importerEntraide, modifierEntraide, evenementEntraide, autoriteEntraide, EVENEMENTS_ENTRAIDE } from './attache/entraide.mjs'
+import { listerEntraide, lireEntraide, statsEntraide, referentielEntraide, creerEntraide, importerEntraide, modifierEntraide, completerEntraide, evenementEntraide, autoriteEntraide, EVENEMENTS_ENTRAIDE } from './attache/entraide.mjs'
 import { listDepot, readDepotText, readMailPieceText, rangerDocument, rangerPieceDansKb, verserDocumentCarto, ecarterDepot, ZONES } from './attache/depot.mjs'
 import { addProposition, listPropositions } from './attache/propositions.mjs'
 import { lireRegistre, recouperRegistres } from './attache/registre.mjs'
@@ -143,7 +143,7 @@ const OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME = new Set([
   'modifier_dossier', 'archiver_dossier', 'ajouter_mec', 'modifier_mec',
   'enregistrer_audience',
   'instru_modifier_dossier', 'instru_element', 'instru_mis_en_examen',
-  'entraide_creer', 'entraide_modifier', 'entraide_evenement', 'entraide_autorite', 'entraide_importer',
+  'entraide_creer', 'entraide_modifier', 'entraide_completer', 'entraide_evenement', 'entraide_autorite', 'entraide_importer',
   'actualiser_description', 'ranger_document', 'carto_verser_document', 'depot_ecarter',
   'routine_enregistrer', 'routine_suspendre', 'routine_supprimer',
   'instructions_projet_enregistrer',
@@ -1040,6 +1040,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
         objet: { type: 'string' },
         personnes: { type: 'string' },
         mesures: { type: 'array', items: { type: 'string' } },
+        natinf: { type: 'array', items: { type: 'string' }, description: 'Codes NATINF de l\'infraction (ou de son équivalent en droit français) — natinf_chercher d\'abord' },
         service: { type: 'string' },
         magistrat: { type: 'string' },
         observations: { type: 'string' },
@@ -1053,7 +1054,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'entraide_modifier',
-    description: 'Modifie une demande d\'entraide (seuls les champs fournis changent) : refEsabora, refEtrangere, type, sens, pays, autorite, objet, personnes, mesures (remplace la liste), service, magistrat, observations, texteMesures (paragraphe « Bien vouloir… », une ligne par mesure), echeanceLegale {date, libelle} (ajoutée). Écriture versionnée. RÉSERVÉ à une instruction EXPLICITE du magistrat.',
+    description: 'Modifie une demande d\'entraide (seuls les champs fournis changent) : refEsabora, refEtrangere, type, sens, pays, autorite, objet, personnes (visées et victimes), mesures (remplace la liste), natinf (codes, remplace la liste), drapeau (orange | rouge | "" pour retirer), service, magistrat, observations, texteMesures (paragraphe « Bien vouloir… », une ligne par mesure), echeanceLegale {date, libelle} (ajoutée). Écriture versionnée. RÉSERVÉ à une instruction EXPLICITE du magistrat.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1062,6 +1063,8 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
         type: { type: 'string', enum: ['dee', 'do', 'cri', 'execution', 'civil'] }, sens: { type: 'string', enum: ['recue', 'emise'] },
         pays: { type: 'string' }, autorite: { type: 'string' }, objet: { type: 'string' }, personnes: { type: 'string' },
         mesures: { type: 'array', items: { type: 'string' } }, service: { type: 'string' }, magistrat: { type: 'string' },
+        natinf: { type: 'array', items: { type: 'string' } },
+        drapeau: { type: 'string', enum: ['orange', 'rouge', ''], description: 'orange = suivi renforcé, rouge = résultats urgents (délais raccourcis) ; "" retire' },
         observations: { type: 'string' }, texteMesures: { type: 'string' },
         echeanceLegale: { type: 'object', properties: { date: { type: 'string' }, libelle: { type: 'string' } } },
       },
@@ -1071,8 +1074,34 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
     write: true,
   },
   {
+    name: 'entraide_completer',
+    description: 'Complète en LOT des demandes d\'entraide : `affectations` [{ref, natinf?, personnes?, mesures?, objet?}] — ref = id (voir entraide_lister) ou n° ESABORA non ambigu. Chaque champ fourni REMPLACE celui de la demande : natinf = codes de l\'infraction ou de son équivalent en droit français (natinf_chercher d\'abord) ; personnes = personnes visées ET victimes (texte) ; mesures = identifiants du catalogue (entraide_referentiel) ; objet = intitulé. Tout ou rien si un code, une mesure ou une référence est inconnu. Écriture versionnée. RÉSERVÉ à une instruction EXPLICITE du magistrat.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        affectations: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              ref: { type: 'string' },
+              natinf: { type: 'array', items: { type: 'string' } },
+              personnes: { type: 'string' },
+              mesures: { type: 'array', items: { type: 'string' } },
+              objet: { type: 'string' },
+            },
+            required: ['ref'],
+          },
+        },
+      },
+      required: ['affectations'],
+    },
+    handler: async (a) => completerEntraide(keys, a || {}),
+    write: true,
+  },
+  {
     name: 'entraide_evenement',
-    description: 'Fait avancer une demande d\'entraide en ajoutant un ÉVÉNEMENT daté à sa chronologie (l\'étape et l\'échéance s\'en déduisent) — ex. envoi_enqueteurs (ouvre 3 mois), relance_enqueteurs, retour_enqueteurs (partiel:true si partiel), envoi_autorite (émise : ouvre 4 mois), relance_autorite, prorogation (delaiMois ou echeance AAAA-MM-JJ), retour_execution, ar_recu, cloture, note. operation "modifier" (date, note) ou "supprimer" avec `id` d\'événement (voir entraide_lire). Types : ' + EVENEMENTS_ENTRAIDE.join(', ') + '. RÉSERVÉ à une instruction EXPLICITE du magistrat.',
+    description: 'Fait avancer une demande d\'entraide en ajoutant un ÉVÉNEMENT daté à sa chronologie (l\'étape et l\'échéance s\'en déduisent) — ex. envoi_enqueteurs (ouvre 3 mois), relance_enqueteurs, retour_enqueteurs (partiel:true si partiel), envoi_autorite (émise : ouvre 4 mois), relance_autorite, prorogation (delaiMois ou echeance AAAA-MM-JJ), retour_execution, ar_recu, cloture (DO reçue : issue acceptee | refusee ; DO émise : l\'AR reçu suffit, puis cloture), note. operation "modifier" (date, note) ou "supprimer" avec `id` d\'événement (voir entraide_lire). Types : ' + EVENEMENTS_ENTRAIDE.join(', ') + '. RÉSERVÉ à une instruction EXPLICITE du magistrat.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1086,6 +1115,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
         delaiMois: { type: 'integer' },
         echeance: { type: 'string' },
         partiel: { type: 'boolean' },
+        issue: { type: 'string', enum: ['acceptee', 'refusee'], description: 'Dénonciation officielle reçue, avec type cloture : acceptée (enquête ouverte) ou refusée (classement)' },
         note: { type: 'string' },
       },
       required: ['ref'],

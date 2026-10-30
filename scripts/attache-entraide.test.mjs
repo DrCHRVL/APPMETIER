@@ -90,7 +90,7 @@ function attendu(nom, cond, detail) {
 
 await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {} })
 const noms = (await rpc('tools/list', {})).result.tools.map((t) => t.name)
-attendu('outils entraide exposés', ['entraide_lister', 'entraide_lire', 'entraide_creer', 'entraide_evenement', 'entraide_modifier', 'entraide_autorite', 'entraide_importer', 'entraide_stats', 'entraide_referentiel'].every((n) => noms.includes(n)))
+attendu('outils entraide exposés', ['entraide_lister', 'entraide_lire', 'entraide_creer', 'entraide_evenement', 'entraide_modifier', 'entraide_completer', 'entraide_autorite', 'entraide_importer', 'entraide_stats', 'entraide_referentiel'].every((n) => noms.includes(n)))
 
 // ── Création : autorité retrouvée, service résolu, mesures contrôlées
 let r = await call('entraide_creer', {
@@ -157,6 +157,18 @@ r = await call('entraide_importer', lot)
 attendu('import rejoué : mises à jour, aucun doublon', !r.err && r.json.crees === 0 && r.json.misesAJour === 2 && lire('entraide').demandes.length === 4, r.text.slice(0, 200))
 r = await call('entraide_lister', { portee: 'cloturees' })
 attendu('demande importée clôturée', r.json.total === 1 && r.json.demandes[0].refEsabora === '2025/00753')
+
+// ── NATINF en lot
+r = await call('entraide_completer', { affectations: [{ ref: 'B3221-2026/00301', natinf: ['7151', '7151', '7875'], personnes: 'Paul X. (témoin) ; victime : Marie Y.' }] })
+const complete = () => lire('entraide').demandes.find((x) => x.refEsabora === 'B3221-2026/00301')
+attendu('complément en lot : natinf dédoublonné, personnes', !r.err && JSON.stringify(complete().natinf) === '["7151","7875"]' && /victime/.test(complete().personnes), r.text.slice(0, 200))
+r = await call('entraide_completer', { affectations: [{ ref: 'B3221-2026/00301', natinf: ['7151'] }, { ref: 'B3221-2026/00301', natinf: ['99999999'] }] })
+attendu('natinf inconnu : refus, rien écrit', r.err && lire('entraide').demandes.find((x) => x.refEsabora === 'B3221-2026/00301').natinf.length === 2)
+r = await call('entraide_lire', { ref: 'B3221-2026/00301' })
+attendu('lecture : NATINF en clair', r.json.natinf?.[0]?.libelle === 'VOL')
+
+r = await call('entraide_modifier', { ref: 'B3221-2026/00301', drapeau: 'rouge' })
+attendu('drapeau rouge posé et lisible', !r.err && complete().drapeau === 'rouge' && /urgents/.test(r.json.modifie?.drapeau || ''), r.text.slice(0, 200))
 
 // ── Statistiques : mêmes règles que l'écran
 r = await call('entraide_stats', { annee: 2026 })

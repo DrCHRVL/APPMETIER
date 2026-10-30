@@ -5,17 +5,19 @@
 // urgence. Onglets : registre, parapheur (à signer), relances par service,
 // clôturées, référentiels, signature.
 
-import React, { useMemo, useState } from 'react';
-import { Plus, RefreshCw, Mail, Copy, Download, PenLine } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Plus, RefreshCw, Mail, Copy, Download, PenLine, ArrowUp, ArrowDown, ArrowUpDown, Flag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/contexts/ToastContext';
 import { useEntraide } from '@/hooks/useEntraide';
+import { useNatinf } from '@/hooks/useNatinf';
 import { copyPlainToClipboard } from '@/utils/richTextExport';
 import {
   aujourdhui,
   cleUrgence,
   dateFr,
   DOC_LABELS,
+  DRAPEAU_LABELS,
   etatDemande,
   normaliser,
   prochainesActions,
@@ -23,14 +25,15 @@ import {
   TYPE_LABELS,
 } from '@/utils/entraide/logique';
 import { lienMailto, mailRelanceGroupee } from '@/utils/entraide/mails';
-import { actionAvecFormulaire, executerAction, telechargerCourrier } from '@/components/entraide/actionsEntraide';
+import { executerAction, telechargerCourrier } from '@/components/entraide/actionsEntraide';
+import { ConfirmationAction, type OptionsAction } from '@/components/entraide/ConfirmationAction';
 import { BadgeEcheance, BadgeType } from '@/components/entraide/badges';
 import { EntraideFiche } from '@/components/entraide/EntraideFiche';
 import { NouvelleDemandeModal } from '@/components/entraide/NouvelleDemandeModal';
 import { ReferentielsPanel } from '@/components/entraide/ReferentielsPanel';
 import { SignaturePanel } from '@/components/entraide/SignaturePanel';
 import { nomUtilisateur, utilisateursEntraide } from '@/components/entraide/utilisateurs';
-import type { DemandeEntraide, EntraideEtat, EntraideType, ServiceEnqueteur } from '@/types/entraideTypes';
+import type { DemandeEntraide, EntraideAction, EntraideEtat, EntraideType, ServiceEnqueteur } from '@/types/entraideTypes';
 
 type Onglet = 'registre' | 'signer' | 'relances' | 'cloturees' | 'referentiels' | 'signature';
 
@@ -40,16 +43,32 @@ const CHEZ_LIBELLES: Record<string, string> = {
   greffe: 'Greffe', magistrat: 'Magistrat', enqueteurs: 'Enquêteurs', traduction: 'Traduction', autorite: 'Étranger', aucun: '—',
 };
 
-export const EntraidePage: React.FC<{ searchTerm?: string }> = ({ searchTerm = '' }) => {
+type CleTri = 'echeance' | 'type' | 'sens' | 'ref' | 'pays' | 'service' | 'chez' | 'etape' | 'magistrat';
+interface Tri { cle: CleTri; desc: boolean }
+
+const comparer = (a: string | number, b: string | number) =>
+  typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b), 'fr', { numeric: true, sensitivity: 'base' });
+
+export const EntraidePage: React.FC<{ searchTerm?: string; ficheDemandee?: { id: string; n: number } | null }> = ({ searchTerm = '', ficheDemandee = null }) => {
   const api = useEntraide();
   const { showToast } = useToast();
+  const { getByCode } = useNatinf();
   const [onglet, setOnglet] = useState<Onglet>('registre');
   const [type, setType] = useState<EntraideType | ''>('');
   const [sens, setSens] = useState<'' | 'recue' | 'emise'>('');
   const [magistrat, setMagistrat] = useState('');
+  const [drapeaux, setDrapeaux] = useState(false);
   const [recherche, setRecherche] = useState('');
   const [ficheId, setFicheId] = useState<string | null>(null);
   const [creation, setCreation] = useState(false);
+  const [tri, setTri] = useState<Tri>({ cle: 'echeance', desc: false });
+  const [aConfirmer, setAConfirmer] = useState<{ d: DemandeEntraide; a: EntraideAction } | null>(null);
+  const [relanceANoter, setRelanceANoter] = useState<string | null>(null);
+
+  // Ouverture demandée par la recherche globale.
+  useEffect(() => {
+    if (ficheDemandee?.id) setFicheId(ficheDemandee.id);
+  }, [ficheDemandee]);
 
   const jour = aujourdhui();
   const lignes: Ligne[] = useMemo(
@@ -64,13 +83,37 @@ export const EntraidePage: React.FC<{ searchTerm?: string }> = ({ searchTerm = '
   const filtre = (l: Ligne) =>
     (!type || l.d.type === type)
     && (!sens || l.d.sens === sens)
+    && (!drapeaux || !!l.d.drapeau)
     && (!magistrat || (magistrat === '__moi' ? (l.d.magistrat || '').toLowerCase() === api.moi.toLowerCase() : l.d.magistrat === magistrat))
-    && (!q || texteRecherche(l.d, `${l.d.autoriteId ? api.index.autorite.get(l.d.autoriteId)?.nom || '' : ''} ${l.d.serviceId ? api.index.service.get(l.d.serviceId)?.libelle || '' : ''}`).includes(q));
-  const registre = enCours.filter(filtre).sort((a, b) => cleUrgence(a.e) - cleUrgence(b.e));
-  const cloturees = lignes.filter((l) => l.e.etape === 'cloturee').filter(filtre)
-    .sort((a, b) => (b.e.dateCloture || '').localeCompare(a.e.dateCloture || ''));
+    && (!q || texteRecherche(l.d, `${l.d.autoriteId ? api.index.autorite.get(l.d.autoriteId)?.nom || '' : ''} ${l.d.serviceId ? api.index.service.get(l.d.serviceId)?.libelle || '' : ''} ${(l.d.natinf || []).map((c) => getByCode(c)?.libelle || '').join(' ')}`).includes(q));
+  const libelleService = (d: DemandeEntraide) =>
+    d.sens !== 'recue' ? '' : (d.serviceId && api.index.service.get(d.serviceId)?.libelle) || d.serviceAutre || '';
+  const valeurTri = (l: Ligne, cle: CleTri, cloture: boolean): string | number => {
+    switch (cle) {
+      case 'echeance': return cloture ? (l.e.dateCloture || '') : cleUrgence(l.e);
+      case 'type': return TYPE_LABELS[l.d.type];
+      case 'sens': return l.d.sens;
+      case 'ref': return l.d.refEsabora || '';
+      case 'pays': return l.d.pays || '';
+      case 'service': return libelleService(l.d) || '\uffff';
+      case 'chez': return CHEZ_LIBELLES[l.e.chez] || '';
+      case 'etape': return l.e.libelleEtape || '';
+      case 'magistrat': return nomUtilisateur(l.d.magistrat) || '\uffff';
+    }
+  };
+  const trier = (rows: Ligne[], cloture: boolean) => {
+    // Clôturées : par défaut la plus récente d'abord.
+    const desc = cloture && tri.cle === 'echeance' ? !tri.desc : tri.desc;
+    return rows.sort((a, b) => {
+      const c = comparer(valeurTri(a, tri.cle, cloture), valeurTri(b, tri.cle, cloture)) || cleUrgence(a.e) - cleUrgence(b.e);
+      return desc ? -c : c;
+    });
+  };
+  const registre = trier(enCours.filter(filtre), false);
+  const cloturees = trier(lignes.filter((l) => l.e.etape === 'cloturee').filter(filtre), true);
 
   const kpi = {
+    enCours: enCours.length,
     retard: enCours.filter((l) => l.e.niveau === 'retard').length,
     proche: enCours.filter((l) => l.e.niveau === 'proche').length,
     signer: aSigner.length,
@@ -93,11 +136,16 @@ export const EntraidePage: React.FC<{ searchTerm?: string }> = ({ searchTerm = '
   }, [enCours, api.index.service]);
   const etrangerEnRetard = enCours.filter((l) => l.e.etape === 'attente_etranger' && l.e.niveau === 'retard');
 
-  const lancer = async (l: Ligne) => {
+  const lancer = (l: Ligne) => {
     const a = prochainesActions(l.d, l.e).find((x) => x.primaire);
-    if (!a || actionAvecFormulaire(a)) { setFicheId(l.d.id); return; }
+    if (!a) { setFicheId(l.d.id); return; }
+    setAConfirmer({ d: l.d, a });
+  };
+  const confirmer = async (o: OptionsAction) => {
+    if (!aConfirmer) return;
     try {
-      await executerAction({ api, demande: l.d, monSignataire, notifier: showToast }, a);
+      await executerAction({ api, demande: aConfirmer.d, monSignataire, notifier: showToast }, aConfirmer.a, o);
+      setAConfirmer(null);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Échec', 'error');
     }
@@ -114,15 +162,29 @@ export const EntraidePage: React.FC<{ searchTerm?: string }> = ({ searchTerm = '
 
   const chip = (actif: boolean) => `px-2.5 py-0.5 rounded-full border text-xs ${actif ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 hover:bg-gray-50'}`;
 
+  const Entete: React.FC<{ cle?: CleTri; children: React.ReactNode; className?: string }> = ({ cle, children, className = 'px-2' }) => {
+    if (!cle) return <th className={className}>{children}</th>;
+    const actif = tri.cle === cle;
+    const Icone = !actif ? ArrowUpDown : tri.desc ? ArrowDown : ArrowUp;
+    return (
+      <th className={className}>
+        <button type="button" className={`inline-flex items-center gap-1 uppercase tracking-wide hover:text-gray-900 ${actif ? 'text-gray-900' : ''}`}
+          onClick={() => setTri(actif ? { cle, desc: !tri.desc } : { cle, desc: false })}>
+          {children}<Icone className={`h-3 w-3 ${actif ? '' : 'opacity-40'}`} />
+        </button>
+      </th>
+    );
+  };
+
   const tableau = (rows: Ligne[], cloture = false) => (
     <div className="overflow-x-auto rounded-lg border bg-white">
       <table className="w-full text-left text-[13px]">
         <thead className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-500">
           <tr>
-            <th className="px-3 py-2">{cloture ? 'Clôture' : 'Échéance'}</th><th className="px-2">Type</th><th className="px-2">Sens</th>
-            <th className="px-2">N/réf</th><th className="px-2">Pays</th><th className="px-2">Objet</th>
-            {!cloture && <><th className="px-2">Chez</th><th className="px-2">Étape</th></>}
-            <th className="px-2">Magistrat</th>{!cloture && <th className="px-2">Prochaine étape</th>}
+            <Entete cle="echeance" className="px-3 py-2">{cloture ? 'Clôture' : 'Échéance'}</Entete><Entete cle="type">Type</Entete><Entete cle="sens">Sens</Entete>
+            <Entete cle="ref">N/réf</Entete><Entete cle="pays">Pays</Entete><Entete>Objet</Entete><Entete cle="service">Service enquêteur</Entete>
+            {!cloture && <><Entete cle="chez">Chez</Entete><Entete cle="etape">Étape</Entete></>}
+            <Entete cle="magistrat">Magistrat</Entete>{!cloture && <Entete>Prochaine étape</Entete>}
           </tr>
         </thead>
         <tbody>
@@ -130,12 +192,16 @@ export const EntraidePage: React.FC<{ searchTerm?: string }> = ({ searchTerm = '
             const a = cloture ? null : prochainesActions(l.d, l.e).find((x) => x.primaire);
             return (
               <tr key={l.d.id} className={`border-t cursor-pointer hover:bg-gray-50 ${l.e.niveau === 'retard' ? 'bg-red-50/40' : ''}`} onClick={() => setFicheId(l.d.id)}>
-                <td className="px-3 py-1.5">{cloture ? dateFr(l.e.dateCloture) : <BadgeEcheance etat={l.e} />}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap">
+                  {l.d.drapeau && <span title={DRAPEAU_LABELS[l.d.drapeau]}><Flag className={`inline h-3.5 w-3.5 mr-1 -mt-0.5 fill-current ${l.d.drapeau === 'rouge' ? 'text-red-600' : 'text-orange-500'}`} /></span>}
+                  {cloture ? dateFr(l.e.dateCloture) : <BadgeEcheance etat={l.e} />}
+                </td>
                 <td className="px-2"><BadgeType type={l.d.type} /></td>
                 <td className="px-2 whitespace-nowrap text-xs font-semibold">{l.d.sens === 'recue' ? '← reçue' : 'émise →'}</td>
                 <td className="px-2 font-mono text-xs whitespace-nowrap">{l.d.refEsabora}</td>
                 <td className="px-2">{l.d.pays}</td>
                 <td className="px-2 max-w-[320px] truncate" title={l.d.objet}>{l.d.objet}</td>
+                <td className="px-2 text-xs max-w-[180px] truncate" title={libelleService(l.d)}>{libelleService(l.d) || '—'}</td>
                 {!cloture && <><td className="px-2 text-xs">{CHEZ_LIBELLES[l.e.chez]}</td><td className="px-2 text-xs">{l.e.libelleEtape}</td></>}
                 <td className="px-2 text-xs whitespace-nowrap">{nomUtilisateur(l.d.magistrat)}</td>
                 {!cloture && (
@@ -149,7 +215,14 @@ export const EntraidePage: React.FC<{ searchTerm?: string }> = ({ searchTerm = '
               </tr>
             );
           })}
-          {rows.length === 0 && <tr><td colSpan={10} className="px-3 py-6 text-center text-gray-500">Aucune demande.</td></tr>}
+          {rows.length === 0 && (
+            <tr><td colSpan={11} className="px-3 py-6 text-center text-gray-500">
+              Aucune demande.
+              {!cloture && cloturees.length > 0 && (
+                <> {cloturees.length} demande{cloturees.length > 1 ? 's' : ''} clôturée{cloturees.length > 1 ? 's' : ''} correspond{cloturees.length > 1 ? 'ent' : ''} : <button className="text-[#2B5746] underline" onClick={() => setOnglet('cloturees')}>voir les clôturées</button></>
+              )}
+            </td></tr>
+          )}
         </tbody>
       </table>
     </div>
@@ -162,12 +235,15 @@ export const EntraidePage: React.FC<{ searchTerm?: string }> = ({ searchTerm = '
       <span className="w-2" />
       <button className={chip(sens === 'recue')} onClick={() => setSens(sens === 'recue' ? '' : 'recue')}>Reçues</button>
       <button className={chip(sens === 'emise')} onClick={() => setSens(sens === 'emise' ? '' : 'emise')}>Émises</button>
+      <button className={`${chip(drapeaux)} inline-flex items-center gap-1`} onClick={() => setDrapeaux(!drapeaux)} title="Suivi renforcé (orange) et résultats urgents (rouge)">
+        <Flag className="h-3 w-3 text-red-500 fill-current" />Drapeaux
+      </button>
       <select className="rounded-full border px-2 py-0.5 text-xs" value={magistrat} onChange={(e) => setMagistrat(e.target.value)}>
         <option value="">Magistrat : tous</option>
         <option value="__moi">Mes dossiers</option>
         {utilisateursEntraide().map((u) => <option key={u.windowsUsername} value={u.windowsUsername}>{u.displayName}</option>)}
       </select>
-      <input className="ml-auto w-72 rounded-md border px-3 py-1 text-sm" placeholder="N° ESABORA, pays, autorité, service, personne…" value={recherche} onChange={(e) => setRecherche(e.target.value)} />
+      <input className="ml-auto w-72 rounded-md border px-3 py-1 text-sm" placeholder="N° ESABORA, pays, autorité, service, personne, infraction…" value={recherche} onChange={(e) => setRecherche(e.target.value)} />
     </div>
   );
 
@@ -186,8 +262,9 @@ export const EntraidePage: React.FC<{ searchTerm?: string }> = ({ searchTerm = '
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-2.5">
         {[
+          ['Demandes en cours', kpi.enCours, 'border-l-gray-700 text-gray-900'],
           ['Échéances dépassées', kpi.retard, 'border-l-red-500 text-red-700'],
           ['À échéance sous 30 jours', kpi.proche, 'border-l-amber-500 text-amber-700'],
           ['À signer', kpi.signer, 'border-l-violet-500 text-violet-700'],
@@ -261,10 +338,18 @@ export const EntraidePage: React.FC<{ searchTerm?: string }> = ({ searchTerm = '
                       <Copy className="h-3.5 w-3.5 mr-1" />Copier le mail
                     </Button>
                     <a className="inline-flex items-center rounded-md border px-3 text-xs hover:bg-gray-50" href={lienMailto(mail)}><Mail className="h-3.5 w-3.5 mr-1" />Outlook</a>
-                    <Button size="sm" className="bg-[#2B5746] hover:bg-[#2B5746]/90"
-                      onClick={async () => { for (const l of ls) await api.ajouterEvenement(l.d.id, { type: 'relance_enqueteurs_mail', date: jour }); showToast('Relance notée sur chaque dossier', 'success'); }}>
-                      Noter la relance
-                    </Button>
+                    {relanceANoter === service.id ? (
+                      <>
+                        <span className="self-center text-xs text-gray-600">Noter une relance par mail, datée d’aujourd’hui, sur ces {ls.length} dossiers (l’échéance ne change pas) ?</span>
+                        <Button size="sm" variant="outline" onClick={() => setRelanceANoter(null)}>Annuler</Button>
+                        <Button size="sm" className="bg-[#2B5746] hover:bg-[#2B5746]/90"
+                          onClick={async () => { setRelanceANoter(null); for (const l of ls) await api.ajouterEvenement(l.d.id, { type: 'relance_enqueteurs_mail', date: jour }); showToast('Relance notée sur chaque dossier', 'success'); }}>
+                          Confirmer
+                        </Button>
+                      </>
+                    ) : (
+                      <Button size="sm" className="bg-[#2B5746] hover:bg-[#2B5746]/90" onClick={() => setRelanceANoter(service.id)}>Noter la relance</Button>
+                    )}
                   </div>
                 </div>
                 <ul className="text-sm divide-y">
@@ -298,6 +383,11 @@ export const EntraidePage: React.FC<{ searchTerm?: string }> = ({ searchTerm = '
       {onglet === 'referentiels' && <ReferentielsPanel api={api} />}
       {onglet === 'signature' && <SignaturePanel api={api} />}
 
+      {aConfirmer && (
+        <ConfirmationAction action={aConfirmer.a} demande={aConfirmer.d}
+          langueParDefaut={(aConfirmer.d.autoriteId && api.index.autorite.get(aConfirmer.d.autoriteId)?.langue) || 'fr'}
+          onAnnuler={() => setAConfirmer(null)} onValider={confirmer} />
+      )}
       {ficheId && <EntraideFiche api={api} demandeId={ficheId} onClose={() => setFicheId(null)} />}
       {creation && <NouvelleDemandeModal api={api} onClose={() => setCreation(false)} onCree={(id) => { setCreation(false); setOnglet('registre'); setFicheId(id); }} />}
     </div>

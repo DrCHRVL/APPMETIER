@@ -125,6 +125,7 @@ export type GlobalDocKind =
   | 'compte_rendu'
   | 'instruction'
   | 'air'
+  | 'entraide'
   | 'personne'
   | 'dossier_carto'
   | 'page'
@@ -444,6 +445,7 @@ export const GROUP_LABELS: Array<{ kind: GlobalDocKind; label: string }> = [
   { kind: 'compte_rendu', label: 'Comptes rendus' },
   { kind: 'instruction', label: 'Instructions' },
   { kind: 'air', label: 'Suivi AIR' },
+  { kind: 'entraide', label: 'Entraide internationale' },
   { kind: 'personne', label: 'Personnes' },
   { kind: 'dossier_carto', label: 'Dossiers (cartographie)' },
   { kind: 'page', label: 'Navigation' },
