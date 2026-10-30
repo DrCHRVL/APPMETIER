@@ -183,6 +183,17 @@ check('apprentissage : seuls les mots nouveaux', apprendreMotsCles(autorites[0],
   check('drapeau : remonte dans le tri', cleUrgence(rouge) < cleUrgence(orange) && cleUrgence(orange) < cleUrgence(sansDrapeau), true)
 }
 
+// ── Correction manuelle de l'avancement (frise) ──
+{
+  const dP = base('recue', 'dee', [ev('reception', '2026-10-06'), ev('transmission_magistrat', '2026-10-06')])
+  check('avant correction : avis du magistrat', etatDemande(dP, '2026-10-30').etape, 'avis_magistrat')
+  dP.evenements.push(ev('repositionnement', '2026-10-30', { etape: 'a_signer', doc: 't1' }))
+  const eP = etatDemande(dP, '2026-10-30')
+  check('repositionné : ST (T1) à signer', [eP.etape, eP.docEnAttente?.doc, eP.chez], ['a_signer', 't1', 'magistrat'])
+  dP.evenements.push(ev('repositionnement', '2026-10-30', { etape: 'chez_enqueteurs' }))
+  check('repositionné chez les enquêteurs : retour à 3 mois', etatDemande(dP, '2026-10-30').echeance?.date, '2027-01-30')
+}
+
 // ── Services : remise à niveau des anciennes trames ──
 {
   const anciens = [

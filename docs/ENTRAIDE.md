@@ -32,6 +32,11 @@ changer (étape, échéance) et permet d'antidater l'événement
 enquêteurs précède une relance saisie au même instant (reprise Excel) : le
 dossier repart chez les enquêteurs.
 
+**Frise corrigeable.** Un clic sur une étape de la frise (en avant ou en
+arrière) ajoute un événement `repositionnement` (étape, courrier) après
+confirmation : rien n'est effacé, la correction figure dans la chronologie
+et se retire comme tout événement.
+
 **Dénonciation officielle.** Émise : envoi → attente de l'accusé de
 réception → « Réception confirmée » clôture (rien d'autre n'est attendu).
 Reçue : une décision, « Accepter » (les faits partent en enquête ordinaire,

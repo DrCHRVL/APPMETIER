@@ -55,6 +55,13 @@ export function explicationAction(a: EntraideAction, d: DemandeEntraide): string
       return 'Note la réception des pièces d’exécution envoyées par l’autorité étrangère : le dossier passe chez le magistrat pour avis, puis clôture.';
     case 'ar_recu':
       return 'Note l’accusé de réception de l’autorité étrangère : le dossier est prêt à être clôturé.';
+    case 'repositionner': {
+      const suite = a.etape === 'chez_enqueteurs' ? ` Le retour sera attendu à ${DELAIS.enqueteursMois} mois de la date indiquée (date d’envoi aux enquêteurs).`
+        : a.etape === 'attente_etranger' ? ` La réponse de l’autorité sera attendue à ${DELAIS.emiseMois} mois de la date indiquée.`
+          : a.etape === 'a_signer' ? ' Le courrier passe dans l’onglet « À signer ».'
+            : ' L’échéance interne en cours est levée.';
+      return `Corrige l’avancement affiché : le dossier est placé à cette étape.${suite} Rien n’est effacé : la correction est inscrite dans la chronologie et peut y être retirée (×).`;
+    }
     case 'do_accepter':
       return 'La dénonciation est acceptée : les faits partent en enquête (procédure ordinaire, hors suivi de l’entraide) et le dossier est clôturé ici avec la mention « acceptée ».';
     case 'do_refuser':

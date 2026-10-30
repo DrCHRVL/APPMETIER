@@ -15,6 +15,7 @@ import {
   dateFr,
   DOC_LABELS,
   DRAPEAU_LABELS,
+  ETAPE_LABELS,
   etatDemande,
   EVENEMENT_LABELS,
   ISSUE_LABELS,
@@ -91,6 +92,20 @@ const ObservationsEditeur: React.FC<{ api: EntraideApi; id: string; valeur?: str
     />
   );
 };
+
+/** Étape (et courrier) que représente chaque pas de la frise — null : pas
+ *  sans état propre ; 'cloture' : la clôture se fait par son action. */
+type Pas = { etape: string; doc?: EntraideDocId } | 'cloture' | null;
+function pasDeFrise(d: DemandeEntraide): Pas[] {
+  if (d.type === 'do') {
+    return d.sens === 'recue'
+      ? [null, { etape: 'a_traiter' }, 'cloture']
+      : [null, { etape: 'a_traiter' }, { etape: 'attente_ar' }, 'cloture'];
+  }
+  return d.sens === 'recue'
+    ? [{ etape: 'a_traiter' }, { etape: 'a_signer', doc: 't1' }, { etape: 'chez_enqueteurs' }, { etape: 'avis_magistrat' }, { etape: 'a_signer', doc: 't3' }, { etape: 'attente_ar' }, 'cloture']
+    : [null, { etape: 'en_traduction' }, { etape: 'a_traiter' }, { etape: 'attente_etranger' }, { etape: 'avis_magistrat' }, 'cloture'];
+}
 
 function indexEtape(d: DemandeEntraide, etape: string, doc?: EntraideDocId): number {
   const sens = d.sens;
@@ -259,14 +274,23 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
             {etapes.map((l, i) => {
               const fait = i < idx;
               const cour = i === idx && etat.etape !== 'cloturee';
+              const pas = pasDeFrise(d)[i];
+              const cliquable = !!pas && !cour && etat.etape !== 'cloturee';
               return (
-                <div key={l} className="flex-1 text-center relative text-[11px]">
+                <div key={l} className={`flex-1 text-center relative text-[11px] ${cliquable ? 'cursor-pointer group' : ''}`}
+                  title={cliquable ? `Corriger l’avancement : placer le dossier à l’étape « ${l} »` : undefined}
+                  onClick={() => {
+                    if (!cliquable || !pas) return;
+                    setAConfirmer(pas === 'cloture'
+                      ? { action: 'cloturer', libelle: 'Clôturer' }
+                      : { action: 'repositionner', libelle: `Placer le dossier à l’étape « ${l} »`, etape: pas.etape, doc: pas.doc });
+                  }}>
                   {i > 0 && <div className={`absolute top-2.5 right-1/2 left-[-50%] h-0.5 ${fait || cour ? 'bg-[#2B5746]' : 'bg-gray-200'}`} />}
                   <div className={`relative z-10 mx-auto mb-1 flex h-5 w-5 items-center justify-center rounded-full border-2 text-[10px] font-bold
                     ${fait ? 'bg-[#2B5746] border-[#2B5746] text-white' : cour ? 'bg-amber-50 border-amber-500 text-amber-700' : 'bg-white border-gray-300 text-gray-400'}`}>
                     {fait ? <Check className="h-3 w-3" /> : i + 1}
                   </div>
-                  <span className={cour ? 'font-semibold text-gray-900' : fait ? 'text-gray-700' : 'text-gray-400'}>{l}</span>
+                  <span className={`${cour ? 'font-semibold text-gray-900' : fait ? 'text-gray-700' : 'text-gray-400'} ${cliquable ? 'group-hover:text-[#2B5746] group-hover:underline' : ''}`}>{l}</span>
                 </div>
               );
             })}
@@ -428,7 +452,7 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
                       <button className="ml-auto opacity-0 group-hover:opacity-100 text-red-600" title="Retirer cet événement" onClick={() => api.supprimerEvenement(d.id, e.id)}>×</button>
                     </div>
                     <div className="text-[13px] text-gray-800">
-                      {EVENEMENT_LABELS[e.type]}{e.issue ? ` — ${ISSUE_LABELS[e.issue]}` : ''}{e.doc ? ` — ${e.doc.toUpperCase()}${e.langue === 'en' ? ' (EN)' : ''}` : ''}{e.partiel ? ' (partiel)' : ''}
+                      {EVENEMENT_LABELS[e.type]}{e.issue ? ` — ${ISSUE_LABELS[e.issue]}` : ''}{e.etape ? ` → ${ETAPE_LABELS[e.etape] || e.etape}` : ''}{e.doc ? ` — ${e.doc.toUpperCase()}${e.langue === 'en' ? ' (EN)' : ''}` : ''}{e.partiel ? ' (partiel)' : ''}
                       {e.echeance ? ` → ${dateFr(e.echeance)}` : e.delaiMois ? ` (${e.delaiMois} mois)` : ''}
                     </div>
                     {e.note && <div className="text-xs text-gray-600 whitespace-pre-wrap">{e.note}</div>}

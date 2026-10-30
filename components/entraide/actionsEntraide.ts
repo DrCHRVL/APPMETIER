@@ -79,6 +79,9 @@ export async function executerAction(
     return;
   }
   switch (a.action) {
+    case 'repositionner':
+      await api.ajouterEvenement(d.id, { type: 'repositionnement', date, etape: a.etape, ...(a.doc ? { doc: a.doc } : {}) });
+      return;
     case 'do_accepter':
     case 'do_refuser':
       await api.ajouterEvenement(d.id, { type: 'cloture', date, issue: a.action === 'do_accepter' ? 'acceptee' : 'refusee' });

@@ -43,6 +43,7 @@ export type EntraideEvenementType =
   | 'ar_recu'                  // accusé de réception international reçu
   | 'cloture'
   | 'reouverture'
+  | 'repositionnement'         // correction manuelle de l'étape (frise)
   | 'note';
 
 export interface EntraideEvenement {
@@ -64,6 +65,8 @@ export interface EntraideEvenement {
   partiel?: boolean;
   /** Clôture d'une dénonciation officielle reçue : acceptée ou refusée. */
   issue?: EntraideIssue;
+  /** Repositionnement : étape choisie sur la frise. */
+  etape?: string;
   note?: string;
   creeLe: string;
 }
@@ -235,4 +238,6 @@ export interface EntraideAction {
   libelle: string;
   primaire?: boolean;
   doc?: EntraideDocId;
+  /** Repositionnement : étape visée. */
+  etape?: string;
 }

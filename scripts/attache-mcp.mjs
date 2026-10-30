@@ -1101,7 +1101,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'entraide_evenement',
-    description: 'Fait avancer une demande d\'entraide en ajoutant un ÉVÉNEMENT daté à sa chronologie (l\'étape et l\'échéance s\'en déduisent) — ex. envoi_enqueteurs (ouvre 3 mois), relance_enqueteurs, retour_enqueteurs (partiel:true si partiel), envoi_autorite (émise : ouvre 4 mois), relance_autorite, prorogation (delaiMois ou echeance AAAA-MM-JJ), retour_execution, ar_recu, cloture (DO reçue : issue acceptee | refusee ; DO émise : l\'AR reçu suffit, puis cloture), note. operation "modifier" (date, note) ou "supprimer" avec `id` d\'événement (voir entraide_lire). Types : ' + EVENEMENTS_ENTRAIDE.join(', ') + '. RÉSERVÉ à une instruction EXPLICITE du magistrat.',
+    description: 'Fait avancer une demande d\'entraide en ajoutant un ÉVÉNEMENT daté à sa chronologie (l\'étape et l\'échéance s\'en déduisent) — ex. envoi_enqueteurs (ouvre 3 mois), relance_enqueteurs, retour_enqueteurs (partiel:true si partiel), envoi_autorite (émise : ouvre 4 mois), relance_autorite, prorogation (delaiMois ou echeance AAAA-MM-JJ), retour_execution, ar_recu, repositionnement (etape, doc : corrige l\'avancement), cloture (DO reçue : issue acceptee | refusee ; DO émise : l\'AR reçu suffit, puis cloture), note. operation "modifier" (date, note) ou "supprimer" avec `id` d\'événement (voir entraide_lire). Types : ' + EVENEMENTS_ENTRAIDE.join(', ') + '. RÉSERVÉ à une instruction EXPLICITE du magistrat.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1115,6 +1115,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
         delaiMois: { type: 'integer' },
         echeance: { type: 'string' },
         partiel: { type: 'boolean' },
+        etape: { type: 'string', enum: ['a_traiter', 'en_traduction', 'a_signer', 'a_envoyer', 'chez_enqueteurs', 'avis_magistrat', 'attente_etranger', 'attente_ar', 'a_cloturer'], description: 'Avec type repositionnement : corrige l\'étape (ex. a_signer + doc t1 = ST préparé, pas encore parti aux enquêteurs)' },
         issue: { type: 'string', enum: ['acceptee', 'refusee'], description: 'Dénonciation officielle reçue, avec type cloture : acceptée (enquête ouverte) ou refusée (classement)' },
         note: { type: 'string' },
       },

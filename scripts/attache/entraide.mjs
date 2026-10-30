@@ -124,6 +124,11 @@ function controlerMesures(ids) {
   return ids || []
 }
 
+function etapeValide(v) {
+  if (!(v in ETAPE_LABELS) || v === 'cloturee') throw new Error(`etape : ${Object.keys(ETAPE_LABELS).filter((x) => x !== 'cloturee').join(' | ')}`)
+  return v
+}
+
 function issueValide(v) {
   if (!['acceptee', 'refusee'].includes(v)) throw new Error('issue : acceptee | refusee (dénonciation officielle reçue)')
   return v
@@ -144,6 +149,7 @@ function evenement(e, par) {
     ...(e.echeance ? { echeance: date(e.echeance, 'echeance') } : {}),
     ...(e.partiel ? { partiel: true } : {}),
     ...(e.issue ? { issue: issueValide(e.issue) } : {}),
+    ...(e.etape ? { etape: etapeValide(e.etape) } : {}),
     ...(e.note ? { note: String(e.note) } : {}),
     creeLe: e.creeLe || maintenant(),
   }
@@ -218,7 +224,7 @@ export function lireEntraide(keys, ref) {
     courrierEnAttente: e.docEnAttente,
     prochainesActions: prochainesActions(d, e).map((x) => x.libelle),
     chronologie: [...d.evenements].sort((x, y) => x.date.localeCompare(y.date)).map((x) => ({
-      id: x.id, date: dateFr(x.date), evenement: EVENEMENT_LABELS[x.type] + (x.doc ? ` (${x.doc.toUpperCase()})` : '') + (x.partiel ? ' — partiel' : '') + (x.issue ? ` — ${ISSUE_LABELS[x.issue]}` : ''),
+      id: x.id, date: dateFr(x.date), evenement: EVENEMENT_LABELS[x.type] + (x.doc ? ` (${x.doc.toUpperCase()})` : '') + (x.partiel ? ' — partiel' : '') + (x.issue ? ` — ${ISSUE_LABELS[x.issue]}` : '') + (x.etape ? ` → ${ETAPE_LABELS[x.etape]}` : ''),
       ...(x.note ? { note: x.note } : {}), ...(x.par ? { par: x.par } : {}),
     })),
     ...(d.origine ? { origine: d.origine } : {}),
