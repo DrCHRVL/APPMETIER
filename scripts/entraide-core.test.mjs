@@ -18,6 +18,7 @@ import {
   apprendreMotsCles,
   cleUrgence,
 } from '../lib/entraide/core.mjs'
+import { migrerServices } from '../lib/entraide/referentiels.mjs'
 
 let failures = 0
 function check(label, actual, expected) {
@@ -141,6 +142,70 @@ check('« tournai » retrouve Mons grâce au mot-clé appris', chercherAutorites
 check('« buc » retrouve Bucarest', chercherAutorites(autorites, 'buc').map((a) => a.id), ['a2'])
 check('« mons » : le pays départage', chercherAutorites(autorites, 'mons', 'Belgique')[0].id, 'a1')
 check('apprentissage : seuls les mots nouveaux', apprendreMotsCles(autorites[0], 'Tournai Hainaut parquet'), ['tournai', 'hainaut'])
+
+// ── Reprise Excel : événements du même jour, même instant de saisie ──
+{
+  const t = '2026-10-30T10:00:00.000Z'
+  const memeInstant = (type, date, extra = {}) => ({ id: `x${++n}`, type, date, creeLe: t, ...extra })
+  const dx = base('recue', 'dee', [
+    memeInstant('reception', '2024-02-19'),
+    memeInstant('envoi_enqueteurs', '2024-03-26'),
+    memeInstant('relance_enqueteurs', '2026-08-07'),
+    memeInstant('retour_enqueteurs', '2026-08-07'),
+    memeInstant('prorogation', '2026-08-07', { echeance: '2027-01-13' }),
+  ])
+  const ex = etatDemande(dx, '2026-10-30')
+  check('relance du jour d’un retour : le dossier repart chez les enquêteurs', [ex.etape, ex.chez, ex.echeance?.date], ['chez_enqueteurs', 'enqueteurs', '2027-01-13'])
+  // Saisies successives (horodatages distincts) : l'ordre de saisie prime.
+  const dy = base('recue', 'dee', [ev('reception', '2026-01-05'), ev('envoi_enqueteurs', '2026-01-06'), ev('relance_enqueteurs', '2026-04-07'), ev('retour_enqueteurs', '2026-04-07')])
+  check('saisie successive : retour après la relance → avis du magistrat', etatDemande(dy, '2026-04-08').etape, 'avis_magistrat')
+}
+
+// ── Dénonciation officielle ──
+{
+  const dE = base('emise', 'do', [ev('enregistrement', '2026-03-01'), ev('envoi_autorite', '2026-03-02')])
+  let eE = etatDemande(dE, '2026-03-10')
+  check('DO émise envoyée : attente de l’AR, à 4 mois', [eE.etape, eE.echeance?.date, eE.echeance?.libelle], ['attente_ar', '2026-07-02', 'Accusé de réception de l’autorité étrangère'.replace('’', "'")])
+  check('DO émise : « réception confirmée » proposée', prochainesActions(dE, eE)[0].action, 'ar_recu_cloturer')
+  const dR = base('recue', 'do', [ev('reception', '2026-03-01')])
+  const eR = etatDemande(dR, '2026-03-02')
+  check('DO reçue : accepter / refuser, pas de T1', prochainesActions(dR, eR).map((a) => a.action).slice(0, 2), ['do_accepter', 'do_refuser'])
+}
+
+// ── Drapeaux ──
+{
+  const evsF = [ev('reception', '2026-01-05'), ev('envoi_enqueteurs', '2026-01-06')]
+  const sansDrapeau = etatDemande(base('recue', 'cri', evsF), '2026-01-10')
+  const rouge = etatDemande(base('recue', 'cri', evsF, { drapeau: 'rouge' }), '2026-01-10')
+  const orange = etatDemande(base('recue', 'cri', evsF, { drapeau: 'orange' }), '2026-01-10')
+  check('drapeau : retour attendu à 3 / 2 / 1 mois', [sansDrapeau.echeance.date, orange.echeance.date, rouge.echeance.date], ['2026-04-06', '2026-03-06', '2026-02-06'])
+  check('drapeau rouge : pré-alerte immédiate', [sansDrapeau.niveau, rouge.niveau], ['ok', 'proche'])
+  check('drapeau : remonte dans le tri', cleUrgence(rouge) < cleUrgence(orange) && cleUrgence(orange) < cleUrgence(sansDrapeau), true)
+}
+
+// ── Correction manuelle de l'avancement (frise) ──
+{
+  const dP = base('recue', 'dee', [ev('reception', '2026-10-06'), ev('transmission_magistrat', '2026-10-06')])
+  check('avant correction : avis du magistrat', etatDemande(dP, '2026-10-30').etape, 'avis_magistrat')
+  dP.evenements.push(ev('repositionnement', '2026-10-30', { etape: 'a_signer', doc: 't1' }))
+  const eP = etatDemande(dP, '2026-10-30')
+  check('repositionné : ST (T1) à signer', [eP.etape, eP.docEnAttente?.doc, eP.chez], ['a_signer', 't1', 'magistrat'])
+  dP.evenements.push(ev('repositionnement', '2026-10-30', { etape: 'chez_enqueteurs' }))
+  check('repositionné chez les enquêteurs : retour à 3 mois', etatDemande(dP, '2026-10-30').echeance?.date, '2027-01-30')
+}
+
+// ── Services : remise à niveau des anciennes trames ──
+{
+  const anciens = [
+    { id: 'ddsp_amiens', libelle: "Police — Commissariat d'Amiens", cases: ['ddsp', 'comm_amiens'] },
+    { id: 'drpj_amiens', libelle: "DRPJ Lille — Antenne d'Amiens", cases: ['drpj', 'antenne_amiens'] },
+    { id: 'cgd_amiens', libelle: "Compagnie de gendarmerie d'Amiens", cases: ['cgd', 'cgd_amiens'] },
+  ]
+  const m = migrerServices(anciens, [])
+  check('migration : DRPJ supprimée, commissariat renommé', [m.supprimes, m.services.map((x) => [x.id, x.libelle, x.cases])], [['drpj_amiens'], [['ddsp_amiens', "Commissariat d'Amiens", ['comm_amiens']], ['cgd_amiens', "Compagnie de gendarmerie d'Amiens", ['cgd', 'cgd_amiens']]]])
+  check('migration : DRPJ utilisée conservée', migrerServices(anciens, [{ serviceId: 'drpj_amiens' }]).supprimes, [])
+  check('migration : rien à faire ensuite', migrerServices(m.services.map(({ modifie, ...x }) => x), []), null)
+}
 
 if (failures) {
   console.error(`\n${failures} échec(s)`)

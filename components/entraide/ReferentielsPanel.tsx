@@ -10,8 +10,7 @@ import type { EntraideApi } from '@/hooks/useEntraide';
 import type { AutoriteEtrangere, AutoriteNature, EntraideLangue, ServiceEnqueteur } from '@/types/entraideTypes';
 
 const CASES_LIBELLES: Array<[string, string]> = [
-  ['ddsp', 'DDSP 80'], ['comm_amiens', "Commissariat d'Amiens"], ['comm_abbeville', "Commissariat d'Abbeville"],
-  ['drpj', 'DRPJ Lille'], ['antenne_amiens', "Antenne d'Amiens"], ['cgd', 'Compagnie de gendarmerie'],
+  ['comm_amiens', "Commissariat d'Amiens"], ['comm_abbeville', "Commissariat d'Abbeville"], ['cgd', 'Compagnie de gendarmerie'],
   ['cgd_abbeville', 'Abbeville'], ['cgd_amiens', 'Amiens'], ['cgd_montdidier', 'Montdidier'], ['cgd_peronne', 'Péronne'],
   ['autre', 'Autre unité (libellé imprimé)'],
 ];

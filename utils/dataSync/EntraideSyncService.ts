@@ -18,7 +18,7 @@
 import { SiralBridge } from '../siralBridge';
 import { APP_CONFIG } from '@/config/constants';
 import { getCurrentUserInfo } from './globalSyncCommon';
-import { SERVICES_DEPART } from '@/utils/entraide/logique';
+import { migrerServices, SERVICES_DEPART } from '@/utils/entraide/logique';
 import type {
   AutoriteEtrangere,
   DemandeEntraide,
@@ -201,6 +201,16 @@ class EntraideSyncService {
     if (!serveur && fusion.services.length === 0) {
       const maintenant = new Date().toISOString();
       fusion = { ...fusion, services: SERVICES_DEPART.map((s) => ({ ...s, dateMiseAJour: maintenant })) };
+    }
+    // Services créés avec les anciennes trames (DRPJ, case DDSP) : remis à niveau.
+    const migration = migrerServices(fusion.services, fusion.demandes);
+    if (migration) {
+      const maintenant = new Date().toISOString();
+      fusion = {
+        ...fusion,
+        services: migration.services.map(({ modifie, ...s }) => (modifie ? { ...s, dateMiseAJour: maintenant } : s)),
+        tombstones: [...fusion.tombstones, ...migration.supprimes.map((id) => ({ id, deletedAt: maintenant }))],
+      };
     }
     if (empreinte(fusion) !== empreinte(this.data)) {
       this.data = fusion;

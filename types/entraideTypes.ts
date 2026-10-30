@@ -11,6 +11,12 @@
 
 export type EntraideType = 'dee' | 'do' | 'cri' | 'execution' | 'civil';
 export type EntraideSens = 'recue' | 'emise';
+/** Drapeau posé par le magistrat : orange = suivi renforcé, rouge = résultats urgents. */
+export type EntraideDrapeau = 'orange' | 'rouge';
+
+/** Issue d'une dénonciation officielle reçue (portée par l'événement de clôture). */
+export type EntraideIssue = 'acceptee' | 'refusee';
+
 export type EntraideLangue = 'fr' | 'en';
 
 /** Courriers générés : T1 (ST enquêteurs), T2 (ST de relance), T3 (retour à
@@ -37,6 +43,7 @@ export type EntraideEvenementType =
   | 'ar_recu'                  // accusé de réception international reçu
   | 'cloture'
   | 'reouverture'
+  | 'repositionnement'         // correction manuelle de l'étape (frise)
   | 'note';
 
 export interface EntraideEvenement {
@@ -56,6 +63,10 @@ export interface EntraideEvenement {
   echeance?: string;
   /** Retour partiel des enquêteurs : l'attente continue. */
   partiel?: boolean;
+  /** Clôture d'une dénonciation officielle reçue : acceptée ou refusée. */
+  issue?: EntraideIssue;
+  /** Repositionnement : étape choisie sur la frise. */
+  etape?: string;
   note?: string;
   creeLe: string;
 }
@@ -87,6 +98,10 @@ export interface DemandeEntraide {
   objet: string;
   /** Mesures demandées (identifiants du catalogue config/entraideReferentiels). */
   mesures?: string[];
+  /** Drapeau de suivi : délais raccourcis, pré-alerte plus tôt, tête de liste. */
+  drapeau?: EntraideDrapeau;
+  /** Codes NATINF de l'infraction visée (ou de son équivalent en droit français). */
+  natinf?: string[];
   /** Paragraphe « Bien vouloir… » retouché (sinon généré depuis `mesures`). */
   texteMesures?: string;
   /** Personnes visées (texte libre). */
@@ -215,6 +230,7 @@ export interface EntraideEtat {
   dernierEvenement: string | null;
   dateCloture: string | null;
   nbRelances: number;
+  drapeau: EntraideDrapeau | null;
 }
 
 export interface EntraideAction {
@@ -222,4 +238,6 @@ export interface EntraideAction {
   libelle: string;
   primaire?: boolean;
   doc?: EntraideDocId;
+  /** Repositionnement : étape visée. */
+  etape?: string;
 }

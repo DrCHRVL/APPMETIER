@@ -5,7 +5,7 @@
 // langue de l'autorité. Les pièces jointes restent à ajouter à la main.
 
 import { PAPETERIE } from '@/lib/web/papeterie';
-import { aujourdhui, dateFr, etatDemande, TYPE_COURTS } from './logique';
+import { aujourdhui, dateDepart, dateFr, etatDemande, joursEntre, TYPE_COURTS } from './logique';
 import { dateEnvoiAutorite, dateLongue, fonctionAnglaise, intitule, telephoneInternational } from './textes';
 import type {
   AutoriteEtrangere,
@@ -49,7 +49,7 @@ function refs(d: DemandeEntraide, langue: EntraideLangue): string {
 /** Relance par mail d'un service enquêteur pour une demande reçue. */
 export function mailRelanceEnqueteurs(d: DemandeEntraide, service: ServiceEnqueteur | null, sig: SignataireEntraide | null): MailPret {
   const envoi = dateEnvoiEnqueteurs(d);
-  const objet = `Relance – ${TYPE_COURTS[d.type]} ${d.pays} – N/réf ${d.refEsabora}${envoi ? ` – ST du ${dateFr(envoi)}` : ''}`;
+  const objet = `${d.drapeau === 'rouge' ? 'PRIORITAIRE – ' : ''}Relance – ${TYPE_COURTS[d.type]} ${d.pays} – N/réf ${d.refEsabora}${envoi ? ` – ST du ${dateFr(envoi)}` : ''}`;
   const corps = [
     'Bonjour,',
     '',
@@ -57,6 +57,8 @@ export function mailRelanceEnqueteurs(d: DemandeEntraide, service: ServiceEnquet
     d.objet ? `Objet : ${d.objet}` : '',
     '',
     'Le délai de retour étant échu, je vous remercie de bien vouloir me faire connaître l’état d’avancement des investigations et, le cas échéant, de me retourner les procès-verbaux d’exécution dans les meilleurs délais.',
+    d.drapeau === 'rouge' ? 'Ce dossier est signalé comme prioritaire par le magistrat : un retour rapide est attendu.'
+      : d.drapeau === 'orange' ? 'Ce dossier fait l’objet d’un suivi renforcé demandé par le magistrat.' : '',
     '',
     'Bien cordialement,',
     '',
@@ -70,7 +72,7 @@ export function mailRelanceGroupee(service: ServiceEnqueteur, demandes: DemandeE
   const lignes = demandes.map((d) => {
     const e = etatDemande(d, jour);
     const envoi = dateEnvoiEnqueteurs(d);
-    return `- N/réf ${d.refEsabora} – ${TYPE_COURTS[d.type]} ${d.pays}${envoi ? ` – ST du ${dateFr(envoi)}` : ''}${e.echeance ? ` – retour attendu le ${dateFr(e.echeance.date)}` : ''}${d.objet ? ` – ${d.objet}` : ''}`;
+    return `- ${d.drapeau === 'rouge' ? '[PRIORITAIRE] ' : d.drapeau === 'orange' ? '[suivi renforcé] ' : ''}N/réf ${d.refEsabora} – ${TYPE_COURTS[d.type]} ${d.pays}${envoi ? ` – ST du ${dateFr(envoi)}` : ''}${e.echeance ? ` – retour attendu le ${dateFr(e.echeance.date)}` : ''}${d.objet ? ` – ${d.objet}` : ''}`;
   });
   const objet = `Relance – ${demandes.length} demande${demandes.length > 1 ? 's' : ''} d’entraide internationale en attente de retour`;
   const corps = [
@@ -172,6 +174,73 @@ export function mailRetourAutorite(d: DemandeEntraide, a: AutoriteEtrangere | nu
   };
 }
 
+/** Au-delà de ce délai sans retour, une demande reçue appelle un point de
+ *  situation à l'autorité requérante (DEE : délai légal d'exécution dépassé). */
+const POINT_SITUATION_JOURS = 120;
+
+export function pointSituationUtile(d: DemandeEntraide, jour = aujourdhui()): boolean {
+  if (d.sens !== 'recue') return false;
+  const e = etatDemande(d, jour);
+  if (e.etape === 'cloturee' || e.etape === 'attente_ar' || e.etape === 'a_cloturer') return false;
+  if (e.echeancesLegales.some((l) => l.code === 'execution_dee' && l.statut === 'depasse')) return true;
+  const depart = dateDepart(d);
+  return !!depart && (joursEntre(depart, jour) ?? 0) > POINT_SITUATION_JOURS;
+}
+
+/**
+ * Point de situation à l'autorité requérante d'une demande reçue en retard :
+ * excuses pour le délai, relances restées sans effet, et question de
+ * l'intérêt encore attaché à l'exécution (DEE : art. 12 § 6 dir. 2014/41/UE).
+ */
+export function mailPointSituation(d: DemandeEntraide, a: AutoriteEtrangere | null, sig: SignataireEntraide | null, langue: EntraideLangue, jour = aujourdhui()): MailPret {
+  const depart = dateDepart(d);
+  const envoi = (d.evenements || []).filter((e) => e.type === 'envoi_enqueteurs').map((e) => e.date).sort()[0] || null;
+  const relances = etatDemande(d, jour).nbRelances;
+  const dee = d.type === 'dee';
+  if (langue === 'en') {
+    return {
+      id: 'point_situation_en',
+      libelle: 'Point de situation – excuses du retard (anglais)',
+      destinataire: a?.email || '',
+      objet: `Status of the execution of ${intitule(d.type, 'en')} – ${refs(d, 'en')}`,
+      corps: [
+        'Dear Sir or Madam,',
+        '',
+        `On ${depart ? dateLongue(depart, 'en') : '—'}, you sent ${intitule(d.type, 'en')} to the Public Prosecutor's Office of ${PAPETERIE.ville} (${refs(d, 'en')}).`,
+        '',
+        `Please accept our apologies for the time that has elapsed since it was received. ${envoi ? `The request was entrusted to the competent investigation services on ${dateLongue(envoi, 'en')}` : 'The request was forwarded to the competent investigation services'}${relances ? `, but despite ${relances === 1 ? 'a reminder' : `${relances} reminders`}, we have not yet received the execution documents` : ', but we have not yet received the execution documents'}.${dee ? ' In accordance with Article 12(6) of Directive 2014/41/EU, we hereby inform you of this delay.' : ''}`,
+        '',
+        'So as not to mobilise the services unnecessarily, we would be grateful if you could let us know whether the execution of this request is still of interest to your proceedings. If so, we will forward the results to you as soon as we receive them.',
+        '',
+        'Thank you for your understanding.',
+        '',
+        'Yours faithfully,',
+        '',
+        signature(sig, 'en'),
+      ].join('\n'),
+    };
+  }
+  return {
+    id: 'point_situation_fr',
+    libelle: 'Point de situation – excuses du retard (français)',
+    destinataire: a?.email || '',
+    objet: `Point de situation sur l’exécution de ${intitule(d.type, 'fr')} – ${refs(d, 'fr')}`,
+    corps: [
+      'Madame, Monsieur,',
+      '',
+      `Vous avez adressé le ${depart ? dateFr(depart) : '—'} au parquet de ${PAPETERIE.ville} ${intitule(d.type, 'fr')} (${refs(d, 'fr')}).`,
+      '',
+      `Nous vous prions de bien vouloir nous excuser du délai écoulé depuis sa réception. ${envoi ? `La demande a été confiée aux services d’enquête compétents le ${dateFr(envoi)}` : 'La demande a été confiée aux services d’enquête compétents'}${relances ? ` ; malgré ${relances === 1 ? 'une relance' : `${relances} relances`}, nous n’avons pas reçu à ce jour les pièces d’exécution` : ' ; nous n’avons pas reçu à ce jour les pièces d’exécution'}.${dee ? ' Conformément à l’article 12, paragraphe 6, de la directive 2014/41/UE, nous vous informons de ce retard.' : ''}`,
+      '',
+      'Afin de ne pas mobiliser inutilement les services, nous vous serions reconnaissants de bien vouloir nous indiquer si l’exécution de cette demande présente toujours un intérêt pour votre procédure. Dans l’affirmative, nous ne manquerons pas de vous transmettre les résultats dès leur réception.',
+      '',
+      'En vous remerciant de votre compréhension, nous vous prions d’agréer, Madame, Monsieur, l’expression de notre haute considération.',
+      '',
+      signature(sig, 'fr'),
+    ].join('\n'),
+  };
+}
+
 /** Mails pertinents pour une demande, selon son sens. */
 export function mailsDemande(
   d: DemandeEntraide,
@@ -179,7 +248,11 @@ export function mailsDemande(
 ): MailPret[] {
   const langue: EntraideLangue = ctx.autorite?.langue || 'fr';
   if (d.sens === 'recue') {
+    const retard = pointSituationUtile(d)
+      ? [mailPointSituation(d, ctx.autorite, ctx.signataire, langue), ...(langue === 'en' ? [mailPointSituation(d, ctx.autorite, ctx.signataire, 'fr')] : [])]
+      : [];
     return [
+      ...retard,
       mailRelanceEnqueteurs(d, ctx.service, ctx.signataire),
       mailRetourAutorite(d, ctx.autorite, ctx.signataire, langue),
       ...(langue === 'en' ? [mailRetourAutorite(d, ctx.autorite, ctx.signataire, 'fr')] : []),

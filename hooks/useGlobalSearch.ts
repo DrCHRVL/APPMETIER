@@ -13,6 +13,8 @@ import { DossierInstruction } from '@/types/instructionTypes';
 import { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { KnownPerson } from '@/utils/knownPersons';
 import type { DossierExNihilo } from '@/stores/useCartographieOverlayStore';
+import type { DemandeEntraide } from '@/types/entraideTypes';
+import { aujourdhui, etatDemande, TYPE_COURTS } from '@/utils/entraide/logique';
 import {
   GlobalSearchDoc,
   GlobalHitGroup,
@@ -35,7 +37,10 @@ export interface GlobalSearchSources {
   statsContentieuxIds: ContentieuxId[];
   /** Contentieux où l'utilisateur peut créer une enquête. */
   createContentieuxIds: ContentieuxId[];
-  modules: { instructions: boolean; air: boolean; mindmap: boolean };
+  modules: { instructions: boolean; air: boolean; mindmap: boolean; entraide?: boolean };
+  /** Registre partagé du module Entraide internationale (toutes demandes,
+   *  clôturées comprises). */
+  demandesEntraide?: DemandeEntraide[];
   /** Fichier des personnes (mis en cause, mis en examen, suspects, victimes,
    *  fiches manuelles de la cartographie) déjà dédupliqué par `useKnownPersons`.
    *  Alimente le groupe « Personnes » de l'omnibox. */
@@ -247,6 +252,41 @@ function buildAIRDoc(m: AIRMesure, idx: number): GlobalSearchDoc | null {
   };
 }
 
+// ── Entraide internationale ────────────────────
+
+/** Texte brut d'observations saisies en texte enrichi. */
+const sansBalises = (html?: string) => (html || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ');
+
+function buildEntraideDoc(d: DemandeEntraide, jour: string): GlobalSearchDoc {
+  const fields: DocField[] = [];
+  const acc: Array<DocField | null> = fields as Array<DocField | null>;
+
+  push(acc, makeField(d.refEsabora, 3, { fuzzy: true, ops: ['no', 'num', 'numero'] }));
+  push(acc, makeField(
+    [squashAlnum(d.refEsabora || ''), squashAlnum(d.refEtrangere || '')].filter(Boolean).join(' '),
+    2.6,
+    { ops: ['no', 'num', 'numero'] }
+  ));
+  push(acc, makeField(d.refEtrangere, 2.2, { label: 'Réf. étrangère', fuzzy: true, ops: ['no', 'num', 'numero'] }));
+  push(acc, makeField(d.personnes, 2.4, { label: 'Personnes', fuzzy: true, ops: ['nom', 'personne', 'mec'] }));
+  push(acc, makeField(d.pays, 1.8, { label: 'Pays', fuzzy: true, ops: ['pays'] }));
+  push(acc, makeField(d.autoriteNom, 1.6, { label: 'Autorité', fuzzy: true, ops: ['autorite'] }));
+  push(acc, makeField(d.serviceAutre, 1.4, { label: 'Service', fuzzy: true, ops: ['service', 'sce'] }));
+  push(acc, makeField(d.objet, 1.4, { label: 'Objet', maxLength: 4000, ops: ['desc', 'description', 'objet'] }));
+  push(acc, makeField(sansBalises(d.observations), 0.9, { label: 'Observations', maxLength: 4000, ops: ['contenu'] }));
+
+  const cloturee = etatDemande(d, jour).etape === 'cloturee';
+  return {
+    key: `entraide_${d.id}`,
+    kind: 'entraide',
+    title: d.refEsabora || TYPE_COURTS[d.type],
+    subtitle: [`${TYPE_COURTS[d.type]} ${d.sens === 'recue' ? 'reçue de' : 'émise vers'} ${d.pays}`, d.objet?.trim()].filter(Boolean).join(' · '),
+    archived: cloturee,
+    fields,
+    data: { id: d.id },
+  };
+}
+
 // ── Personnes (→ cartographie) ─────────────────
 
 /**
@@ -367,6 +407,11 @@ function buildNavigationDocs(s: GlobalSearchSources): { pages: GlobalSearchDoc[]
     pages.push(air);
     quickLinks.push(air);
   }
+  if (s.modules.entraide) {
+    const ent = pageDoc('entraide', 'Entraide internationale', 'dee demande enquete europeenne cri commission rogatoire denonciation officielle registre', { view: 'entraide' });
+    pages.push(ent);
+    quickLinks.push(ent);
+  }
   if (s.modules.mindmap) {
     const mm = pageDoc('mindmap', 'Cartographie', 'mindmap carte reseau liens criminels graphe', { view: 'mindmap' });
     pages.push(mm);
@@ -420,6 +465,7 @@ export const useGlobalSearch = (sources: GlobalSearchSources): GlobalSearchApi =
     showAssistant,
     knownPersons,
     dossiersExNihilo,
+    demandesEntraide,
   } = sources;
 
   // Signatures stables pour ne pas reconstruire l'index à chaque rendu.
@@ -453,6 +499,11 @@ export const useGlobalSearch = (sources: GlobalSearchSources): GlobalSearchApi =
       });
     }
 
+    if (modules.entraide && demandesEntraide) {
+      const jour = aujourdhui();
+      for (const d of demandesEntraide) out.push(buildEntraideDoc(d, jour));
+    }
+
     if (modules.mindmap && knownPersons) {
       out.push(...buildPersonneDocs(knownPersons));
     }
@@ -466,7 +517,7 @@ export const useGlobalSearch = (sources: GlobalSearchSources): GlobalSearchApi =
 
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enquetesByContentieux, instructions, mesuresAIR, contentieux, modules.instructions, modules.air, modules.mindmap, knownPersons, dossiersExNihilo]);
+  }, [enquetesByContentieux, instructions, mesuresAIR, contentieux, modules.instructions, modules.air, modules.mindmap, modules.entraide, knownPersons, dossiersExNihilo, demandesEntraide]);
 
   const nav = useMemo(
     () => buildNavigationDocs({
@@ -481,7 +532,7 @@ export const useGlobalSearch = (sources: GlobalSearchSources): GlobalSearchApi =
       showAssistant,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [contentieux, statsSig, createSig, modules.instructions, modules.air, modules.mindmap, hasOverboard, showAssistant]
+    [contentieux, statsSig, createSig, modules.instructions, modules.air, modules.mindmap, modules.entraide, hasOverboard, showAssistant]
   );
 
   const search = useMemo(() => {
