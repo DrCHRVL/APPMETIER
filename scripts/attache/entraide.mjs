@@ -80,6 +80,13 @@ function date(v, champ) {
   return s
 }
 
+/** Demande reprise d'une ligne du tableau Excel (onglet + ligne). */
+function parOrigine(data, o) {
+  const d = data.demandes.find((x) => x.origine && x.origine.onglet === String(o.onglet) && x.origine.ligne === Number(o.ligne))
+  if (!d) throw new Error(`Aucune demande reprise de ${o.onglet} ligne ${o.ligne}`)
+  return d
+}
+
 function trouver(data, ref) {
   const w = normaliser(ref).replace(/\s+/g, '')
   const hits = data.demandes.filter((d) => d.id === ref || normaliser(d.refEsabora).replace(/\s+/g, '') === w)
@@ -365,8 +372,9 @@ export async function modifierEntraide(keys, a) {
 }
 
 /**
- * Complément en LOT : `affectations` = [{ ref, natinf?, personnes?, mesures?,
- * objet? }] (ref = id ou n° ESABORA non ambigu). Chaque champ fourni remplace
+ * Complément en LOT : `affectations` = [{ ref | origine, natinf?, personnes?,
+ * mesures?, objet? }] (ref = id ou n° ESABORA non ambigu ; origine = {onglet,
+ * ligne} du tableau repris). Chaque champ fourni remplace
  * celui de la demande ; tout ou rien si une référence, un code NATINF ou une
  * mesure est inconnu.
  */
@@ -374,7 +382,7 @@ export async function completerEntraide(keys, { affectations = [] }) {
   return ecrire(keys, (data) => {
     const t = maintenant()
     const faites = affectations.map((x) => {
-      const d = trouver(data, x.ref)
+      const d = x.origine ? parOrigine(data, x.origine) : trouver(data, x.ref)
       const patch = {}
       if (x.natinf !== undefined) patch.natinf = controlerNatinf(x.natinf)
       if (x.mesures !== undefined) patch.mesures = controlerMesures(x.mesures)

@@ -155,6 +155,8 @@ attendu('import : 2 créées, 1 erreur détaillée', !r.err && r.json.crees === 
 attendu('import : pays « Royaume uni » normalisé', lire('entraide').autorites.some((a) => a.nom === 'UK Central Authority' && a.pays === 'Royaume-Uni'))
 r = await call('entraide_importer', lot)
 attendu('import rejoué : mises à jour, aucun doublon', !r.err && r.json.crees === 0 && r.json.misesAJour === 2 && lire('entraide').demandes.length === 4, r.text.slice(0, 200))
+r = await call('entraide_completer', { affectations: [{ origine: { onglet: 'CRI', ligne: 7 }, natinf: ['7151'] }] })
+attendu('complément par ligne d’origine', !r.err && lire('entraide').demandes.find((x) => x.refEsabora === '2025/00753').natinf?.[0] === '7151', r.text.slice(0, 200))
 r = await call('entraide_lister', { portee: 'cloturees' })
 attendu('demande importée clôturée', r.json.total === 1 && r.json.demandes[0].refEsabora === '2025/00753')
 

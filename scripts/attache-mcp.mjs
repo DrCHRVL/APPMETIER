@@ -1075,7 +1075,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'entraide_completer',
-    description: 'Complète en LOT des demandes d\'entraide : `affectations` [{ref, natinf?, personnes?, mesures?, objet?}] — ref = id (voir entraide_lister) ou n° ESABORA non ambigu. Chaque champ fourni REMPLACE celui de la demande : natinf = codes de l\'infraction ou de son équivalent en droit français (natinf_chercher d\'abord) ; personnes = personnes visées ET victimes (texte) ; mesures = identifiants du catalogue (entraide_referentiel) ; objet = intitulé. Tout ou rien si un code, une mesure ou une référence est inconnu. Écriture versionnée. RÉSERVÉ à une instruction EXPLICITE du magistrat.',
+    description: 'Complète en LOT des demandes d\'entraide : `affectations` [{ref | origine, natinf?, personnes?, mesures?, objet?}] — ref = id (voir entraide_lister) ou n° ESABORA non ambigu ; origine = {onglet, ligne} d\'une demande reprise du tableau Excel. Chaque champ fourni REMPLACE celui de la demande : natinf = codes de l\'infraction ou de son équivalent en droit français (natinf_chercher d\'abord) ; personnes = personnes visées ET victimes (texte) ; mesures = identifiants du catalogue (entraide_referentiel) ; objet = intitulé. Tout ou rien si un code, une mesure ou une référence est inconnu. Écriture versionnée. RÉSERVÉ à une instruction EXPLICITE du magistrat.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1085,12 +1085,12 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
             type: 'object',
             properties: {
               ref: { type: 'string' },
+              origine: { type: 'object', description: 'À la place de ref : {onglet, ligne} du tableau Excel repris', properties: { onglet: { type: 'string' }, ligne: { type: 'number' } } },
               natinf: { type: 'array', items: { type: 'string' } },
               personnes: { type: 'string' },
               mesures: { type: 'array', items: { type: 'string' } },
               objet: { type: 'string' },
             },
-            required: ['ref'],
           },
         },
       },
