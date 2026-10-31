@@ -24,7 +24,7 @@ export interface MailPret {
 }
 
 function signature(sig: SignataireEntraide | null, langue: EntraideLangue): string {
-  if (!sig) return langue === 'en' ? `${PAPETERIE.parquet}\n${PAPETERIE.ville}` : `${PAPETERIE.parquet}\n${PAPETERIE.ville}`;
+  if (!sig) return `${PAPETERIE.parquet}\n${PAPETERIE.ville}`;
   if (langue === 'en') {
     return [`${sig.prenomNom}`, fonctionAnglaise(sig.fonction), `${PAPETERIE.ville} Judicial Court (France)`,
       sig.telephone ? `Tel. ${telephoneInternational(sig.telephone)}` : '', sig.email || ''].filter(Boolean).join('\n');

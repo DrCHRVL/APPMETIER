@@ -109,7 +109,11 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       if (probe.status === 404) {
         failedPulls.delete(name) // réellement absent : écriture initiale sûre
       } else {
-        if (probe.ok) failedPulls.delete(name)
+        // Serveur joignable mais la relecture n'a PAS confirmé l'état : une
+        // simple sonde ne déchiffre ni ne fusionne l'enveloppe. On garde donc
+        // la garde armée — seul un vaultPull réussi efface failedPulls. Sinon
+        // un push suivant (même tick de synchro) écraserait les données
+        // partagées par une fusion locale périmée.
         throw new NetworkError('Dernière lecture échouée — resynchronisation requise avant écriture')
       }
     }
