@@ -28,7 +28,9 @@ import {
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { texteDocumentIntegral } from './dossier.mjs'
 import { allInstructionDossiers } from './instru.mjs'
-import { buildCorpus, docTextKey } from '../../lib/recoupements/corpusCore.mjs'
+import { buildCorpus, docTextKey, enqueteKey, instructionKey } from '../../lib/recoupements/corpusCore.mjs'
+import { detecterPiecesMalClassees } from './classement.mjs'
+import { publishFeed } from './journal.mjs'
 import { LIBELLE_KIND, LIBELLE_ORIGINE, detecterRecoupements } from '../../lib/recoupements/moteurCore.mjs'
 
 /** Coffre de sortie — clé globale, lisible de tous les utilisateurs. */
@@ -154,6 +156,16 @@ export async function passeRecoupements(keys, { progression = () => {}, extracti
   })
   if (!signaux) throw new Error('Détection interrompue')
 
+  // Pièces peut-être mal classées : elles fabriquent de faux ponts. Le signal
+  // qui ne repose, d'un côté, que sur elles est marqué (pieceSuspecte).
+  progression({ etape: 'classement' })
+  let piecesSuspectes = []
+  try {
+    piecesSuspectes = marquerPiecesSuspectes(keys, parContentieux, instructions, signaux)
+  } catch (e) {
+    console.error('[attache] pièces mal classées :', e)
+  }
+
   const resultat = {
     v: 1,
     calculeAt: new Date().toISOString(),
@@ -171,12 +183,95 @@ export async function passeRecoupements(keys, { progression = () => {}, extracti
       caracteresLus: bilan.caracteres,
     },
     signaux,
+    piecesSuspectes,
   }
 
   const savedAt = resultat.calculeAt
   const envelope = encryptJson(keys.global, resultat, { savedAt, savedBy: author(keys) })
+  const avant = dernieresSuspectes(keys)
   await writeVault(attacheTj(), COFFRE, envelope, author(keys))
+  // Une pièce nouvellement soupçonnée : le magistrat le sait au fil.
+  const nouvelles = piecesSuspectes.filter((x) => !avant.has(`${x.dossier}|${x.piece}`))
+  if (nouvelles.length) {
+    await publishFeed(keys, {
+      type: 'note',
+      titre: `${nouvelles.length} pièce(s) peut-être mal classée(s)`,
+      resume: nouvelles.slice(0, 10).map((x) => `${x.piece} — versée dans ${x.dossier}, semble appartenir à ${x.dossierProbable} (${x.certitude})`).join('\n')
+        + (nouvelles.length > 10 ? `\n… et ${nouvelles.length - 10} autre(s) — vue d'ensemble des recoupements.` : ''),
+    }).catch(() => {})
+  }
   return resultat
+}
+
+/** Pièces soupçonnées au passage précédent (`dossier|piece`), pour ne signaler que le neuf. */
+function dernieresSuspectes(keys) {
+  const envelope = readVault(attacheTj(), COFFRE)
+  if (!envelope) return new Set()
+  try {
+    return new Set((decryptJson(keys.global, envelope).piecesSuspectes || []).map((x) => `${x.dossier}|${x.piece}`))
+  } catch { return new Set() }
+}
+
+/**
+ * Détecte les pièces peut-être mal classées sur tout le corpus de la veille,
+ * leur donne les clés de dossier de l'application (pour l'affichage), et
+ * marque chaque signal dont un côté ne repose QUE sur elles.
+ */
+function marquerPiecesSuspectes(keys, parContentieux, instructions, signaux) {
+  const enquetes = []
+  const cleEnquete = new Map() // numéro → { key, docs: Map(nom affiché → chemin) }
+  for (const [ctx, liste] of parContentieux) {
+    for (const e of liste || []) {
+      if (!e?.numero) continue
+      enquetes.push(e)
+      cleEnquete.set(String(e.numero), {
+        key: enqueteKey(ctx, e.id),
+        docs: new Map((e.documents || []).map((d) => [String(d.nomOriginal || d.nom || ''), String(d.cheminRelatif || '')])),
+      })
+    }
+  }
+  const cleInstruction = new Map()
+  for (const d of instructions || []) {
+    const n = d.numeroInstruction || d.numeroParquet
+    if (n) cleInstruction.set(String(n), instructionKey(d.id))
+  }
+  const cleDe = (numero) => cleEnquete.get(numero)?.key || cleInstruction.get(numero) || null
+
+  const suspectes = detecterPiecesMalClassees(keys, { enquetes, instructions })
+    .map((x) => ({ ...x, dossierKey: cleDe(x.dossier), dossierProbableKey: cleDe(x.dossierProbable) }))
+  const parPiece = new Map(suspectes.map((x) => [`${x.dossier}|${x.piece}`, x]))
+
+  // Occurrence → pièce : une enquête cite ses documents par leur nom affiché ;
+  // une instruction cite ceux de sa préliminaire en « préliminaire N · nom ».
+  const pieceDe = (o) => {
+    if (o.origine !== 'document') return null
+    let numero = String(o.dossier?.numero || '')
+    let nom = String(o.detail || '')
+    const m = /^préliminaire (.+?) · (.+)$/.exec(nom)
+    if (m) { numero = m[1]; nom = m[2] }
+    const rel = cleEnquete.get(numero)?.docs.get(nom)
+    return rel ? parPiece.get(`${numero}|${rel}`) || null : null
+  }
+  for (const signal of signaux) {
+    const parDossier = new Map()
+    for (const o of signal.occurrences || []) {
+      const k = o.dossier?.key || o.dossier?.numero
+      if (!parDossier.has(k)) parDossier.set(k, [])
+      parDossier.get(k).push(pieceDe(o))
+    }
+    for (const [k, liste] of parDossier) {
+      if (!liste.length || !liste.every(Boolean)) continue
+      signal.pieceSuspecte = {
+        dossierKey: k,
+        dossier: liste[0].dossier,
+        pieces: [...new Set(liste.map((x) => x.piece))],
+        dossierProbable: liste[0].dossierProbable,
+        certitude: liste.every((x) => x.certitude === 'forte') ? 'forte' : 'moyenne',
+      }
+      break
+    }
+  }
+  return suspectes
 }
 
 /** Dernier résultat connu, sans recalculer (pour le panneau d'administration). */

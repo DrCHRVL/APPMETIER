@@ -30,6 +30,7 @@ import {
   enqueteExiste,
 } from './attache/dossier.mjs'
 import { chercherDansPieces } from './attache/recherche.mjs'
+import { detecterPiecesMalClassees } from './attache/classement.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine } from './attache/routines.mjs'
 import { searchNatinf } from './attache/natinf.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
@@ -290,7 +291,7 @@ const TOOLS = [
   },
   {
     name: 'registre_recouper',
-    description: 'RECOUPEMENT INTER-DOSSIERS par entité, depuis les registres de TOUS les dossiers : téléphones, plaques, IBAN et adresses extraits automatiquement du texte de toutes les pièces versées, plus les PERSONNES des mini-fiches (nom normalisé comme la cartographie). Rend les entités présentes dans AU MOINS DEUX dossiers, chaque côté cité avec ses pièces exactes — les liens cachés dans la masse des documents, introuvables depuis les seules données structurées. Zéro coût modèle. `numero` : recoupements impliquant ce dossier seulement ; `entite` : chercher UNE valeur précise (un numéro, une plaque, un nom) dans tous les registres, même présente dans un seul dossier. Un recoupement est un SIGNALEMENT à VÉRIFIER dans les pièces citées (lire_document) avant tout proposer_lien — une entité partagée peut être anodine.',
+    description: 'RECOUPEMENT INTER-DOSSIERS par entité, depuis les registres de TOUS les dossiers : téléphones, plaques, IBAN et adresses extraits automatiquement du texte de toutes les pièces versées, plus les PERSONNES des mini-fiches (nom normalisé comme la cartographie). Rend les entités présentes dans AU MOINS DEUX dossiers, chaque côté cité avec ses pièces exactes — les liens cachés dans la masse des documents, introuvables depuis les seules données structurées. Zéro coût modèle. `numero` : recoupements impliquant ce dossier seulement ; `entite` : chercher UNE valeur précise (un numéro, une plaque, un nom) dans tous les registres, même présente dans un seul dossier. Un recoupement est un SIGNALEMENT à VÉRIFIER dans les pièces citées (lire_document) avant tout proposer_lien — une entité partagée peut être anodine, et un côté marqué `pieceSuspecte` ne repose que sur des pièces peut-être MAL CLASSÉES (faux pont probable : voir pieces_mal_classees).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -301,6 +302,20 @@ const TOOLS = [
       },
     },
     handler: async (a) => recouperRegistres(keys, { numero: a.numero, entite: a.entite, offset: a.offset, limite: a.limite }),
+  },
+  {
+    name: 'pieces_mal_classees',
+    description: 'PIÈCES PEUT-ÊTRE MAL CLASSÉES — une pièce versée dans le mauvais dossier (une interception téléphonique d\'une autre affaire, par exemple) fabrique de FAUX recoupements. Repère, sans un jeton, chaque pièce dont les marques (lignes, plaques, IBAN, personnes nommées — enquêteurs et magistrats écartés) renvoient à un AUTRE dossier et presque pas au sien : marques DÉCLARÉES de l\'autre dossier (mis en cause, lignes interceptées, objets géolocalisés) ou lues dans ses pièces. Un lot versé d\'un coup au mauvais endroit ne se donne pas raison à lui-même ; l\'enquête préliminaire et l\'instruction qui en est issue sont un seul dossier. Rend, pour chaque pièce : dossier actuel, dossierProbable, certitude (forte / moyenne), et les marques qui fondent le soupçon. À CONSULTER avant de conclure sur un recoupement — registre_recouper et recoupements_lire marquent déjà (pieceSuspecte) les ponts qui ne reposent que sur de telles pièces. C\'est un SIGNALEMENT : vérifie la pièce (lire_document) et dis-le au magistrat ; rien n\'est déplacé.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string', description: 'Ne garder que les pièces qui touchent ce dossier (comme dossier actuel ou probable). Vide = tout le fonds.' },
+      },
+    },
+    handler: async (a) => {
+      const pieces = detecterPiecesMalClassees(keys, { numero: a?.numero })
+      return { total: pieces.length, pieces, ...(pieces.length ? {} : { note: 'Aucune pièce suspecte.' }) }
+    },
   },
   {
     name: 'recoupements_lire',
@@ -2072,7 +2087,7 @@ const INSTRUCTIONS_CONNECTEUR = [
   '  4. Chaque réponse porte un bloc `sources` : quel coffre a fourni les résultats d\'audience et quand il a été mis à jour. Si `repli: true` y apparaît, les chiffres d\'audience viennent d\'une copie qui n\'est plus alimentée : le DIRE au magistrat avant de les citer, et ne rien produire pour un tiers sur ces valeurs sans les avoir confrontées à son écran.',
   '  5. Pour VOIR ce qu\'il voit : stats_graphique, avec `graphiques` (plusieurs d\'un coup) et `annee`. Décrire les dynamiques d\'après l\'image, mais donner les nombres d\'après les données jointes.',
   'GROS STOCK ET ARCHIVES : lister_dossiers est paginé et filtrable — portee:"archives" (les archivés SEULS), portee:"toutes", `filtre` (numéro, objet, mis en cause), offset/limit ; la réponse dit ce qui reste et à quel offset reprendre. Une population de dossiers n\'est jamais hors de portée : déroule les pages.',
-  'TRAVAIL DE FOND SUR UN DOSSIER (réquisitoire définitif, synthèse générale, dépouillement) : dossier_global — TOUTES les pièces en texte dans un seul fichier : en tête la fiche du dossier, la chronologie et le registre des pièces ; puis le sommaire et un bloc par pièce, classées par THÈME (auditions, synthese, telephonie, expertises, surveillances, decisions, autres — `theme` pour n\'en lire qu\'un), chaque pièce portant un numéro stable P-xxxx (citable d\'une conversation à l\'autre) et son chemin (la cote) ; paginé ; dossier volumineux : thème par thème ou pochette par pochette (panorama de dossier_arborescence). Pour LOCALISER sans tout lire : pieces_chercher (avec numero : un dossier ; SANS numero : TOUT le fonds — enquêtes archivées, instructions, documents de la carte — avec alternatives en OU et "expressions exactes"), registre_lire. Pour CROISER des affaires : registre_recouper (entités partagées, `entite` pour une valeur précise), recoupements_lire (veille hebdomadaire, `inedits:true` pour les ponts que rien ne montrait), carto_analyser et carto_chemin (sourcé).',
+  'TRAVAIL DE FOND SUR UN DOSSIER (réquisitoire définitif, synthèse générale, dépouillement) : dossier_global — TOUTES les pièces en texte dans un seul fichier : en tête la fiche du dossier, la chronologie et le registre des pièces ; puis le sommaire et un bloc par pièce, classées par THÈME (auditions, synthese, telephonie, expertises, surveillances, decisions, autres — `theme` pour n\'en lire qu\'un), chaque pièce portant un numéro stable P-xxxx (citable d\'une conversation à l\'autre) et son chemin (la cote) ; paginé ; dossier volumineux : thème par thème ou pochette par pochette (panorama de dossier_arborescence). Pour LOCALISER sans tout lire : pieces_chercher (avec numero : un dossier ; SANS numero : TOUT le fonds — enquêtes archivées, instructions, documents de la carte — avec alternatives en OU et "expressions exactes"), registre_lire. Pour CROISER des affaires : registre_recouper (entités partagées, `entite` pour une valeur précise), recoupements_lire (veille hebdomadaire, `inedits:true` pour les ponts que rien ne montrait ; un signal marqué `pieceSuspecte` est un faux pont probable — pieces_mal_classees liste les pièces versées dans le mauvais dossier), carto_analyser et carto_chemin (sourcé).',
   'RÉDACTION DES ACTES : c\'est ICI, dans Claude web, qu\'ils se rédigent — l\'attaché de SIRAL ne rédige plus (il actualise, recoupe, prépare). Avant de rédiger : instructions_projet_lire (les instructions de référence du projet, tenues dans SIRAL et révisées sur les corrections du magistrat — elles peuvent être plus récentes que celles collées dans le projet), trames_lister / trame_lire (le plan-type du magistrat, qui PRIME sur un modele-* du même type), skills_lister / skill_lire (sa méthode), kb_chercher / kb_lire (son fond documentaire, documents ★ en réflexe), lire_dossier (NATINF enregistrés, mis en cause, échéancier) et chronologie_lire. Les instructions, la mémoire et la base de connaissances de ton projet Claude web PRIMENT sur ces ressources ; SIRAL les garde en mémoire et les améliore (propositions ✓/✗ du magistrat).',
   'Écritures (actes, CR, à-faire, NATINF, dossiers…) : réservées aux instructions explicites du magistrat — en cas de doute, demande-lui dans la conversation avant d\'écrire. Chaque écriture est versionnée (réversible) et journalisée dans son audit ; les données partagées sont signées de son nom, jamais « IA ».',
   'Un acte rédigé ici se LIVRE ICI, dans la conversation (texte complet prêt à signer, ou fichier Word si le magistrat le demande) — il n\'est JAMAIS rangé dans SIRAL et il n\'y a AUCUN acte à valider dans SIRAL : ne l\'annonce jamais (« valider l\'acte dans SIRAL » est faux). SIRAL ne reçoit que des SYNTHÈSES et ANALYSES, avec remettre_livrable (fil « pendant votre absence »). Si le magistrat veut que la mesure (écoute, géolocalisation, prolongation) figure à l\'échéancier : enregistrer_acte / acter_prolongation, sur son instruction explicite.',

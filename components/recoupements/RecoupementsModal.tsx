@@ -17,8 +17,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Loader2, RefreshCw, ServerCog } from 'lucide-react';
-import type { Recoupement } from '@/types/recoupementTypes';
+import { FileWarning, Loader2, RefreshCw, ServerCog } from 'lucide-react';
+import type { PieceSuspecte, Recoupement } from '@/types/recoupementTypes';
 import type { RecoupementsChantier } from '@/hooks/useRecoupements';
 import type { LienExistant, PropositionLien } from '@/utils/recoupements/liens';
 import { RecoupementList } from './RecoupementList';
@@ -48,6 +48,9 @@ export interface RecoupementsModalProps {
   onAjouterMec?: (signal: Recoupement, dossierKey: string, nom: string) => void;
   /** Marque comme vus les signaux affichés (appelé à l'ouverture). */
   onVus?: (signaux: Recoupement[]) => void;
+  /** Pièces peut-être mal classées — elles fabriquent de faux recoupements. */
+  piecesSuspectes?: PieceSuspecte[];
+  onPieceBienClassee?: (piece: PieceSuspecte) => void;
 }
 
 export function RecoupementsModal({
@@ -68,8 +71,10 @@ export function RecoupementsModal({
   onCreerLien,
   onAjouterMec,
   onVus,
+  piecesSuspectes = [],
+  onPieceBienClassee,
 }: RecoupementsModalProps) {
-  const [onglet, setOnglet] = useState<'actifs' | 'ecartes'>('actifs');
+  const [onglet, setOnglet] = useState<'actifs' | 'ecartes' | 'classement'>('actifs');
 
   const nbNeufs = useMemo(() => signaux.filter(estNouveau).length, [signaux, estNouveau]);
 
@@ -109,6 +114,18 @@ export function RecoupementsModal({
           >
             Écartés ({ecartes.length})
           </button>
+          {piecesSuspectes.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setOnglet('classement')}
+              title="Pièces dont les lignes, plaques et personnes renvoient à un autre dossier : elles fabriquent de faux recoupements"
+              className={`rounded-md px-2 py-1 text-xs font-semibold ${
+                onglet === 'classement' ? 'bg-red-100 text-red-800' : 'text-red-600 hover:bg-red-50'
+              }`}
+            >
+              Pièces mal classées ? ({piecesSuspectes.length})
+            </button>
+          )}
 
           <div className="ml-auto flex items-center gap-2">
             <EtatChantier
@@ -121,7 +138,9 @@ export function RecoupementsModal({
         </div>
 
         <div className="flex-1 overflow-auto">
-          {onglet === 'actifs' ? (
+          {onglet === 'classement' ? (
+            <PiecesMalClassees pieces={piecesSuspectes} onBienClassee={onPieceBienClassee} />
+          ) : onglet === 'actifs' ? (
             signaux.length > 0 ? (
               <RecoupementList
                 signaux={signaux}
@@ -152,6 +171,52 @@ export function RecoupementsModal({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Pièces peut-être mal classées : une ligne par pièce, le dossier où elle
+ * semble devoir aller et ce qui le fait penser. Rien n'est déplacé d'office.
+ */
+function PiecesMalClassees({ pieces, onBienClassee }: {
+  pieces: PieceSuspecte[];
+  onBienClassee?: (piece: PieceSuspecte) => void;
+}) {
+  return (
+    <div className="divide-y divide-gray-100">
+      <p className="px-3 py-2 text-[11.5px] leading-snug text-gray-500">
+        Ces pièces parlent d&apos;un autre dossier — ses lignes interceptées, ses mis en cause, ses
+        véhicules — et presque pas du leur : versées au mauvais endroit, elles créent de faux
+        recoupements. À vérifier, puis à verser dans le bon dossier.
+      </p>
+      {pieces.map(p => (
+        <div key={`${p.dossier}|${p.piece}`} className="flex items-start gap-2 px-3 py-2">
+          <FileWarning className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 ${p.certitude === 'forte' ? 'text-red-600' : 'text-amber-600'}`} />
+          <div className="min-w-0 flex-1">
+            <div className="break-all text-[12.5px] font-medium text-gray-800">{p.piece}</div>
+            <div className="text-[11px] text-gray-600">
+              versée dans <span className="font-semibold">{p.dossier}</span> — semble appartenir à{' '}
+              <span className="font-semibold">{p.dossierProbable}</span>
+              <span className={`ml-1.5 rounded px-1 py-0.5 text-[9px] font-semibold uppercase ${
+                p.certitude === 'forte' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'
+              }`}>
+                {p.certitude}
+              </span>
+            </div>
+            <div className="mt-0.5 text-[10.5px] text-gray-500">
+              {p.marques.map(m => `${m.nature} ${m.valeur}${m.dansProbable === 'déclarée' ? ' (déclarée là-bas)' : ''}${m.dansActuel ? ' (aussi ici)' : ''}`).join(' · ')}
+            </div>
+          </div>
+          {onBienClassee && (
+            <Button size="sm" variant="ghost" className="h-6 flex-shrink-0 px-2 text-[11px] text-gray-500"
+              title="Cette pièce est bien à sa place : ne plus la signaler"
+              onClick={() => onBienClassee(p)}>
+              Bien classée
+            </Button>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 

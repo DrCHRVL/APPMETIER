@@ -38,6 +38,7 @@ import { RE_ENTITES, normEntite, mecCanonId } from './carto.mjs'
 import { texteDocumentIntegral, numeroCanonique, normAligne, loadContentieux } from './dossier.mjs'
 import { bloc as blocConsigne } from './consignes.mjs'
 import { economicalModel } from './subagents.mjs'
+import { detecterPiecesMalClassees } from './classement.mjs'
 import { extractUsage, recordUsage } from './usage.mjs'
 
 const CLAUDE_BIN = process.env.SIRAL_ATTACHE_CLAUDE_BIN || 'claude'
@@ -507,6 +508,12 @@ export function recouperRegistres(keys, { numero, entite, offset, limite } = {})
       }
     }
   }
+  // Pièces peut-être mal classées (interception versée dans le mauvais
+  // dossier…) : un côté qui ne repose QUE sur elles est un faux pont probable.
+  let suspectes = new Map()
+  try {
+    suspectes = new Map(detecterPiecesMalClassees(keys).map((x) => [`${docServerKey(x.dossier)}|${x.piece}`, x]))
+  } catch { /* détection indisponible : les recoupements restent servis */ }
   const recoupements = []
   for (const [ent, parDossier] of index) {
     if (valeurCherchee) {
@@ -515,11 +522,21 @@ export function recouperRegistres(keys, { numero, entite, offset, limite } = {})
     if (cible && !parDossier.has(cible)) continue
     recoupements.push({
       entite: ent,
-      dossiers: [...parDossier.entries()].map(([docKey, { rels, n }]) => ({
-        dossier: numeros.get(docKey) || (numeros.set(docKey, numeroDepuisDocKey(keys, docKey) || docKey), numeros.get(docKey)),
-        pieces: [...rels].sort(),
-        ...(n > rels.size ? { piecesTotal: n, note: `${n - rels.size} autre(s) pièce(s) — registre_lire avec filtre sur la valeur` } : {}),
-      })),
+      dossiers: [...parDossier.entries()].map(([docKey, { rels, n }]) => {
+        const s = n === rels.size ? [...rels].map((r) => suspectes.get(`${docKey}|${r}`)) : []
+        return {
+          dossier: numeros.get(docKey) || (numeros.set(docKey, numeroDepuisDocKey(keys, docKey) || docKey), numeros.get(docKey)),
+          pieces: [...rels].sort(),
+          ...(n > rels.size ? { piecesTotal: n, note: `${n - rels.size} autre(s) pièce(s) — registre_lire avec filtre sur la valeur` } : {}),
+          ...(s.length && s.every(Boolean) ? {
+            pieceSuspecte: {
+              dossierProbable: s[0].dossierProbable,
+              certitude: s.every((x) => x.certitude === 'forte') ? 'forte' : 'moyenne',
+              motif: 'ce côté ne repose que sur des pièces peut-être MAL CLASSÉES (elles semblent appartenir à un autre dossier) — faux recoupement probable ; voir pieces_mal_classees',
+            },
+          } : {}),
+        }
+      }),
     })
   }
   recoupements.sort((a, b) => b.dossiers.length - a.dossiers.length || a.entite.localeCompare(b.entite))

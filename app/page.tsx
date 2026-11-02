@@ -2461,6 +2461,8 @@ return (
         onCreerLien={creerLienRecoupement}
         onAjouterMec={handleAjouterMecRecoupement}
         onVus={recoupements.marquerVus}
+        piecesSuspectes={recoupements.piecesSuspectes}
+        onPieceBienClassee={recoupements.pieceBienClassee}
       />}
 
       <AlertsModal
