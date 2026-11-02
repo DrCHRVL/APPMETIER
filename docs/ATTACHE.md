@@ -411,15 +411,19 @@ actes corrigés ou refusés (voir « Instructions du projet Claude web »).
   cité avec ses pièces exactes — les liens souvent cachés dans la masse des
   documents versés, servis à la cartographie à coût nul (la recherche
   profonde de la carto commence désormais par là).
-- **Retrouve une information dans les pièces (`pieces_chercher`)** :
-  recherche plein texte côté serveur — fiches de dépouillement d'abord (déjà
-  synthétiques et cotées), puis le texte des pièces (copies markdown du
-  téléversement, caches d'extraction ; les pièces jamais extraites le sont
-  au passage, par lots bornés — chaque recherche étend la couverture,
-  définitivement). Insensible casse/accents, mots exigés ensemble, doublons
-  exacts fouillés une seule fois, extraits avec le chemin exact pour
-  enchaîner sur `lire_document`. **Zéro jeton** : scan local, pas d'index
-  vectoriel — cohérent avec la doctrine « recherche agentique ».
+- **Retrouve une information dans les pièces (`pieces_chercher`,
+  `scripts/attache/recherche.mjs`)** : recherche plein texte côté serveur
+  dans le texte intégral des pièces (copies markdown du téléversement,
+  caches d'extraction ; les pièces jamais extraites le sont au passage, par
+  lots bornés, et sont NOMMÉES tant qu'elles ne sont pas fouillées). Deux
+  portées : un dossier (n° d'enquête, d'instruction, ou libellé d'un dossier
+  de la carte), ou **tout le fonds** sans numéro (enquêtes en cours et
+  archivées, instructions, documents de la carte), parcouru dans l'ordre et
+  repris au curseur. Syntaxe : mots en ET, alternatives en `OU` (ou `|`),
+  `"expression exacte"`, dérivés trouvés (`stock` → stockage), casse et
+  accents indifférents. Doublons exacts fouillés une seule fois, extraits
+  avec le chemin exact pour enchaîner sur `lire_document`. **Zéro jeton** :
+  scan local par expressions régulières (~1 Go/s), pas d'index vectoriel.
 - **Montre où passent les jetons** : chaque run du CLI émet, en fin
   d'exécution, un bilan `usage` (jetons entrée/sortie/cache) et un
   `total_cost_usd` (équivalent au tarif API). Le service les consigne dans
@@ -587,20 +591,19 @@ actes corrigés ou refusés (voir « Instructions du projet Claude web »).
      rien de neuf, il n'écrit rien. Silencieux : aucune carte, aucune question.
   Le CR de l'attaché ne réveille pas le dossier (l'état du flux est recalé
   après chaque passage). **Versement massif** (≥ `SIRAL_ATTACHE_DESC_CHANTIER_SEUIL`,
-  100 pièces nouvelles d'un coup) : pas de passage rapide — bascule sur un
-  **chantier** de dépouillement (devis en attente de validation, carte au fil).
+  100 pièces nouvelles d'un coup) : pas de passage rapide — les pièces sont
+  **indexées** (texte, entités, registre, fichier global), carte au fil ; leur
+  exploitation se fait en profondeur depuis Claude web.
   Les étages 2 à 4 passent par le **gouverneur de forfait** (différés, jamais
   perdus) ; l'ingestion, elle, tourne toujours. Consommation sous le poste
-  **« Flux »** de « Consommation IA » ; audit `flux_traite` / `flux_chantier`.
+  **« Flux »** de « Consommation IA » ; audit `flux_traite` / `flux_massif`.
   Une pièce rangée par le **majordome** (`ranger_document`) entre dans la même
   file — il ne refait pas ces détections lui-même.
 - **Icône « Actualiser » de la description** (détail du dossier, admin seul) :
   hors flux, un run court **reprend toute la description** depuis le dossier
   (CR, registre des pièces) et la fait progresser — même format en deux
   parties, en prise de notes (**SYNTHÈSE** globale qui s'enrichit ; **MIS EN
-  CAUSE** enregistrés + éléments à charge). **Dossier volumineux** (≥ 100
-  pièces déposées) : bascule sur un chantier de dépouillement, avec un message
-  qui le dit franchement. L'ancienne description est archivée
+  CAUSE** enregistrés + éléments à charge). L'ancienne description est archivée
   (`descriptionHistory`), rien n'est jamais perdu.
 - **Tient la section « Mis en cause » en cohérence** : la partie *MIS EN CAUSE*
   de la description ne parle que des personnes **enregistrées** — une passe qui
@@ -701,20 +704,16 @@ actes corrigés ou refusés (voir « Instructions du projet Claude web »).
   aux runs autonomes). Claude web lit cette version par le connecteur
   (`instructions_projet_lire`) au début d'une rédaction : la leçon agit même
   avant d'avoir été collée.
-- **Dépose lui-même une « analyse profonde » quand le travail déborde**
-  (chantiers de nuit, relégués derrière le fichier global) : chercher une
-  adresse ou une ligne dans les pièces de tous les dossiers, croiser
-  plusieurs affaires. Il épuise d'abord les outils gratuits et exhaustifs
-  (`registre_recouper`, `pieces_chercher`), puis dépose un **chantier en
-  DEVIS**
-  (`chantier_proposer`) dans la bande « Analyses profondes » de la page
-  Assistant de justice : pièces, lots, jetons, **heures**, nuits. Rien ne
-  démarre sans le clic du magistrat (« Valider le devis et lancer ») ; ensuite
-  le moteur travaille **en arrière-plan, la nuit**, par lots, avec reprise
-  automatique — l'app peut être fermée. `chantier_piloter` lance ou met en
-  pause sur instruction explicite. Le devis déposé depuis une conversation est
-  signalé comme tel dans l'atelier. Fini les réponses qui se terminent par une
-  réserve d'exhaustivité sans issue : la réserve devient un devis.
+- **Travail de masse : localiser, puis lire en entier.** Chercher une adresse,
+  une ligne, un nom ou un faisceau d'indices dans les pièces de tous les
+  dossiers, croiser plusieurs affaires : `registre_recouper` (entités
+  partagées), puis `pieces_chercher` **sans numéro** — le texte intégral de
+  TOUT le fonds (enquêtes en cours et archivées, instructions, documents de
+  la carte), alternatives en `OU`, `"expressions exactes"`, reprise au
+  curseur jusqu'à la fin — et lecture intégrale des pièces localisées. Les
+  chantiers d'analyse profonde côté serveur (moteur de nuit, devis) ont été
+  **retirés le 2026-11-02** : l'analyse de fond se fait depuis Claude web,
+  avec le connecteur.
 - **Le graphe de la carte, CALCULÉ côté serveur (`carto_analyser`,
   `carto_chemin`)** : l'IA ne raisonne plus sur des listes — elle reçoit le
   **score d'importance de la carte** (même formule, mêmes pondérations que

@@ -289,14 +289,18 @@ avec un **état de reprise**.
    OCR compris — `inedits:true` pour les ponts que rien ne montrait),
    `carto_analyser` (importance, intermédiaires, communautés **calculés**) et
    `carto_chemin` (ce qui relie X à Y, chaque saut sourcé),
-   `registre_lire`, `pieces_chercher` ; (b) si une lecture de masse de
-   PLUSIEURS dossiers reste nécessaire et que le magistrat le demande, les
-   chantiers de nuit existent encore : `chantiers_etat` puis
-   `chantier_proposer` (types `dossier`, `liens`, `carto`), devis validé
-   dans l'app, `chantier_piloter` sur instruction explicite. Ce n'est plus
-   la voie par défaut. Une réserve d'exhaustivité (« je n'ai pas pu ouvrir
-   chaque PV ») n'est jamais une conclusion : proposer le fichier global
-   (ou le chantier) qui la lèvera.
+   `registre_lire`, et surtout `pieces_chercher` **sans numéro** — le texte
+   intégral de TOUT le fonds (enquêtes en cours et archivées, instructions,
+   documents versés sur la carte) : une famille d'indices en un appel
+   (`nourrice OU stockage OU "garder la marchandise"`), expressions exactes
+   entre guillemets, dérivés trouvés (`stock` → stockage) ; suivre
+   `curseurSuivant` jusqu'à `fin: true`. (b) Puis **lire en entier** les
+   pièces localisées (`lire_document`, `carto_lire_document`,
+   `dossier_global`) : un mot présent ne prouve rien (une ORTC cite « Vu le
+   réquisitoire définitif » sans être un RD). Prendre le temps qu'il faut —
+   l'exhaustivité prime sur la vitesse. Une réserve d'exhaustivité (« je
+   n'ai pas pu ouvrir chaque PV ») n'est jamais une conclusion : poursuivre
+   le parcours, ou dire précisément ce qui reste (dossiers, curseur).
 
 Cartographie par lots : traite les dossiers par groupes, croise avec
 `recouper_personnes` et `carto_rapprochements`, et dépose les propositions

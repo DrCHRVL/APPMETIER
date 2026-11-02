@@ -467,14 +467,14 @@ export function lireRegistre(keys, numero, { filtre, offset, limit } = {}) {
  * `numero` : ne garder que les recoupements impliquant ce dossier.
  * `entite` : chercher UNE valeur précise (un numéro, une plaque…) partout.
  */
-export function recouperRegistres(keys, { numero, entite } = {}) {
+export function recouperRegistres(keys, { numero, entite, offset, limite } = {}) {
   const cible = numero ? docServerKey(numeroCanonique(keys, numero)) : null
   // recherche d'une valeur : insensible au FORMATAGE (« 06 12 34 56 78 »,
   // « FG-527-XZ » retrouvent 0612345678 et FG527XZ) — on compare en
   // alphanumérique nu des deux côtés
   const squash = (s) => normAligne(s).replace(/[^a-z0-9]/g, '')
   const valeurCherchee = entite ? squash(String(entite)) : null
-  // entité (type:valeur) → docKey → Set(rels)
+  // entité (type:valeur) → docKey → { rels: Set (12 cités au plus), n: total }
   const index = new Map()
   const numeros = new Map() // docKey → numéro lisible (si retrouvable)
   for (const docKey of docKeysAvecRegistre()) {
@@ -497,9 +497,12 @@ export function recouperRegistres(keys, { numero, entite } = {}) {
       for (const ent of entites) {
         if (!index.has(ent)) index.set(ent, new Map())
         const parDossier = index.get(ent)
-        if (!parDossier.has(docKey)) parDossier.set(docKey, new Set())
-        const rels = parDossier.get(docKey)
-        if (rels.size < 12) rels.add(rel)
+        if (!parDossier.has(docKey)) parDossier.set(docKey, { rels: new Set(), n: 0 })
+        const cote = parDossier.get(docKey)
+        if (!cote.rels.has(rel)) {
+          cote.n++
+          if (cote.rels.size < 12) cote.rels.add(rel)
+        }
       }
     }
   }
@@ -511,20 +514,24 @@ export function recouperRegistres(keys, { numero, entite } = {}) {
     if (cible && !parDossier.has(cible)) continue
     recoupements.push({
       entite: ent,
-      dossiers: [...parDossier.entries()].map(([docKey, rels]) => ({
+      dossiers: [...parDossier.entries()].map(([docKey, { rels, n }]) => ({
         dossier: numeros.get(docKey) || (numeros.set(docKey, numeroDepuisDocKey(keys, docKey) || docKey), numeros.get(docKey)),
         pieces: [...rels].sort(),
+        ...(n > rels.size ? { piecesTotal: n, note: `${n - rels.size} autre(s) pièce(s) — registre_lire avec filtre sur la valeur` } : {}),
       })),
     })
   }
   recoupements.sort((a, b) => b.dossiers.length - a.dossiers.length || a.entite.localeCompare(b.entite))
   const total = recoupements.length
-  const page = recoupements.slice(0, 80)
+  const debut = Math.max(0, Math.floor(Number(offset) || 0))
+  const lim = Math.max(1, Math.min(300, Number(limite) || 80))
+  const page = recoupements.slice(debut, debut + lim)
+  const suite = debut + page.length < total ? debut + page.length : null
   return {
     ...(numero ? { dossier: numeroDepuisDocKey(keys, cible) || numero } : {}),
     ...(entite ? { entite } : {}),
     total,
-    ...(total > page.length ? { note: `${total - page.length} recoupement(s) supplémentaires — cible un dossier (numero) ou une valeur (entite)` } : {}),
+    ...(suite != null ? { offsetSuivant: suite, note: `${total - suite} recoupement(s) après cette page — rappelle avec offset:${suite}` } : {}),
     recoupements: page,
     rappel: 'Un recoupement est un SIGNALEMENT, pas une preuve : lis les pièces citées (lire_document) avant de proposer un lien (proposer_lien) — et souviens-toi qu\'une entité peut être anodine (taxi, avocat, service public).',
   }

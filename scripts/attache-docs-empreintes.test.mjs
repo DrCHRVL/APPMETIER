@@ -185,6 +185,12 @@ const rec3 = recouperRegistres(keys, { entite: '06 12 34 56 78' })
 attendu('recherche d\'une valeur formatée', rec3.recoupements.some((r) => r.entite === 'tel:0612345678'), JSON.stringify(rec3.recoupements.map((r) => r.entite)))
 const rec4 = recouperRegistres(keys, { numero: NUM2 })
 attendu('filtre par dossier', rec4.recoupements.every((r) => r.dossiers.some((d) => d.dossier === NUM2)), JSON.stringify(rec4.recoupements.map((r) => r.entite)))
+const rec5 = recouperRegistres(keys, { limite: 1 })
+const rec6 = recouperRegistres(keys, { limite: 1, offset: rec5.offsetSuivant })
+attendu('pagination des recoupements : rien de caché', rec5.total >= 2 && rec5.recoupements.length === 1 && rec5.offsetSuivant === 1
+  && rec6.recoupements.length === 1 && rec6.recoupements[0].entite !== rec5.recoupements[0].entite, JSON.stringify({ t: rec5.total, s: rec5.offsetSuivant }))
+const plaque = recouperRegistres(keys, { entite: 'FG-527-XZ' }).recoupements[0]
+attendu('pièces au-delà de la liste comptées', plaque.dossiers.every((d) => !d.piecesTotal || d.piecesTotal > d.pieces.length), JSON.stringify(plaque.dossiers))
 
 // ── déplacement d'une pièce (moveDoc préserve savedAt) : la signature
 // d'ingestion doit bouger quand même (empreinte des chemins) et le registre
