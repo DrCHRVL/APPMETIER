@@ -57,6 +57,7 @@ const RECOUVREMENT = 300
 const CHARS_TOTAL = 80_000
 const ECHECS_MAX = 2 // échecs CONSÉCUTIFS : au-delà, la pièce est laissée sans fiche (entités déjà là)
 const PERSONNES_MAX = 300
+const REPONSE_CHARS_MAX = 350_000 // taille d'une réponse d'outil (pas un plafond de résultats)
 const RESUME_MAX = 4_000
 
 // Une fiche est à (re)faire tant qu'elle n'a pas été établie sur la pièce
@@ -522,10 +523,21 @@ export function recouperRegistres(keys, { numero, entite, offset, limite } = {})
     })
   }
   recoupements.sort((a, b) => b.dossiers.length - a.dossiers.length || a.entite.localeCompare(b.entite))
+  // TOUT est rendu : aucun plafond en nombre. Seule borne, la TAILLE d'une
+  // réponse (au-delà, le client la tronquerait sans le dire) : la suite est
+  // alors annoncée, offset à l'appui — rien n'est perdu.
   const total = recoupements.length
   const debut = Math.max(0, Math.floor(Number(offset) || 0))
-  const lim = Math.max(1, Math.min(300, Number(limite) || 80))
-  const page = recoupements.slice(debut, debut + lim)
+  const lim = Number(limite) > 0 ? Math.floor(Number(limite)) : Infinity
+  const page = []
+  let taille = 0
+  for (const r of recoupements.slice(debut)) {
+    if (page.length >= lim) break
+    const t = JSON.stringify(r).length
+    if (page.length && taille + t > REPONSE_CHARS_MAX) break
+    page.push(r)
+    taille += t
+  }
   const suite = debut + page.length < total ? debut + page.length : null
   return {
     ...(numero ? { dossier: numeroDepuisDocKey(keys, cible) || numero } : {}),

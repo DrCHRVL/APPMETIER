@@ -33,6 +33,7 @@ import { LIBELLE_KIND, LIBELLE_ORIGINE, detecterRecoupements } from '../../lib/r
 
 /** Coffre de sortie — clé globale, lisible de tous les utilisateurs. */
 const COFFRE = 'recoupements'
+const REPONSE_CHARS_MAX = 350_000 // taille d'une réponse d'outil (pas un plafond de résultats)
 
 /**
  * Temps maximal consacré à EXTRAIRE le texte des pièces jamais lues, par
@@ -200,7 +201,7 @@ export function dernierResultat(keys) {
  * reste un SIGNALEMENT : à vérifier dans les pièces citées avant tout
  * proposer_lien.
  */
-export function lireSignaux(keys, { numero, nature, inedits, limite = 30, offset = 0 } = {}) {
+export function lireSignaux(keys, { numero, nature, inedits, limite, offset = 0 } = {}) {
   const envelope = readVault(attacheTj(), COFFRE)
   if (!envelope) {
     return {
@@ -224,14 +225,18 @@ export function lireSignaux(keys, { numero, nature, inedits, limite = 30, offset
   if (inedits) signaux = signaux.filter((s) => s.pontInedit)
   if (borneNum) signaux = signaux.filter(toucheDossier)
 
+  // TOUT est rendu : aucun plafond en nombre, toutes les occurrences gardées
+  // par le moteur. Seule borne, la TAILLE d'une réponse : la suite est alors
+  // annoncée (offsetSuivant) — rien n'est perdu.
   const total = signaux.length
-  const page = signaux.slice(offset, offset + Math.min(Math.max(1, limite), 100)).map((s) => {
+  const debut = Math.max(0, Math.floor(Number(offset) || 0))
+  const lim = Number(limite) > 0 ? Math.floor(Number(limite)) : Infinity
+  const formes = signaux.slice(debut).map((s) => {
     const parDossier = new Map()
     for (const o of s.occurrences || []) {
       const cle = o.dossier?.key || o.dossier?.numero || '?'
       if (!parDossier.has(cle)) parDossier.set(cle, [])
       const liste = parDossier.get(cle)
-      if (liste.length >= 2) continue // 2 occurrences par dossier suffisent à citer
       liste.push({
         dossier: o.dossier?.numero || o.dossier?.label,
         ou: LIBELLE_ORIGINE[o.origine] || o.origine,
@@ -247,14 +252,26 @@ export function lireSignaux(keys, { numero, nature, inedits, limite = 30, offset
       pontInedit: s.pontInedit || undefined,
       dossiers: [...parDossier.keys()],
       occurrences: [...parDossier.values()].flat(),
+      ...(s.pieceSuspecte ? { pieceSuspecte: s.pieceSuspecte } : {}),
     }
   })
+  const page = []
+  let taille = 0
+  for (const f of formes) {
+    if (page.length >= lim) break
+    const t = JSON.stringify(f).length
+    if (page.length && taille + t > REPONSE_CHARS_MAX) break
+    page.push(f)
+    taille += t
+  }
+  const suite = debut + page.length < total ? debut + page.length : null
 
   return {
     calculeAt: r.calculeAt,
     perimetre: r.perimetre,
     total,
-    offset,
+    offset: debut,
+    ...(suite != null ? { offsetSuivant: suite, suite: `${total - suite} signal(aux) après cette page (taille de réponse atteinte) — rappelle avec offset:${suite}` } : {}),
     signaux: page,
     note: 'Signaux triés du plus solide au plus faible par le chantier. « pontInedit » = les dossiers du signal ne partagent AUCUN mis en cause déclaré : le rapprochement que rien ne montrait encore. Vérifier chaque signal dans les pièces citées (lire_document) avant d\'en conclure quoi que ce soit.',
   }
