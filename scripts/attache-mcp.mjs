@@ -596,7 +596,7 @@ const TOOLS = [
   },
   {
     name: 'remettre_livrable',
-    description: 'Remet un LIVRABLE complet au magistrat DANS SIRAL (synthèse, projet de mail à recopier, note, projet de réponse) : une carte « Livrable » apparaît dans le fil « pendant votre absence », avec le texte intégral et un bouton Copier. AUCUN mail ne part — les mails sortants sont supprimés (rejets de messagerie) : tout se remet dans l\'application. Pour un ACTE à retoucher/exporter, préfère produire_document (atelier « Actes rédigés »).',
+    description: 'Remet un LIVRABLE complet au magistrat DANS SIRAL (synthèse, projet de mail à recopier, note, projet de réponse) : une carte « Livrable » apparaît dans le fil « pendant votre absence », avec le texte intégral et un bouton Copier. AUCUN mail ne part — les mails sortants sont supprimés (rejets de messagerie) : tout se remet dans l\'application. Jamais pour un ACTE de procédure : l\'acte se rédige et se livre dans Claude web, pas dans SIRAL.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -619,7 +619,7 @@ const TOOLS = [
   },
   {
     name: 'creer_dossier',
-    description: 'Crée DIRECTEMENT un nouveau dossier (enquête) dans le contentieux — SANS validation préalable. Réservé à une instruction EXPLICITE du magistrat : mail transféré contenant « créer procédure » (ou équivalent sans ambiguïté), ou demande explicite en chat (« crée un dossier X avec tel enquêteur en directeur d\'enquête et telle unité »). Dans tous les autres cas de détection, utilise proposer_dossier (✓/✗). Renseigne tout depuis la pièce ou la demande — les MÊMES champs que le formulaire « Nouvelle enquête » : numero, dateDebut, services (unités), directeurEnquete, numeroParquet, numeroIDJ, natinfCodes, description (prise de notes), misEnCause (recoupe d\'abord avec recouper_personnes). Refus si le numéro existe déjà. Ensuite : range les pièces (ranger_document) et rédige les actes demandés (produire_document) dans CE dossier. Récapitule au magistrat ce qui a été créé.',
+    description: 'Crée DIRECTEMENT un nouveau dossier (enquête) dans le contentieux — SANS validation préalable. Réservé à une instruction EXPLICITE du magistrat : mail transféré contenant « créer procédure » (ou équivalent sans ambiguïté), ou demande explicite en chat (« crée un dossier X avec tel enquêteur en directeur d\'enquête et telle unité »). Dans tous les autres cas de détection, utilise proposer_dossier (✓/✗). Renseigne tout depuis la pièce ou la demande — les MÊMES champs que le formulaire « Nouvelle enquête » : numero, dateDebut, services (unités), directeurEnquete, numeroParquet, numeroIDJ, natinfCodes, description (prise de notes), misEnCause (recoupe d\'abord avec recouper_personnes). Refus si le numéro existe déjà. Ensuite : range les pièces (ranger_document) dans CE dossier. Récapitule au magistrat ce qui a été créé.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1310,7 +1310,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'production_lire',
-    description: 'Lit le texte complet d\'un acte rédigé (pour le modifier ensuite avec produire_document en réutilisant son id).',
+    description: 'Lit le texte complet d\'un acte rédigé ou d\'un livrable rangé dans SIRAL.',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' }, id: { type: 'string' } }, required: ['numero', 'id'] },
     handler: async (a) => readProduction(keys, a.numero, a.id) ?? { erreur: 'Acte introuvable' },
   },
@@ -2174,8 +2174,11 @@ export async function dispatchMcp(req, options = {}) {
 //  - sous_agents : lancerait des runs CLI parallèles sur l'abonnement depuis
 //    Claude web (piège de coût — Claude web orchestre déjà ses lectures) ;
 //  - poser_question : le magistrat est DÉJÀ dans la conversation Claude web,
-//    la carte Question du panneau n'aurait ni contexte ni retour possible.
-const OUTILS_HORS_CONNECTEUR = new Set(['sous_agents', 'poser_question'])
+//    la carte Question du panneau n'aurait ni contexte ni retour possible ;
+//  - produire_document : l'acte rédigé dans Claude web y reste (livré dans la
+//    conversation) — SIRAL ne reçoit plus d'acte à valider, seulement des
+//    synthèses et analyses (remettre_livrable).
+const OUTILS_HORS_CONNECTEUR = new Set(['sous_agents', 'poser_question', 'produire_document'])
 
 const INSTRUCTIONS_CONNECTEUR = [
   `SIRAL — application métier du parquet (contentieux ${attacheContentieux()}). Tu agis pour le compte du magistrat administrateur, authentifié via OAuth.`,
@@ -2190,7 +2193,7 @@ const INSTRUCTIONS_CONNECTEUR = [
   'TRAVAIL DE FOND SUR UN DOSSIER (réquisitoire définitif, synthèse générale, dépouillement) : dossier_global — TOUTES les pièces en texte dans un seul fichier : en tête la fiche du dossier, la chronologie et le registre des pièces ; puis le sommaire et un bloc par pièce, classées par THÈME (auditions, synthese, telephonie, expertises, surveillances, decisions, autres — `theme` pour n\'en lire qu\'un), chaque pièce portant un numéro stable P-xxxx (citable d\'une conversation à l\'autre) et son chemin (la cote) ; paginé ; dossier volumineux : thème par thème ou pochette par pochette (panorama de dossier_arborescence). Pour LOCALISER sans tout lire : pieces_chercher, registre_lire. Pour CROISER des affaires : registre_recouper (entités partagées, `entite` pour une valeur précise), recoupements_lire (veille hebdomadaire, `inedits:true` pour les ponts que rien ne montrait), carto_analyser et carto_chemin (sourcé). Les chantiers d\'analyse profonde côté serveur (chantiers_etat / chantier_proposer) restent disponibles pour un dépouillement de nuit par lots, mais ne sont plus la voie par défaut : le fichier global l\'est.',
   'RÉDACTION DES ACTES : c\'est ICI, dans Claude web, qu\'ils se rédigent — l\'attaché de SIRAL ne rédige plus (il actualise, recoupe, prépare). Avant de rédiger : instructions_projet_lire (les instructions de référence du projet, tenues dans SIRAL et révisées sur les corrections du magistrat — elles peuvent être plus récentes que celles collées dans le projet), trames_lister / trame_lire (le plan-type du magistrat, qui PRIME sur un modele-* du même type), skills_lister / skill_lire (sa méthode), kb_chercher / kb_lire (son fond documentaire, documents ★ en réflexe), lire_dossier (NATINF enregistrés, mis en cause, échéancier) et chronologie_lire. Les instructions, la mémoire et la base de connaissances de ton projet Claude web PRIMENT sur ces ressources ; SIRAL les garde en mémoire et les améliore (propositions ✓/✗ du magistrat).',
   'Écritures (actes, CR, à-faire, NATINF, dossiers…) : réservées aux instructions explicites du magistrat — en cas de doute, demande-lui dans la conversation avant d\'écrire. Chaque écriture est versionnée (réversible) et journalisée dans son audit ; les données partagées sont signées de son nom, jamais « IA ».',
-  'Un acte rédigé ici se RANGE dans SIRAL avec produire_document (atelier « Actes rédigés » : relecture, export PDF/Word officiel, validation — avec acteMeta pour qu\'un acte d\'écoute ou de géolocalisation rejoigne l\'échéancier) ; une synthèse ou un livrable avec remettre_livrable (fil « pendant votre absence »).',
+  'Un acte rédigé ici se LIVRE ICI, dans la conversation (texte complet prêt à signer, ou fichier Word si le magistrat le demande) — il n\'est JAMAIS rangé dans SIRAL et il n\'y a AUCUN acte à valider dans SIRAL : ne l\'annonce jamais (« valider l\'acte dans SIRAL » est faux). SIRAL ne reçoit que des SYNTHÈSES et ANALYSES, avec remettre_livrable (fil « pendant votre absence »). Si le magistrat veut que la mesure (écoute, géolocalisation, prolongation) figure à l\'échéancier : enregistrer_acte / acter_prolongation, sur son instruction explicite.',
 ].join('\n')
 
 /**
@@ -2222,7 +2225,8 @@ export async function handleConnectorMessage(message) {
 // L'attaché (runs CLI : chat, mails, routines, flux, apprentissage) est un
 // ANALYSTE : il actualise les dossiers, recoupe, améliore la donnée — il ne
 // rédige plus les actes. La rédaction se fait dans Claude web, avec le
-// connecteur ; produire_document n'existe donc que pour le connecteur. Les
+// connecteur, et l'acte y reste : produire_document n'est exposé nulle part
+// (ni CLI, ni connecteur — voir OUTILS_HORS_CONNECTEUR). Les
 // livrables d'analyse (remettre_livrable) et les fiches de chantier restent.
 const OUTILS_HORS_CLI = new Set(['produire_document'])
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href

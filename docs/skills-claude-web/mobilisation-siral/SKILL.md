@@ -2,9 +2,10 @@
 name: mobilisation-siral
 description: >
   Mobiliser le connecteur SIRAL : trouver le bon dossier, lire données,
-  pièces et fichier global, recouper une pièce versée (PV), rédiger ICI les
-  actes avec les trames et skills du magistrat puis les ranger dans SIRAL,
-  inscrire les résultats d'audience. Déclencher dès que SIRAL est en jeu.
+  pièces et fichier global, recouper une pièce versée (PV), rédiger ET
+  livrer ICI les actes avec les trames et skills du magistrat (jamais rangés
+  dans SIRAL), remettre synthèses et analyses dans SIRAL, inscrire les
+  résultats d'audience. Déclencher dès que SIRAL est en jeu.
 ---
 
 # Mobiliser SIRAL depuis Claude web
@@ -136,7 +137,7 @@ de la pièce) — visible dans les comptes-rendus et la chronologie.
   pour tout chiffre d'activité — jamais d'estimation, jamais de recalcul à la
   main : chaque carte rendue porte sa règle, on la cite telle quelle.
 
-## Étape 4 — Rédiger ICI, puis ranger l'acte DANS SIRAL
+## Étape 4 — Rédiger et livrer l'acte ICI (rien dans SIRAL)
 
 1. `instructions_projet_lire` d'abord : la version de référence des
    instructions de ce projet, tenue dans SIRAL et révisée sur les corrections
@@ -157,19 +158,17 @@ de la pièce) — visible dans les comptes-rendus et la chronologie.
    du dossier. Ce qui attend une confirmation du magistrat : `[À CONFIRMER]`
    (jamais `[À COMPLÉTER]`, `TODO` ni un acte squelettique — les portes de
    qualité rejettent l'écriture ; corriger et re-soumettre aussitôt).
-4. Remise par `produire_document` : `numero`, `type`, titre daté explicite,
-   `source` = nom EXACT de la trame suivie, `objet` = ligne interceptée ou
-   objet géolocalisé s'il y a lieu, et `acteMeta` pour toute
-   écoute/géolocalisation (`kind`, `cible`/`objet`, `duree`,
-   `pendingJld:true` tant que le JLD n'a pas statué). Pour retoucher un acte
-   existant : reprendre son `id` (`productions_lister`) — la retouche se
-   fait ici, l'attaché ne réécrit pas les actes.
-   L'acte apparaît dans « Actes rédigés » du dossier : relecture, édition,
-   export PDF/Word officiel, validation — c'est LA livraison ; un texte
-   seulement collé dans la conversation n'est pas une remise.
-5. Synthèse, note, projet de mail au directeur d'enquête → `remettre_livrable`
-   (fil « pendant votre absence », bouton Copier). `terminer_todo` si le
-   travail accompli règle un à-faire du dossier.
+4. **Livraison ICI, dans la conversation** : l'acte complet, prêt à signer
+   (ou un fichier Word si le magistrat le demande). Il n'est **jamais rangé
+   dans SIRAL** et il n'y a **aucun acte à valider dans SIRAL** — ne jamais
+   écrire « valider l'acte dans SIRAL ». Les retouches se font ici, dans la
+   conversation. Si le magistrat veut que la mesure (écoute, géolocalisation,
+   prolongation) figure à l'échéancier : `enregistrer_acte` /
+   `acter_prolongation`, sur son instruction explicite.
+5. SIRAL ne reçoit que les **synthèses et analyses** (synthèse, note, projet
+   de mail au directeur d'enquête) → `remettre_livrable` (fil « pendant
+   votre absence », bouton Copier). `terminer_todo` si le travail accompli
+   règle un à-faire du dossier.
 
 ## Résultats d'audience dictés
 
@@ -314,7 +313,8 @@ la cartographie, où le magistrat valide ✓/✗ à son rythme.
   relire une pièce déjà lue dans la conversation.
 - Fin de réponse : **récapituler** ce qui a été écrit dans SIRAL (dossier,
   outil, identifiants), ce qui reste `[À CONFIRMER]`, et ce que le magistrat
-  doit faire lui-même (valider l'acte, téléverser la pièce, geste manuel).
+  doit faire lui-même (signer l'acte livré ici, téléverser la pièce, geste
+  manuel) — jamais « valider l'acte dans SIRAL ».
 
 ## Exemple type — « je verse un PV, rédige la prolongation »
 
@@ -327,7 +327,7 @@ la cartographie, où le magistrat valide ✓/✗ à son rythme.
    de la skill de rédaction ; `kb_lire` du Memento si utile ;
    `propositions_en_attente` (l'attaché a peut-être déjà proposé l'acte).
 5. Rédiger la demande de prolongation motivée (éléments nouveaux du PV
-   cités), puis `produire_document` avec `acteMeta` et `source` = trame.
+   cités) et la livrer ici, dans la conversation.
 6. Proposer dans la même réponse : `acter_prolongation` (mode `demande`)
    pour l'échéancier, `ajouter_natinfs` si le PV en révèle, CR de réception
    (`classer_note`) — et rappeler que le PV lui-même reste à téléverser

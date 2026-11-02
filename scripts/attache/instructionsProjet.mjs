@@ -45,10 +45,10 @@ visas, motivation, formules consacrées)
 (les corrections répétées du magistrat sur les actes rédigés, en règles
 générales — jamais l'anecdote)
 
-## Remise dans SIRAL
-Un acte rédigé se range avec produire_document (numero, type, titre daté,
-source = nom exact de la trame suivie, acteMeta pour une écoute ou une
-géolocalisation) ; une synthèse avec remettre_livrable.
+## Livraison
+Un acte rédigé se livre dans la conversation (texte complet prêt à signer, ou
+Word sur demande) — jamais rangé dans SIRAL, aucun acte à y valider. SIRAL ne
+reçoit que les synthèses et analyses (remettre_livrable).
 `
 
 export function readInstructionsProjet(keys) {

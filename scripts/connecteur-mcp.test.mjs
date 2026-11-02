@@ -117,7 +117,8 @@ try {
   // ── tools/list : périmètre du connecteur
   const list = await mcp({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
   const noms = (list.body?.result?.tools || []).map((t) => t.name)
-  attendu('outils présents (lecture/écriture/stats)', ['lister_dossiers', 'lire_dossier', 'stats_synthese', 'produire_document', 'ajouter_todo'].every((n) => noms.includes(n)), noms.slice(0, 8).join(', '))
+  attendu('outils présents (lecture/écriture/stats)', ['lister_dossiers', 'lire_dossier', 'stats_synthese', 'ajouter_todo'].every((n) => noms.includes(n)), noms.slice(0, 8).join(', '))
+  attendu('produire_document exclu (aucun acte rangé dans SIRAL)', !noms.includes('produire_document'))
   attendu('sous_agents exclu', !noms.includes('sous_agents'))
   attendu('poser_question exclu', !noms.includes('poser_question'))
   attendu('remettre_livrable présent', noms.includes('remettre_livrable'))
