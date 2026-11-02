@@ -14,7 +14,7 @@
  *     l'attaché ne réveille pas le dossier ;
  *   - un second passage sans neuf ne lance aucun run ;
  *   - un CR ajouté par l'app (relève) repasse en file et est joint au run ;
- *   - un versement massif bascule sur un chantier au lieu d'un passage rapide ;
+ *   - un versement massif est indexé sans passage rapide (aucun run) ;
  *   - le PREMIER versement sur un dossier que le flux n'a jamais vu est traité :
  *     la pièce qui provoque le réveil précède le point de référence, elle ne doit
  *     pas être prise pour du stock ancien.
@@ -93,7 +93,7 @@ const FICHES = {
     resume: 'Le JLD autorise l\'interception de la ligne 06.12.34.56.78 attribuée à MARTIN pour un mois.',
   },
 }
-const appels = { fiches: 0, analyse: [], runs: [], chantiers: [] }
+const appels = { fiches: 0, analyse: [], runs: [] }
 flux.configurerFlux({
   registreFichesStep: async (k, { docKey }) => {
     appels.fiches++
@@ -128,10 +128,6 @@ flux.configurerFlux({
     await addProposition(keys, { numero: NUM, type: 'mec', payload: { nom: 'MARTIN Paul', role: 'Fournisseur de la résine remise à DURAND au garage, d\'après son audition (PV/D1) ; titulaire de la ligne interceptée.' }, source: 'PV/D1_audition_MARTIN.txt' })
     await actualiserDescription(keys, { numero: NUM, description: 'SYNTHÈSE\nTrafic de résine, fournisseur MARTIN.\nMIS EN CAUSE\nDURAND Kévin — transports.' })
     return { ok: true, convId: 'conv-test' }
-  },
-  createChantier: async (k, opts) => {
-    appels.chantiers.push(opts)
-    return { id: 'ch-test', etat: 'devis', creeLe: new Date().toISOString(), estimation: { pieces: 120, lots: 10, nuits: 2, heures: 6 } }
   },
 })
 
@@ -196,13 +192,13 @@ attendu('passage : TOUS les CR existants joints en texte intégral (le nouveau n
   /COMPTES RENDUS EXISTANTS[\s\S]*FAITS NOUVEAUX : MARTIN Paul fournit la résine \(PV\/D1\)/.test(prompt3)
   && !/COMPTES RENDUS EXISTANTS[\s\S]*MARTIN vu au garage[\s\S]*CR NOUVEAUX/.test(prompt3))
 
-// ── 6. Versement massif → chantier
-for (let i = 0; i < flux.CHANTIER_SEUIL; i++) verse(`PV/Masse/D${1000 + i}.txt`, `Procès-verbal numéro ${i} : constatations.`)
+// ── 6. Versement massif → indexé, sans run
+for (let i = 0; i < flux.VERSEMENT_MASSIF_SEUIL; i++) verse(`PV/Masse/D${1000 + i}.txt`, `Procès-verbal numéro ${i} : constatations.`)
 flux.enfiler(keys, { numero: NUM, raison: 'document', par: 'greffe' })
 const b4 = await flux.traiterDossier(keys, NUM)
-attendu('versement massif : bascule chantier, pas de run', b4.chantier === true && appels.chantiers.length === 1 && appels.chantiers[0].numero === NUM && appels.runs.length === 2, JSON.stringify(b4))
+attendu('versement massif : indexé, pas de run', b4.massif === true && appels.runs.length === 2, JSON.stringify(b4))
 const reg4 = readRegistre(keys, KEY)
-attendu('pièces du versement massif marquées (chantier)', Object.values(reg4.pieces).filter((e) => e.flux?.chantier).length >= flux.CHANTIER_SEUIL)
+attendu('pièces du versement massif marquées', Object.values(reg4.pieces).filter((e) => e.flux?.massif).length >= flux.VERSEMENT_MASSIF_SEUIL)
 attendu('file vidée', flux.fileAttente().enAttente.length === 0)
 
 // ── 7. Premier versement sur un dossier que le flux n'a JAMAIS vu

@@ -12,7 +12,6 @@ import { useEffect, useMemo, useRef } from 'react';
 import { DataSyncIndicator } from './sync/DataSyncIndicator';
 import { NetworkStatusIndicator } from './NetworkStatusIndicator';
 import { MoniteurActivite } from './monitor/MoniteurActivite';
-import { ChantierDot } from './attache/ChantierDot';
 import { GlobalSearchBox } from './search/GlobalSearchBox';
 import type { GlobalSearchApi } from '@/hooks/useGlobalSearch';
 import type { GlobalSearchDoc } from '@/utils/globalSearch';
@@ -255,8 +254,6 @@ export const Header = ({
                     onClick={onShowAttache}
                   >
                     <Scale className="h-4 w-4" />
-                    {/* point bleu : un chantier d'analyse profonde tourne */}
-                    <ChantierDot />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">

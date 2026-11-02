@@ -4,7 +4,7 @@
  * Les « Consignes permanentes » (instructions.mjs) valent pour TOUT ce que
  * fait l'attaché. Ici, c'est l'étage en dessous : le prompt de CHAQUE tâche
  * automatique — la description d'un dossier, la recherche profonde dans la
- * cartographie, chaque étage d'un chantier d'analyse profonde.
+ * cartographie, les mini-fiches du registre.
  *
  * Ces prompts étaient jusqu'ici figés dans le code. Ils vivent maintenant
  * ici, en SOCLES nommés, que le magistrat peut depuis Paramètres → Attaché IA :
@@ -124,15 +124,15 @@ export const SOCLES = {
   carto_chat: [
     'S\'il te colle un PV / un résumé / une synthèse pour en cartographier l\'affaire : RECOUPE d\'abord les noms (recouper_personnes), puis dépose une proposition de dossier EX NIHILO (proposer_dossier_carto — label, misEnCause, source). Les personnes connues seront rattachées, les inconnues créées en « MEC lié ex nihilo ». Le dossier n\'est créé qu\'à la validation ✓.',
     'Sinon, commence par carto_analyser (figures centrales, ponts entre affaires, co-occurrences, liens de renseignement tracés). Objectif : l\'aider à VOIR LES CONNEXIONS et améliorer la visibilité.',
-    'S\'il te demande une ANALYSE TRANSVERSALE (« analyse TOUS les dossiers », « trouve les liens cachés », « quelle architecture derrière ces affaires ») : suis la MÉTHODE DE RECHERCHE PROFONDE — carto_corpus (enquêtes archivées + instruction, avec pièces), registre_recouper pour les entités déjà partagées (zéro jeton), puis sous_agents qui LISENT les pièces pour remonter surnoms, personnes au 2nd plan, adresses, plaques, téléphones, puis proposer_lien / proposer_mec_carto / proposer_dossier_carto. Les signaux faibles sont dans les PV, pas dans les listes de mis en cause. Si l\'exhaustivité sur tout le corpus est en jeu, ce n\'est plus un travail de conversation : dépose un CHANTIER (chantier_proposer) et annonce son devis.',
-    'S\'il te demande L\'HISTOIRE d\'un clan, le CONFLIT entre deux clans, ou QUI EST une personne (« raconte-moi le clan X », « le conflit X/Y », « que sait-on de X ? ») : pars de carto_histoire (dossier de renseignement en un appel : membres, fiches, rôles, liens, dossiers réels/instruction/ex nihilo et documents versés), puis SUIS SA MÉTHODE — lecture des CR et descriptions (lire_dossier), des documents versés (carto_lire_document), du module instruction ; récit CHRONOLOGIQUE et SOURCÉ ; attention aux SUCCESSIONS et SCISSIONS (un réseau démantelé dont un lieutenant remonte sa structure). Au fil de la lecture, PROPOSE ce que tu découvres : proposer_lien (motivé et sourcé, personne↔personne ou personne↔dossier ex nihilo), proposer_note_mec, proposer_camp_carto. Si la matière déborde, sous_agents — ou mieux : un CHANTIER type « histoire » (chantier_proposer, sujet = le camp ou la personne), qui fait la chronique par lots la nuit puis le récit final. Annonce son devis.',
+    'S\'il te demande une ANALYSE TRANSVERSALE (« analyse TOUS les dossiers », « trouve les liens cachés », « quelle architecture derrière ces affaires ») : suis la MÉTHODE DE RECHERCHE PROFONDE — carto_corpus (enquêtes archivées + instruction, avec pièces), registre_recouper pour les entités déjà partagées (zéro jeton), pieces_chercher SANS numero pour localiser dans TOUT le fonds (enquêtes archivées, instructions, documents de la carte — alternatives en OU, expressions exactes), puis LIS les pièces trouvées en entier pour remonter surnoms, personnes au 2nd plan, adresses, plaques, téléphones, puis proposer_lien / proposer_mec_carto / proposer_dossier_carto. Les signaux faibles sont dans les PV, pas dans les listes de mis en cause. L\'exhaustivité se gagne en allant au bout du parcours (curseur jusqu\'à « fin »), pas en concluant sur un échantillon.',
+    'S\'il te demande L\'HISTOIRE d\'un clan, le CONFLIT entre deux clans, ou QUI EST une personne (« raconte-moi le clan X », « le conflit X/Y », « que sait-on de X ? ») : pars de carto_histoire (dossier de renseignement en un appel : membres, fiches, rôles, liens, dossiers réels/instruction/ex nihilo et documents versés), puis SUIS SA MÉTHODE — lecture des CR et descriptions (lire_dossier), des documents versés (carto_lire_document), du module instruction ; récit CHRONOLOGIQUE et SOURCÉ ; attention aux SUCCESSIONS et SCISSIONS (un réseau démantelé dont un lieutenant remonte sa structure). Au fil de la lecture, PROPOSE ce que tu découvres : proposer_lien (motivé et sourcé, personne↔personne ou personne↔dossier ex nihilo), proposer_note_mec, proposer_camp_carto. Si la matière déborde, localise d\'abord (pieces_chercher sans numero sur les noms et surnoms du sujet), puis lis les pièces utiles en entier.',
     'Tu peux aussi : identifier les figures pivots et les ponts entre affaires, repérer les cloisonnements, et SUGGÉRER les liens de renseignement manquants — que tu déposes en propositions (proposer_lien, avec la pièce source), jamais tracés d\'office. Réponses concises et structurées.',
   ].join('\n'),
 
   carto_profonde: [
     'Corpus COMPLET pour une recherche profonde de renseignement : toutes les enquêtes (archivées comprises) et tous les dossiers d\'instruction, avec leurs mis en cause DÉCLARÉS et le nombre de pièces. Les signaux faibles (surnoms, personnes au 2nd plan jamais mises en cause, adresses, plaques, téléphones, comptes) sont dans les PIÈCES — pas dans la liste des mis en cause.',
     'COMMENCE PAR LE REGISTRE : registre_recouper rend d\'un coup, à coût nul, les téléphones, plaques, IBAN, adresses et personnes présents dans AU MOINS DEUX dossiers — extraits automatiquement du texte de TOUTES les pièces versées — avec les pièces exactes de chaque côté. C\'est la carte des liens cachés dans la masse ; registre_lire(numero) donne le sommaire pièce par pièce d\'un dossier. VÉRIFIE ensuite chaque recoupement dans les pièces citées (lire_document) : une entité partagée peut être anodine (taxi, avocat, service public).',
-    'MÉTHODE pour aller au-delà du registre : pieces_chercher pour localiser une personne ou une valeur précise ; dossier_arborescence(numero) puis lire_document sur les PV et pièces ; DÉLÈGUE à des sous_agents (un par dossier ou petit groupe, consigne autonome : « relève toute personne — nom, surnom, alias —, adresse, plaque, téléphone, compte, et ce qui la relie à une autre ; format : liste »). Au-delà de quelques dizaines de pièces, passe la main au CHANTIER (chantier_proposer, type "dossier" puis "liens") : devis chiffré, travail de nuit, chaque pièce lue une seule fois.',
+    'MÉTHODE pour aller au-delà du registre : pieces_chercher SANS numero pour localiser dans TOUT le fonds (une famille d\'indices en un appel : « a OU b OU \"expression exacte\" » ; suis curseurSuivant jusqu\'à « fin ») ou avec un numero pour un dossier ; dossier_arborescence(numero) ou dossier_global(numero) puis lire_document sur les PV et pièces — LIS EN ENTIER ce que la recherche a localisé avant de conclure. Si l\'outil sous_agents est disponible, délègue un dossier par sous-agent (consigne autonome : « relève toute personne — nom, surnom, alias —, adresse, plaque, téléphone, compte, et ce qui la relie à une autre ; format : liste »). Prends le temps qu\'il faut : un travail exhaustif vaut mieux qu\'un échantillon.',
     'CONSULTE AUSSI LES FICHES DE LA CARTE (carto_lire_fiches) : les notes des personnes ex nihilo et les descriptions des dossiers ex nihilo sont saisies par le magistrat lui-même — renseignement de première main (rôles supposés, contexte, époque), invisible depuis les dossiers réels. Les dossiers ex nihilo peuvent porter des DOCUMENTS versés (synthèse ou dossier complet — carto_lire_document) : la mémoire des réseaux démantelés. Recoupe le tout avec les pièces ; ne contredis jamais les notes du magistrat.',
     'Recoupe (recouper_personnes) puis PROPOSE (jamais tracé d\'office) : proposer_lien entre personnes reliées, proposer_mec_carto pour un suspect/surnom absent des dossiers, proposer_dossier_carto pour une architecture cachée (grappe autour d\'une même figure — ex. un détenu qui pilote plusieurs affaires), proposer_note_mec pour enrichir la fiche d\'une personne déjà connue (append-only), proposer_camp_carto quand un GROS amas se structure en groupes rivaux (membres sûrs uniquement ; les camps déjà assignés par le magistrat priment).',
   ].join('\n'),
@@ -148,102 +148,6 @@ export const SOCLES = {
     'PERSONNES — le champ qui compte : EXHAUSTIF et FIDÈLE. Chaque personne nommée dans la pièce, surnoms et alias compris (« dit Momo »), orthographe de la pièce conservée — ce sont ces noms qui permettent les recoupements entre dossiers. N\'invente rien : une donnée absente s\'omet.',
     'Téléphones, plaques, IBAN et adresses sont déjà extraits automatiquement par ailleurs : ne les recopie dans le résumé que s\'ils PORTENT le fait (ex. « la ligne 06… est attribuée à X »).',
     'Pièce illisible ou vide : type "autre", resume "pièce illisible ou vide", personnes [].',
-  ].join('\n'),
-
-  chantier_fiche: [
-    'TRAVAIL : lis INTÉGRALEMENT chacune des pièces listées plus bas (lire_document, chemin exact ; si offsetSuivant apparaît, lis la suite avant de conclure), puis rends UNE FICHE FACTUELLE unique couvrant tout le lot.',
-    'PAGES IMAGES : ne les lis PAS (pas de integrale:true) — recense-les simplement dans la section dédiée de la fiche.',
-    'LECTURE SEULE ABSOLUE : tu n\'appelles AUCUN outil d\'écriture (ni produire_document, ni proposer_*, ni classer_note, ni memoire) — le moteur du chantier range ta fiche lui-même.',
-    '',
-    'FORMAT IMPOSÉ DE LA FICHE (markdown, sections exactes ; chaque fait porte sa COTE = le chemin de la pièce ; verbatims entre guillemets, JAMAIS reformulés) :',
-    '## Chronologie',
-    '(faits datés, un par ligne : date — fait — cote)',
-    '## Personnes',
-    '(par personne : identité, alias, téléphones, véhicules/plaques, adresses, comptes, rôle apparent — avec cotes)',
-    '## Déclarations utiles (verbatim)',
-    '(citations exactes entre guillemets, qui parle, cote)',
-    '## À charge / À décharge',
-    '(éléments factuels, cotes — pas d\'appréciation)',
-    '## Contradictions et points à vérifier',
-    '## Actes manquants ou à envisager',
-    '## Annexes images non lues',
-    '(pièce — pages concernées)',
-    '## Pièces sans intérêt d\'enquête',
-    '(procédure pure : notifications, réquisitions type — une ligne par pièce)',
-    '',
-    'TA RÉPONSE FINALE EST LA FICHE, ET RIEN D\'AUTRE : aucun préambule, aucun commentaire, aucune conclusion hors fiche. Si une pièce est illisible, note-le dans la fiche (section Contradictions/à vérifier) et poursuis.',
-  ].join('\n'),
-
-  chantier_synthese: [
-    'TRAVAIL : à partir des SEULES fiches (ne relis aucune pièce), rends une NOTE DE SYNTHÈSE d\'ensemble pour le magistrat :',
-    '1. Vue générale (faits, période, organisation apparente).',
-    '2. Par personne mise en cause : rôle, éléments à charge et à décharge (cotes).',
-    '3. Recoupements transversaux (mêmes numéros, plaques, adresses, lieux à travers les pochettes).',
-    '4. Contradictions majeures et points à trancher.',
-    '5. Actes manquants / investigations à envisager.',
-    '6. Angles morts : pochettes en échec, annexes images non lues — ce que la synthèse NE couvre PAS.',
-    'Chaque affirmation porte ses cotes. Prose dense de magistrat, pas de remplissage.',
-    'LECTURE SEULE ABSOLUE : aucun outil d\'écriture. TA RÉPONSE FINALE EST LA NOTE, RIEN D\'AUTRE.',
-  ].join('\n'),
-
-  chantier_liens_lot: [
-    'TRAVAIL : dresse la TABLE DE SIGNALEMENTS de ce lot — tout ce qui peut se recouper avec un autre dossier. Une ligne par signalement, format exact :',
-    '- <catégorie> | <valeur normalisée> | <contexte en une phrase> | <cote(s)>',
-    'Catégories : personne (identité + alias), surnom, téléphone, plaque/véhicule, adresse/lieu, compte/moyen de paiement, date-événement marquante, mode opératoire.',
-    'NORMALISE les valeurs (téléphones sans espaces, NOM Prénom, plaques sans tirets) pour permettre le rapprochement mécanique. Rien sans sa cote — la cote est le chemin de pièce que porte la fiche.',
-    'LECTURE SEULE ABSOLUE : aucun outil (ni lecture de pièce, ni écriture) — les fiches jointes suffisent.',
-    'TA RÉPONSE FINALE EST LA TABLE, RIEN D\'AUTRE.',
-  ].join('\n'),
-
-  chantier_liens_rapport: [
-    'TRAVAIL : à partir des SEULES tables jointes, rends le RAPPORT DE RECOUPEMENTS :',
-    '1. Recoupements FORTS (même téléphone, même plaque, même personne ou alias, même adresse, même compte dans PLUSIEURS dossiers) : pour chacun — la valeur, les dossiers concernés, LES COTES DE PART ET D\'AUTRE, ce que cela implique.',
-    '2. Recoupements PROBABLES (graphies proches, surnoms, co-occurrences de lieux et de dates) : mêmes exigences, incertitude dite.',
-    '3. Architecture d\'ensemble si elle se dessine (filière commune, logistique partagée, donneurs d\'ordre).',
-    '4. Vérifications concrètes pour transformer un probable en certain (actes précis à envisager).',
-    '5. Ce que le rapport NE couvre PAS (dossiers écartés faute de fiches, lots en échec).',
-    'JAMAIS un recoupement sans ses cotes des deux côtés. Prose dense de magistrat, pas de remplissage.',
-    'LECTURE SEULE ABSOLUE : aucun outil. TA RÉPONSE FINALE EST LE RAPPORT, RIEN D\'AUTRE.',
-  ].join('\n'),
-
-  chantier_carto_lot: [
-    'TRAVAIL, en trois temps :',
-    '1. Repère dans les fiches jointes ce qui mérite la cartographie : personnes au rôle structurant, ponts entre affaires, fournisseurs/logisticiens récurrents — pas les seconds couteaux sans relief.',
-    '2. Confronte à l\'existant : recouper_personnes sur chaque nom retenu (carto_lister_liens au besoin) pour ne proposer QUE du nouveau.',
-    '3. Dépose tes PROPOSITIONS : proposer_mec_carto pour une personne absente de la carto qui le mérite, proposer_lien pour un lien de renseignement sourcé (pièce = la cote portée par la fiche). Le magistrat validera ou refusera chacune.',
-    'SEULS outils d\'écriture autorisés : proposer_mec_carto et proposer_lien. Aucune lecture de pièce — les fiches jointes suffisent.',
-    'TA RÉPONSE FINALE : un compte rendu bref — une ligne par proposition déposée (qui/quoi, pourquoi, cote), puis ce que tu n\'as PAS proposé et pourquoi.',
-  ].join('\n'),
-
-  chantier_carto_bilan: [
-    'TRAVAIL : rends une NOTE DE BILAN pour le magistrat :',
-    '1. Les propositions déposées (personnes, liens), regroupées par affaire — pour chacune : pourquoi elle mérite validation, sa cote.',
-    '2. Les figures centrales et les ponts entre affaires qui se dégagent.',
-    '3. Ce qui n\'a PAS été proposé et pourquoi (déjà en carto, trop faible).',
-    '4. Rappel : les propositions se valident page Assistant de justice (« Proposition à valider ») et au bas de la Cartographie.',
-    'LECTURE SEULE ABSOLUE : aucun outil. TA RÉPONSE FINALE EST LA NOTE, RIEN D\'AUTRE.',
-  ].join('\n'),
-
-  chantier_histoire_lot: [
-    'TRAVAIL : depuis les fiches jointes, extrais TOUT ce qui concerne le SUJET (le clan / la personne et ses membres, nommés dans l\'entête) — une CHRONIQUE FACTUELLE datée, une ligne par fait, format exact :',
-    '- <date ou période> | <fait en une phrase — qui fait quoi, avec qui> | <rôle des membres impliqués> | <cote(s)>',
-    'Relève en particulier : prises et pertes de pouvoir, interpellations, incarcérations, condamnations, sorties, violences subies ou commises, alliances et trahisons, territoires, flux (stups, argent, armes), et toute mention d\'un basculement (un lieutenant qui prend son autonomie, un groupe qui se scinde).',
-    'Après la chronique, deux courtes sections : « PERSONNES GRAVITANT » (secondes mains, proches, non-membres récurrents — avec cotes) et « SIGNAUX DE SUCCESSION/SCISSION » (indices qu\'un réseau mute, même ténus — dits comme indices).',
-    'Rien sans sa cote. Ignore ce qui ne touche ni le sujet ni son entourage direct.',
-    'LECTURE SEULE ABSOLUE : aucun outil — les fiches jointes suffisent.',
-  ].join('\n'),
-
-  chantier_histoire_recit: [
-    'TRAVAIL : rends L\'HISTOIRE DU SUJET — un RÉCIT DE RENSEIGNEMENT chronologique et SOURCÉ, en prose dense de magistrat :',
-    '1. ORIGINES : d\'où vient le groupe/la personne, premier dossier connu, territoire et activité de départ.',
-    '2. CHRONOLOGIE : les épisodes datés qui structurent l\'histoire (affaires, interpellations, condamnations, violences, alliances) — chaque fait avec son dossier et sa cote.',
-    '3. ORGANIGRAMME DANS LE TEMPS : chef(s), lieutenants, rôles — et leurs évolutions.',
-    '4. SUCCESSIONS ET SCISSIONS : un démantèlement dont un lieutenant remonte sa propre structure avec les mêmes hommes, un groupe qui mute ou change de nom — dates, déclencheurs, qui a suivi qui. Croise avec les camps et fiches de la carte joints au contexte.',
-    '5. CONFLITS : les groupes rivaux, les épisodes d\'affrontement, l\'état actuel du rapport de forces.',
-    '6. AUJOURD\'HUI : ce qui reste actif, les incertitudes, ce qu\'il faudrait vérifier.',
-    'Les NOTES DU MAGISTRAT jointes au contexte sont des décisions : ne les contredis jamais — un élément qui s\'en écarte se présente comme élément nouveau, sourcé.',
-    'OUTILS PERMIS, avec parcimonie : carto_lire_document (documents versés sur les dossiers ex nihilo — souvent la mémoire des réseaux anciens), puis les PROPOSITIONS tirées de ta lecture : proposer_lien (motivé + source), proposer_note_mec, proposer_camp_carto (camp successeur nommé explicitement, ex. « Réseau Zouaoui (ex-Krasniqi) »). Aucune lecture de pièce brute.',
-    'TA RÉPONSE FINALE EST LE RÉCIT, suivi d\'une courte liste des propositions déposées.',
   ].join('\n'),
 }
 
@@ -280,7 +184,7 @@ export const CATALOGUE = [
   },
   {
     id: 'carto_profonde', groupe: 'Cartographie', label: 'Recherche profonde (corpus transversal)',
-    resume: 'La MÉTHODE servie avec le corpus complet : comment dépouiller les pièces de tous les dossiers, déléguer aux sous-agents, recouper et proposer.',
+    resume: 'La MÉTHODE servie avec le corpus complet : comment fouiller et lire les pièces de tous les dossiers, recouper et proposer.',
     quand: 'Dès que l\'attaché appelle carto_corpus — le cœur d\'une analyse transversale de renseignement.',
     variables: [],
   },
@@ -289,55 +193,6 @@ export const CATALOGUE = [
     resume: 'Le contexte injecté au premier message d\'une conversation ouverte depuis le module Cartographie.',
     quand: 'Premier message de chaque conversation lancée depuis la carte.',
     variables: [],
-  },
-  {
-    id: 'chantier_fiche', groupe: 'Analyse profonde', label: 'Dépouillement d\'un lot → fiche',
-    resume: 'Le prompt du dépouillement : ce que l\'attaché lit, ce qu\'il en retient, et le FORMAT IMPOSÉ de la fiche.',
-    quand: 'À chaque lot d\'un chantier « dossier en détail ».',
-    variables: ['{{dossier}}', '{{pochette}}', '{{lot}}'],
-    avertissement: 'Le moteur attend une fiche en markdown avec des titres « ## » : un remplacement qui supprime les sections rend les lots en échec.',
-  },
-  {
-    id: 'chantier_synthese', groupe: 'Analyse profonde', label: 'Note de synthèse du dossier',
-    resume: 'Le prompt de la synthèse finale, bâtie sur les seules fiches.',
-    quand: 'Une fois tous les lots d\'un chantier « dossier en détail » traités.',
-    variables: ['{{dossier}}'],
-  },
-  {
-    id: 'chantier_liens_lot', groupe: 'Analyse profonde', label: 'Liens — table de signalements',
-    resume: 'Le prompt qui transforme les fiches d\'un dossier en table de signalements normalisée.',
-    quand: 'À chaque lot d\'un chantier « liens entre dossiers ».',
-    variables: ['{{dossier}}', '{{lot}}'],
-  },
-  {
-    id: 'chantier_liens_rapport', groupe: 'Analyse profonde', label: 'Liens — rapport de recoupements',
-    resume: 'Le prompt du rapport final qui croise les tables de signalements de tous les dossiers.',
-    quand: 'Une fois tous les lots d\'un chantier « liens » traités.',
-    variables: [],
-  },
-  {
-    id: 'chantier_carto_lot', groupe: 'Analyse profonde', label: 'Cartographie — propositions d\'un lot',
-    resume: 'Le prompt qui tire des fiches les personnes et les liens à proposer à la carte.',
-    quand: 'À chaque lot d\'un chantier « cartographie ».',
-    variables: ['{{dossier}}', '{{lot}}'],
-  },
-  {
-    id: 'chantier_carto_bilan', groupe: 'Analyse profonde', label: 'Cartographie — note de bilan',
-    resume: 'Le prompt du bilan final : ce qui a été proposé, ce qui ne l\'a pas été et pourquoi.',
-    quand: 'Une fois tous les lots d\'un chantier « cartographie » traités.',
-    variables: [],
-  },
-  {
-    id: 'chantier_histoire_lot', groupe: 'Analyse profonde', label: 'Histoire — chronique d\'un lot',
-    resume: 'Le prompt qui extrait des fiches la chronique datée du sujet (clan ou personne), cotée ligne à ligne.',
-    quand: 'À chaque lot d\'un chantier « histoire ».',
-    variables: ['{{dossier}}', '{{lot}}', '{{sujet}}'],
-  },
-  {
-    id: 'chantier_histoire_recit', groupe: 'Analyse profonde', label: 'Histoire — le récit',
-    resume: 'Le prompt du récit final : origines, chronologie, organigramme, successions/scissions, conflits, état actuel.',
-    quand: 'Une fois tous les lots d\'un chantier « histoire » traités.',
-    variables: ['{{sujet}}'],
   },
 ]
 

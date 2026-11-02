@@ -39,7 +39,6 @@ import { rafraichirFichierGlobal } from './global.mjs'
 import { ingestPass, readIngestState } from './ingest.mjs'
 import { analyseDocuments } from './analyse.mjs'
 import { addProposition, listPropositions } from './propositions.mjs'
-import { listChantiers, createChantier } from './chantier.mjs'
 import { audit, publishFeed } from './journal.mjs'
 import { runAgent, agentConfig } from './agent.mjs'
 import { economicalModel } from './subagents.mjs'
@@ -56,14 +55,15 @@ const FLUX_LOTS_MAX = 3
 // Pièces nouvelles jointes au run (fiches) par passage.
 const FLUX_PIECES_MAX = 24
 // Au-delà de ce nombre de pièces NOUVELLES d'un coup (jonction, versement
-// d'un dossier entier), le passage rapide n'a plus de sens : bascule sur un
-// chantier de dépouillement complet. Même réglage que l'actualisation de la
-// description à la demande.
+// d'un dossier entier), le passage rapide n'a plus de sens : les pièces sont
+// indexées (texte, entités, mini-fiches du registre, fichier global) et
+// restent à la disposition de l'analyse de fond depuis Claude web, sans run
+// de comparaison. (Variable d'environnement historique conservée.)
 const bounded = (v, min, max, dflt) => {
   const n = Math.floor(Number(v))
   return Number.isFinite(n) && n >= min && n <= max ? n : dflt
 }
-export const CHANTIER_SEUIL = bounded(process.env.SIRAL_ATTACHE_DESC_CHANTIER_SEUIL, 10, 1000, 100)
+export const VERSEMENT_MASSIF_SEUIL = bounded(process.env.SIRAL_ATTACHE_DESC_CHANTIER_SEUIL, 10, 1000, 100)
 const CR_NOUVEAUX_MAX = 5
 const CR_CHARS_MAX = 2_500
 // Comparaison : TOUS les CR existants en texte intégral (les plus récents
@@ -83,9 +83,8 @@ const DERNIERS_MAX = 20
 const RE_ROLE_MEC = /mis en cause|auteur|suspect|complice|fourniss|guetteur|logisti|nourrice|trafiqu|dealer|vendeur|revendeur|organisat|commandit|convoyeur|receleur|blanchi|tête de réseau|lieutenant/i
 const RE_ROLE_EXCLU = /victime|témoin|temoin|enquêteur|enqueteur|policier|gendarme|OPJ|APJ|magistrat|procureur|juge|avocat|greffier|expert|interprète|interprete/i
 
-// Dépendances remplaçables (tests) : les seules briques qui parlent au modèle
-// ou lancent un chantier.
-const deps = { runAgent, registreFichesStep, analyseDocuments, createChantier }
+// Dépendances remplaçables (tests) : les seules briques qui parlent au modèle.
+const deps = { runAgent, registreFichesStep, analyseDocuments }
 export function configurerFlux(overrides = {}) { Object.assign(deps, overrides) }
 
 // ── État ────────────────────────────────────────────────────────────────
@@ -269,31 +268,6 @@ export async function pomper(keys, { onHold = async () => false } = {}) {
 }
 
 // ── Pipeline ────────────────────────────────────────────────────────────
-
-/**
- * Bascule d'un dossier volumineux sur un chantier de dépouillement. Rend
- * { chantier, cree, message } — le message est dit tel quel au magistrat.
- */
-export async function basculerEnChantier(keys, { numero, pieces, trigger }) {
-  const existant = listChantiers(keys).find((c) => c.type === 'dossier' && String(c.numero) === String(numero) && c.etat !== 'termine')
-  if (existant) {
-    const message = existant.etat === 'devis'
-      ? `Dossier volumineux — un chantier de dépouillement est déjà en attente de votre validation (devis du ${String(existant.creeLe || '').slice(0, 10)}). Validez-le dans Assistant de justice → Chantiers pour que la description en profite.`
-      : `Dossier volumineux — un chantier de dépouillement est déjà en cours (${existant.piecesFaites}/${existant.totalPieces} pièces). La description se mettra à jour une fois le dépouillement avancé.`
-    return { chantier: existant, cree: false, message }
-  }
-  const ch = await deps.createChantier(keys, {
-    type: 'dossier',
-    numero,
-    consigne: `Dépouillement complet — bascule automatique (${trigger}) : dossier volumineux.`,
-    nuitSeulement: true,
-    origine: 'attache',
-  })
-  await audit(keys, 'description_chantier', { numero, trigger, chantierId: ch.id, pieces: ch.estimation?.pieces, lots: ch.estimation?.lots })
-  const h = ch.estimation?.heures
-  const message = `Dossier volumineux (${pieces} pièces) : l'actualisation rapide laisse place à un chantier de dépouillement complet — ${ch.estimation?.lots ?? '?'} lot(s), ~${ch.estimation?.nuits ?? '?'} nuit(s)${h ? ` (~${h} h)` : ''}. Le devis attend votre validation dans Assistant de justice → Chantiers.`
-  return { chantier: ch, cree: true, message }
-}
 
 function stripHtml(html) {
   return String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim()
@@ -535,7 +509,7 @@ export async function traiterDossier(keys, numero, { onHold = async () => false 
       const e = enqueteDe(keys, num)
       const sig = dossierSyntheseSignals(keys).find((s) => s.numero === num)?.signature ?? d.sig
       // suite à venir (pièces pas encore fichées) : on reste en file, calme relancé
-      const suite = bilan.enAttente > 0 && !bilan.differe && !bilan.chantier
+      const suite = bilan.enAttente > 0 && !bilan.differe && !bilan.massif
       Object.assign(d, {
         sig, lastRunAt: bilan.at,
         pendingSince: (suite || bilan.differe) ? (d.pendingSince || Date.now()) : null,
@@ -584,23 +558,17 @@ export async function traiterDossier(keys, numero, { onHold = async () => false 
   bilan.actes = delta.actes.length
   if (delta.marqueesSilence) writeRegistre(keys, docKey, reg)
 
-  // Versement massif : chantier plutôt qu'un passage rapide.
+  // Versement massif : indexé, pas de passage rapide (cf. VERSEMENT_MASSIF_SEUIL).
   const nouvelles = delta.pretes.length + delta.enAttente.length
-  if (nouvelles >= CHANTIER_SEUIL) {
-    let message = ''
-    try {
-      const b = await basculerEnChantier(keys, { numero: num, pieces: nouvelles, trigger: 'flux' })
-      message = b.message
-      if (b.cree) await publishFeed(keys, { type: 'note', titre: `Versement massif — ${num}`, resume: b.message, numero: num })
-    } catch (err) {
-      message = `bascule chantier écartée (${err?.message || err})`
-    }
+  if (nouvelles >= VERSEMENT_MASSIF_SEUIL) {
+    const message = `Versement massif (${nouvelles} pièces) : pièces indexées (texte, entités, registre, fichier global), sans analyse rapide — à exploiter en profondeur depuis Claude web.`
     for (const rel of [...delta.pretes, ...delta.enAttente]) {
-      if (reg.pieces[rel]) reg.pieces[rel].flux = { le: new Date().toISOString(), chantier: true }
+      if (reg.pieces[rel]) reg.pieces[rel].flux = { le: new Date().toISOString(), massif: true }
     }
     writeRegistre(keys, docKey, reg)
-    await audit(keys, 'flux_chantier', { numero: num, pieces: nouvelles, message })
-    return fin({ chantier: true, enAttente: 0, pieces: nouvelles, message })
+    await publishFeed(keys, { type: 'note', titre: `Versement massif — ${num}`, resume: message, numero: num })
+    await audit(keys, 'flux_massif', { numero: num, pieces: nouvelles })
+    return fin({ massif: true, enAttente: 0, pieces: nouvelles, message })
   }
 
   const pretes = delta.pretes.slice(0, FLUX_PIECES_MAX)

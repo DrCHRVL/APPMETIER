@@ -24,7 +24,6 @@ interface Etape { at: string; phase: string; texte: string }
 interface Resultat {
   ok?: boolean;
   error?: string;
-  chantier?: unknown;
   message?: string;
   descriptionEcrite?: boolean;
   proposees?: number;
@@ -102,12 +101,6 @@ export function useDescriptionActualisation({
     setRunning(false);
     setProgress(null);
     const r = etat.resultat || {};
-    if (r.chantier) {
-      // Pas un échec : le dossier part en dépouillement de nuit.
-      showToast(r.message || 'Dossier volumineux — actualisation basculée en chantier de dépouillement (Assistant de justice → Chantiers).', 'warning');
-      setLastResult(null);
-      return;
-    }
     if (r.ok) {
       resync();
       showToast(bilanActualisation(r), 'success');

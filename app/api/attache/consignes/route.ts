@@ -1,7 +1,7 @@
 /**
  * Consignes PAR DOMAINE — les prompts métier de l'attaché (description d'un
- * dossier, recherche profonde dans la cartographie, chaque étage d'un chantier
- * d'analyse profonde). Jusqu'ici figés dans le code, ils se complètent ou se
+ * dossier, recherche profonde dans la cartographie, mini-fiches du registre).
+ * Jusqu'ici figés dans le code, ils se complètent ou se
  * remplacent depuis Paramètres → Attaché IA.
  *
  * GET  : le CATALOGUE (libellés, socles intégrés — servi par le service

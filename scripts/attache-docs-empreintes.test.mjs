@@ -8,9 +8,7 @@
  *   - dossier_arborescence annote les copies (copieExacteDe) sans jamais
  *     écarter une pièce simplement voisine ;
  *   - pieces_chercher trouve (insensible casse/accents, mots en ET), sert les
- *     extraits avec le chemin exact et saute les doublons exacts ;
- *   - createChantier écarte les copies exactes des lots (chaque contenu lu
- *     une fois) et les nomme dans le devis.
+ *     extraits avec le chemin exact et saute les doublons exacts.
  *
  * Fabrique un SIRAL_DATA_DIR réel (clé-maître, trousseau remis, coffre
  * ctx-crimorg chiffré, blobs SIR1) puis appelle directement les modules.
@@ -125,19 +123,6 @@ attendu('jumeau MD/ servi pour l\'original', Boolean(r3.pieces[0]), 'la pièce .
 
 const r4 = await chercherDansPieces(keys, NUM, { requete: 'clio', pochette: 'Actes' })
 attendu('filtre pochette respecté', r4.pieces.length === 0, JSON.stringify(r4.pieces))
-
-// ── chantier : les copies exactes sortent des lots
-const { createChantier } = await import(`${REPO}/scripts/attache/chantier.mjs`)
-const ch = await createChantier(keys, { type: 'dossier', numero: NUM })
-attendu('devis : copies exactes écartées des lots', ch.totalPieces === 5 && ch.piecesDeposees === 6, JSON.stringify({ totalPieces: ch.totalPieces, piecesDeposees: ch.piecesDeposees }))
-attendu('devis : doublons nommés', ch.doublonsExclus === 1 && ch.estimation.doublonsExclus === 1, JSON.stringify(ch.estimation))
-// le résumé n'expose pas les lots : on relit le plan brut
-const { readChantier } = await import(`${REPO}/scripts/attache/chantier.mjs`)
-const brut = readChantier(keys, ch.id)
-const lotsRels = brut.plan.flatMap((p) => p.lots.flatMap((l) => l.pieces))
-attendu('la copie exacte absente des lots', !lotsRels.includes('PV/Proc2/D340_audition_DURAND.txt'), JSON.stringify(lotsRels))
-attendu('le porteur présent dans les lots', lotsRels.includes('PV/Proc1/D12_audition_DURAND.txt'))
-attendu('la version voisine présente dans les lots', lotsRels.includes('PV/Proc1/D13_audition_DURAND_suite.txt'))
 
 // ── ingestion de fond : extraction + empreinte d'office, échecs mémorisés
 const { ingestPass } = await import(`${REPO}/scripts/attache/ingest.mjs`)

@@ -7,7 +7,7 @@
 //    pièces, synchronisations), les blocages du thread principal (le « lag »
 //    ressenti) et la mémoire JS ;
 //  - SERVEUR : retard de l'event loop et mémoire du serveur SIRAL ;
-//  - ATTACHÉ (admin) : les travaux de fond du sidecar (ingestion, chantiers,
+//  - ATTACHÉ (admin) : les travaux de fond du sidecar (ingestion, flux,
 //    registre…) — en cours, dernières durées, bilans.
 //
 // Aucun coût quand la fenêtre est fermée : la collecte navigateur est passive
@@ -50,14 +50,13 @@ interface AttacheActivite {
 interface FluxBilan {
   numero: string; at: string; pieces: number; crs: number; actes: number;
   crEcrit: number; mecProposes: number; actesProposes: number; run: boolean;
-  chantier?: boolean; differe?: boolean; erreur?: string;
+  massif?: boolean; differe?: boolean; erreur?: string;
 }
 
 interface AttacheInfo {
   demarreA: string;
   activites: AttacheActivite[];
   runsEnCours: number;
-  chantierActif: boolean;
   // Flux tendu : la file d'attente des dossiers qui ont bougé, et les derniers passages.
   flux?: {
     enAttente: Array<{ numero: string; depuis: string; raisons: string[]; pretDansMs: number }>;
@@ -296,7 +295,7 @@ export function MoniteurActivite({ isAdmin = false }: { isAdmin?: boolean }) {
                       </div>
                       <div className="rounded-lg bg-gray-50 p-2">
                         <div className="text-[11px] text-gray-500">Runs en cours</div>
-                        <div className="font-medium tabular-nums">{attache.runsEnCours}{attache.chantierActif ? ' · chantier actif' : ''}</div>
+                        <div className="font-medium tabular-nums">{attache.runsEnCours}</div>
                       </div>
                     </div>
                     <div className="divide-y divide-gray-100">
@@ -354,7 +353,7 @@ export function MoniteurActivite({ isAdmin = false }: { isAdmin?: boolean }) {
                         {attache.flux.derniers.slice(0, 5).map(b => (
                           <div key={b.numero + b.at} className="truncate text-[11px] text-gray-400">
                             {b.at.slice(11, 16)} · {b.numero} —{' '}
-                            {b.chantier ? `chantier (${b.pieces} pièces)`
+                            {b.massif ? `versement massif (${b.pieces} pièces)`
                               : b.differe ? 'différé (forfait)'
                               : b.run ? `${b.pieces} pièce(s) · ${b.crEcrit} CR · ${b.mecProposes} MEC · ${b.actesProposes} acte(s)`
                               : 'rien de neuf'}

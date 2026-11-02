@@ -349,7 +349,7 @@ export async function writeInstructionsEnvelope(envelope: AttacheEnvelope): Prom
   await writeVersionedEnvelope('instructions', envelope)
 }
 
-/** Consignes PAR DOMAINE : les prompts métier (description, carto, chantiers). */
+/** Consignes PAR DOMAINE : les prompts métier (description, carto, registre). */
 export function readConsignesEnvelope(): AttacheEnvelope | null {
   return readJson<AttacheEnvelope | null>(attacheDir('consignes.json'), null)
 }

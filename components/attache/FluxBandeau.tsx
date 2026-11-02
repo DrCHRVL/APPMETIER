@@ -26,7 +26,7 @@ interface Attente { numero: string; depuis: string; raisons: string[]; pretDansM
 interface Bilan {
   numero: string; at: string; pieces?: number; enAttente?: number; crs?: number; actes?: number;
   crEcrit?: number; mecProposes?: number; actesProposes?: number; descriptionChangee?: boolean;
-  run?: boolean; chantier?: boolean; differe?: boolean; message?: string; erreur?: string;
+  run?: boolean; massif?: boolean; differe?: boolean; message?: string; erreur?: string;
 }
 interface Etat { attente: Attente | null; enCours: boolean; dernier: Bilan | null }
 
@@ -133,11 +133,11 @@ export function FluxBandeau({ numero }: { numero: string }) {
       ton = 'border-amber-200/70 bg-amber-50/40';
       titre = 'Différé — forfait saturé';
       detail = 'rien n\'est perdu : le passage repart de lui-même';
-    } else if (b.chantier) {
+    } else if (b.massif) {
       Icone = Hammer;
       ton = 'border-amber-200/70 bg-amber-50/40';
-      titre = 'Versement volumineux — chantier de dépouillement';
-      detail = b.message || 'le devis attend votre validation dans Assistant de justice → Chantiers';
+      titre = 'Versement volumineux — pièces indexées';
+      detail = b.message || 'sans analyse rapide : à exploiter en profondeur depuis Claude web';
     } else if ((b.crEcrit || 0) > 0) {
       Icone = FileCheck2;
       ton = 'border-emerald-200/70 bg-emerald-50/50';

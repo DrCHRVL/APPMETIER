@@ -586,9 +586,8 @@ export function AttachePanel({ open, onClose }: { open: boolean; onClose: () => 
             <div className="mx-auto flex max-w-xs flex-wrap justify-center gap-1.5">
               {/* La synthèse d'UN dossier appartient à l'attaché du dossier
                   (bulle du détail d'enquête) : ce panneau est le guichet du
-                  transversal — échéances, boîte, chantiers d'analyse profonde
-                  (pilotés depuis la page Assistant de justice). */}
-              {['Vérifie les échéances de tous les dossiers', 'Quoi de neuf dans la boîte ?', 'Où en sont les chantiers d\'analyse profonde ?'].map((s) => (
+                  transversal — échéances, boîte, recherche dans tout le fonds. */}
+              {['Vérifie les échéances de tous les dossiers', 'Quoi de neuf dans la boîte ?', 'Cherche dans tout le fonds…'].map((s) => (
                 <button key={s} onClick={() => setInput(s)} className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] text-gray-600 hover:bg-gray-100">
                   {s}
                 </button>

@@ -573,8 +573,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       + `Au passage, propose les LIENS que ta lecture révèle (proposer_lien — nature du lien et source à l'appui, personne↔personne ou personne↔dossier ex nihilo). `
       + `Les camps déjà assignés sont dans carto_lire_fiches : ne les contredis pas. N'écris rien d'office — je validerai ✓/✗ chaque proposition. `
       + `Et propose TOUJOURS quelque chose : les camps dont tu es sûr partent en proposer_camp_carto MAINTENANT, même si l'analyse est incomplète ; `
-      + `si le reste demande de vraies lectures (pièces, documents volumineux), dépose TOI-MÊME le chantier adapté (chantier_proposer — type « carto », `
-      + `ou « histoire » avec le clan pressenti en sujet) et annonce son devis. Ne me renvoie jamais faire la démarche moi-même.`;
+      + `si le reste demande de vraies lectures (pièces, documents volumineux), fais-les : pieces_chercher sans numéro pour localiser dans tout le fonds, `
+      + `puis lire_document / carto_lire_document pour lire en entier. Ne me renvoie jamais faire la démarche moi-même.`;
     setEnrichPrefill(prev => ({ text, seq: (prev?.seq ?? 0) + 1 }));
   }, [graph, showToast, verifierCapaciteAttache]);
 

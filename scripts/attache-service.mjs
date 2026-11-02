@@ -22,8 +22,7 @@ import { handleConnectorMessage } from './attache-mcp.mjs'
 import { attacheTj, docServerKey, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride, purgeInbox } from './attache/mail.mjs'
-import { listChantiers, createChantier, createChantiersEnMasse, reprendreMasse, actionChantier, detailChantier, chantierStep, chantierActif, forceActive } from './attache/chantier.mjs'
-import { inNightWindow, prochaineNuit, feuChantier as feuDeChantier, NIGHT_START, NIGHT_END, NIGHT_TZ, feuRecoupements, RECOUP_JOUR } from './attache/ordonnancement.mjs'
+import { inNightWindow, feuRecoupements, RECOUP_JOUR } from './attache/ordonnancement.mjs'
 import { writeClaudeToken, clearClaudeToken, clearAuthFailure } from './attache/claudeAuth.mjs'
 import { runAgent, checkClaudeCli, testClaudeAuth, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
 import { usageSummary } from './attache/usage.mjs'
@@ -36,7 +35,7 @@ import { donneesDescription, couverturePieces, estimerTotalMs, estimerRedactionM
 import { ingestPass } from './attache/ingest.mjs'
 import { passeRecoupements, dernierResultat } from './attache/recoupements.mjs'
 import { registreFichesStep } from './attache/registre.mjs'
-import { enfiler as fluxEnfiler, balayer as fluxBalayer, pomper as fluxPomper, fileAttente as fluxFileAttente, basculerEnChantier, CHANTIER_SEUIL as DESC_CHANTIER_SEUIL, FLUX_QUIET_MS } from './attache/flux.mjs'
+import { enfiler as fluxEnfiler, balayer as fluxBalayer, pomper as fluxPomper, fileAttente as fluxFileAttente, FLUX_QUIET_MS } from './attache/flux.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
@@ -506,9 +505,6 @@ async function maybeScheduledEtude() {
 // la description complète, en deux parties (SYNTHÈSE + MIS EN CAUSE et
 // charges), en prise de notes. L'écriture est VÉRIFIÉE après le run. Le FIL DE
 // L'EAU, lui, passe par le FLUX TENDU (attache/flux.mjs).
-// Pièces sans mini-fiche trop nombreuses (≥ DESC_CHANTIER_SEUIL) : bascule sur
-// un CHANTIER de dépouillement — basculerEnChantier, partagé avec le flux — et
-// le dit CLAIREMENT au magistrat.
 
 // Le TEXTE du prompt vit dans attache/consignes.mjs (socle « description ») :
 // le magistrat le lit, le complète ou le remplace depuis Paramètres → Attaché IA.
@@ -598,7 +594,7 @@ function demarrerActualiserDescription(numero, trigger = 'manuel') {
       if (!descEtat || descEtat.numero !== num) return
       descEtat.fini = true
       descEtat.resultat = resultat
-      descEtape('fin', resultat.ok ? 'Terminé' : (resultat.chantier ? 'Basculé en chantier' : 'Échec'))
+      descEtape('fin', resultat.ok ? 'Terminé' : 'Échec')
     })
   return { ok: true, demarre: true, etat: avancement(descEtat) }
 }
@@ -623,21 +619,7 @@ async function runActualiserDescription(keys, num, trigger) {
   }
   cov = couverturePieces(keys, num)
 
-  // 2. Trop de pièces encore SANS fiche (versement massif) : chantier de
-  //    dépouillement plutôt qu'une description bâtie à l'aveugle — dit clairement.
-  if (cov.sansFiche.length >= DESC_CHANTIER_SEUIL) {
-    try {
-      const b = await basculerEnChantier(keys, { numero: num, pieces: cov.sansFiche.length, trigger })
-      console.log(`[attache] description « ${num} » (${trigger}) : chantier ${b.chantier.id} ${b.cree ? 'créé' : `déjà « ${b.chantier.etat} »`}, pas de run`)
-      return { ok: true, chantier: b.chantier, message: b.message }
-    } catch (e) {
-      // Cas attendu le plus courant : toutes les pièces sont déjà couvertes
-      // par les fiches d'un chantier précédent — on poursuit avec le registre.
-      console.log(`[attache] description « ${num} » (${trigger}) : bascule chantier écartée (${e?.message || e}) — run direct`)
-    }
-  }
-
-  // 3. Le run : tout le dossier joint ; il écrit la description, tient les
+  // 2. Le run : tout le dossier joint ; il écrit la description, tient les
   //    rôles des mis en cause, propose suspects et liens, note les acquis.
   const prompt = descriptionPrompt(keys, num)
   const redactionEstimee = estimerRedactionMs(prompt.length)
@@ -849,7 +831,7 @@ async function fluxPomperMaintenant() {
   const out = await fluxPomper(keys, { onHold: (quoi) => autonomousOnHold(keys, quoi) })
   for (const b of out.traites || []) {
     if (b.ignore) continue
-    console.log(`[attache] flux « ${b.numero} » : ${b.differe ? 'différé (forfait)' : b.chantier ? `chantier (${b.pieces} pièces)` : `${b.pieces} pièce(s), ${b.crs} CR, ${b.actes} acte(s) — ${b.run ? `${b.crEcrit} CR écrit, ${b.mecProposes} MEC proposé(s), ${b.actesProposes} acte(s) proposé(s)` : 'rien de neuf'}`}${b.enAttente ? ` — ${b.enAttente} pièce(s) à suivre` : ''}${b.erreur ? ` — ${b.erreur}` : ''}`)
+    console.log(`[attache] flux « ${b.numero} » : ${b.differe ? 'différé (forfait)' : b.massif ? `versement massif (${b.pieces} pièces) — indexé, pas d'analyse rapide` : `${b.pieces} pièce(s), ${b.crs} CR, ${b.actes} acte(s) — ${b.run ? `${b.crEcrit} CR écrit, ${b.mecProposes} MEC proposé(s), ${b.actesProposes} acte(s) proposé(s)` : 'rien de neuf'}`}${b.enAttente ? ` — ${b.enAttente} pièce(s) à suivre` : ''}${b.erreur ? ` — ${b.erreur}` : ''}`)
   }
   if (activites.flux && out.traites?.length) activites.flux.dernierBilan = out.traites[out.traites.length - 1]
   // du travail reste (suite, différé) : on repassera après le calme
@@ -1005,10 +987,8 @@ async function runSkillAnalyse(noms) {
 // disputent jamais le forfait aux mails et au chat du magistrat (sa priorité :
 // répondre à ses demandes et rédiger les actes). Repli 22 h → 7 h, HEURE DU
 // MAGISTRAT (fuseau déclaré, pas celle du conteneur), réglable et
-// désactivable. La fenêtre et le feu des chantiers vivent dans
-// ordonnancement.mjs : règle pure, sans état, testable — c'est elle qui a
-// laissé passer une nuit entière, elle ne doit plus être enfouie dans la
-// boucle du service.
+// désactivable. La fenêtre vit dans ordonnancement.mjs : règle pure, sans
+// état, testable.
 
 /** Carte de mise en pause — CONCISE par exigence du magistrat : ce qui est
  * différé, les jauges, la reprise. Rien d'autre (la pédagogie vit dans la
@@ -1075,65 +1055,6 @@ async function autonomousOnHold(keys, quoi) {
     }
   } catch { /* la mise en pause ne doit jamais gêner le service */ }
   return true
-}
-
-// ── Chantiers d'analyse profonde : boucle de dépouillement ──
-// Un pas = une VAGUE de lots (~12 pièces chacun → une fiche chacun) menés de
-// front. La boucle enchaîne les pas tant que le feu est vert — nuit si le
-// chantier l'exige, fenêtre de 5 h non saturée — puis rend la main ; le tick
-// suivant la relance. Chaque lot persiste son résultat dès qu'il tombe : un
-// arrêt (service, forfait, nuit finie) ne coûte jamais plus que la vague.
-
-/**
- * Feu vert d'un chantier : la règle vit dans ordonnancement.mjs (pourquoi le
- * repère hebdomadaire ne stoppe plus rien y est expliqué) ; ici on ne fait que
- * lui fournir l'état du moment.
- */
-function feuChantier(ch) {
-  return feuDeChantier(ch, { gov: consumptionGovernor(agentConfig()), force: forceActive(ch), nuit: inNightWindow() })
-}
-
-/** Ce que l'écran des chantiers doit pouvoir dire du feu, sans le deviner. */
-function etatFeu() {
-  const gov = consumptionGovernor(agentConfig())
-  return {
-    nuit: inNightWindow(),
-    prochaineNuit: prochaineNuit(),
-    fuseau: NIGHT_TZ,
-    fenetreNuit: NIGHT_START === NIGHT_END ? null : { debut: NIGHT_START, fin: NIGHT_END },
-    pct5h: gov.pct5h, pct7d: gov.pct7d, cap5h: gov.cap5h, capHebdo: gov.capHebdo,
-    // Ce qui arrêterait vraiment un chantier aujourd'hui (le repère
-    // hebdomadaire, lui, ne fait plus que resserrer).
-    bloquant: gov.cap5h > 0 && gov.pct5h >= 1 ? '5h' : null,
-    resserre: gov.level !== 'ok',
-  }
-}
-
-let chantierLoopRunning = false
-async function maybeChantiers() {
-  if (chantierLoopRunning) return
-  {
-    const keys0 = loadKeyring()
-    if (!keys0) return
-    // une création en masse interrompue par un redémarrage reprend ici
-    // (une seule vérification par vie du processus, coût nul sinon)
-    try { reprendreMasse(keys0) } catch (e) { console.error('[attache] reprise masse :', e) }
-    if (!chantierActif(keys0)) return
-  }
-  chantierLoopRunning = true
-  try {
-    for (;;) {
-      const keys = loadKeyring() // rechargé à chaque pas : une révocation vaut immédiatement
-      if (!keys) break
-      const verdict = await chantierStep(keys, feuChantier)
-      if (verdict !== 'travail') break
-      await new Promise((r) => setTimeout(r, 3_000)) // respiration entre deux vagues
-    }
-  } catch (e) {
-    console.error('[attache] chantiers :', e)
-  } finally {
-    chantierLoopRunning = false
-  }
 }
 
 // ── Chantier de recoupements ──
@@ -1287,8 +1208,6 @@ const server = http.createServer(async (req, res) => {
           'carto_lire_document',
           'carto_verser_document',
           'carto_histoire',
-          'chantier_histoire',
-          'devis_deux_etapes',
         ],
       })
     }
@@ -1324,7 +1243,6 @@ const server = http.createServer(async (req, res) => {
         demarreA: SERVICE_DEMARRE_A,
         activites: Object.values(activites),
         runsEnCours: running,
-        chantierActif: (() => { try { return Boolean(chantierActif()) } catch { return false } })(),
         flux: (() => { try { return fluxFileAttente() } catch { return null } })(),
         eventLoop,
         memoire: { rssMB: Math.round(mem.rss / (1024 * 1024)), heapMB: Math.round(mem.heapUsed / (1024 * 1024)) },
@@ -1941,69 +1859,6 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, texte })
     }
 
-    // ── Chantiers d'analyse profonde ──
-    if (route === 'GET /chantiers') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      return json(res, 200, { chantiers: listChantiers(keys), feu: etatFeu() })
-    }
-
-    // Le détail d'UN chantier, à la demande (jamais dans le sondage) :
-    // journal complet, pochettes dépliées lot par lot avec leurs fiches.
-    if (route === 'GET /chantiers/detail') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      try {
-        return json(res, 200, detailChantier(keys, String(url.searchParams.get('id') || '')))
-      } catch (e) {
-        return json(res, 400, { error: String(e?.message || e) })
-      }
-    }
-
-    if (route === 'POST /chantiers') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      const body = await readBody(req, 256 * 1024)
-      try {
-        if (body.action) {
-          const out = await actionChantier(keys, { id: String(body.id || ''), action: String(body.action) })
-          // Toute action qui remet du travail devant : première vague sans
-          // attendre le prochain tick (« forcer » a le feu vert par construction).
-          if (['lancer', 'forcer', 'relancer_echecs', 'relancer_synthese'].includes(body.action)) {
-            setTimeout(() => { maybeChantiers().catch(() => {}) }, 50)
-          }
-          return json(res, 200, out)
-        }
-        // Portée « tous les dossiers … » : un chantier par dossier, chacun
-        // avec son devis — la réponse part tout de suite, les devis se créent
-        // en arrière-plan et apparaissent dans la liste au fil de l'eau.
-        if (body.portee) {
-          const out = createChantiersEnMasse(keys, {
-            portee: String(body.portee),
-            consigne: String(body.consigne || ''),
-            nuitSeulement: body.nuitSeulement !== false,
-            modeleFiches: body.modeleFiches === 'principal' ? 'principal' : 'sous-agent',
-            budgetJetons: Number(body.budgetJetons) > 0 ? Number(body.budgetJetons) : 0,
-          })
-          return json(res, 200, out)
-        }
-        const ch = await createChantier(keys, {
-          type: ['dossier', 'liens', 'carto', 'histoire'].includes(body.type) ? body.type : 'dossier',
-          numero: String(body.numero || ''),
-          numeros: Array.isArray(body.numeros) ? body.numeros.map((n) => String(n)).filter(Boolean).slice(0, 12) : undefined,
-          sujet: String(body.sujet || ''),
-          consigne: String(body.consigne || ''),
-          nuitSeulement: body.nuitSeulement !== false,
-          relire: body.relire === true,
-          modeleFiches: body.modeleFiches === 'principal' ? 'principal' : 'sous-agent',
-          budgetJetons: Number(body.budgetJetons) > 0 ? Number(body.budgetJetons) : 0,
-        })
-        return json(res, 200, ch)
-      } catch (e) {
-        return json(res, 400, { error: String(e?.message || e) })
-      }
-    }
-
     // Vider la boîte : les messages traités (défaut) ou tout (mode=tous).
     if (route === 'DELETE /inbox') {
       const keys = loadKeyring()
@@ -2111,8 +1966,8 @@ const server = http.createServer(async (req, res) => {
           'Sauf mention contraire, TOUTES ses questions portent sur ce dossier. Commence par lire_dossier (aperçu compact : objet, parties, actes + échéances, index des CR). Pour une donnée PRÉCISE (un propriétaire, une date, une échéance, une ligne), NE relis pas tout : cible-la — lire_dossier section:"fiche" cible:"<nom/ligne>", section:"cr" offset/limit pour un CR entier, ou lire_document sur une pièce. Pour LOCALISER une information dans les PIÈCES (« où parle-t-on de… », un nom, un numéro, une plaque) : registre_lire numero filtre:"…" (sommaire pièce par pièce — type, date, personnes, entités, résumé) puis pieces_chercher pour le texte intégral — les deux à coût nul, chemins + extraits en main ; relance pieces_chercher si des pièces restent nonExtraites. diagnostic_dossier, chronologie_lire, verifier_completude selon le besoin.',
           'RÔLE — aide au contrôle et à la maîtrise : surveiller la direction d\'enquête (éparpillement des enquêteurs : partent-ils dans tous les sens ?), la cohérence entre actes demandés et réalisés, et LES DÉLAIS (en préliminaire, les TSE sont enserrés dans des délais courts — 2 mois typiquement — qui contraignent l\'action ; signale tout risque de dépassement et son incidence).',
           'Réponses concises, factuelles, chiffrées, orientées décision. Tu peux déposer des propositions (proposer_mec/acte/cr) mais tu n\'écris jamais directement au dossier sans instruction explicite.',
-          'CANTONNEMENT : tu es l\'attaché de CE dossier et tu deviens progressivement SON expert. Les outils transversaux (carto_*, lister_dossiers, recoupements hors dossier) ne servent que sur demande EXPLICITE du magistrat. S\'il veut comparer ou relier ce dossier à d\'autres, dépose-lui un chantier « liens entre dossiers » (chantier_proposer, type "liens") — il apparaît en DEVIS dans la bande « Analyses profondes » et ne démarre qu\'à sa validation ; vérifie d\'abord chantiers_etat pour ne pas proposer ce qui tourne déjà.',
-          'FICHES D\'ABORD : si un chantier d\'analyse profonde est passé, le dossier a des FICHES (productions_lister → type « fiche » ; production_lire) et souvent une synthèse. Pour toute question de fond, appuie-toi dessus AVANT de relire des pièces — elles portent les cotes. Sans fiches, ne te lance JAMAIS dans une relecture massive : réponds sur pièces ciblées et, si la demande exige un vrai dépouillement, dépose le chantier (chantier_proposer, type "dossier") et annonce son DEVIS — pièces, lots, jetons, heures, nuits — ; le magistrat valide d\'un clic et le travail se fait la nuit, en arrière-plan (état courant : chantiers_etat).',
+          'CANTONNEMENT : tu es l\'attaché de CE dossier et tu deviens progressivement SON expert. Les outils transversaux (carto_*, lister_dossiers, recoupements hors dossier) ne servent que sur demande EXPLICITE du magistrat. S\'il veut comparer ou relier ce dossier à d\'autres : pieces_chercher SANS numero (tout le fonds), registre_recouper numero:"<ce dossier>", recoupements_lire numero:"<ce dossier>".',
+          'TRAVAIL DE FOND : dossier_global (toutes les pièces en texte, classées par thème, avec le registre en tête) ; pour LOCALISER, pieces_chercher ou registre_lire, puis lire_document pour lire la pièce EN ENTIER avant de conclure — un extrait ne suffit pas.',
           'MÉMOIRE DU DOSSIER : ci-dessous l\'essentiel retenu. Deux registres, à respecter strictement — « [fait] … (cote) » : un élément du dossier, TOUJOURS coté ; « [échange] JJ/MM/AAAA — … » : une position, décision ou orientation exprimée par le magistrat, datée. Ne sers JAMAIS un [échange] comme un fait établi : c\'est un souvenir de conversation, à rappeler comme tel (« on en avait parlé : … »). Quand un échange apporte du neuf, ajoute UNE ligne télégraphique du bon registre avec memoire_dossier_noter. Reste bref : cette mémoire est volontairement petite.',
           memoire ? `--- mémoire du dossier ---\n${memoire}\n--- fin ---` : '(mémoire du dossier vide pour l\'instant)',
           '',
@@ -2186,8 +2041,8 @@ server.listen(PORT, () => {
 })
 
 // Les travaux du tick sont ÉTALÉS dans la fenêtre (au lieu de partir tous en
-// rafale à la même seconde) : l'ingestion, le registre, les descriptions et
-// les chantiers se partageaient le même event loop au même instant — et le
+// rafale à la même seconde) : l'ingestion, le registre et les descriptions
+// se partageaient le même event loop au même instant — et le
 // volume partagé avec l'app en payait le prix toutes les 5 minutes.
 const decale = (ms, nom, libelle, fn) => {
   setTimeout(() => {
@@ -2201,21 +2056,10 @@ setInterval(() => {
   decale(15_000, 'etude', 'étude planifiée', () => maybeScheduledEtude())
   decale(20_000, 'flux', 'flux tendu (file d\'attente)', () => fluxTick())
   decale(30_000, 'ingestion', 'ingestion des pièces', () => maybeIngest())
-  decale(45_000, 'chantiers', 'chantiers d\'analyse', () => maybeChantiers())
   decale(90_000, 'registre', 'mini-fiches du registre', () => maybeRegistreFiches())
   decale(120_000, 'recoupements', 'recoupements entre dossiers', () => maybeRecoupements())
   decale(150_000, 'global', 'fichiers globaux', () => maybeGlobaux())
 }, POLL_MINUTES * 60 * 1000)
 // première relève 20 s après le démarrage (laisse le réseau docker s'établir)
 setTimeout(() => { pollOnce('démarrage').catch(() => {}) }, 20_000)
-// Les chantiers ont leur propre battement : la relève tourne toutes les
-// SIRAL_ATTACHE_POLL_MIN minutes, ce qui suffit aux mails mais faisait perdre
-// jusqu'à un quart d'heure à l'ouverture de la fenêtre de nuit. Le test est
-// gratuit (lecture de fichiers locaux) et la boucle se garde elle-même.
-setInterval(() => {
-  traque('chantiers', 'chantiers d\'analyse', () => maybeChantiers())
-    .catch((e) => console.error('[attache] chantiers :', e))
-}, 60_000)
-// Un chantier validé avant un redémarrage reprend sans attendre la première relève.
-setTimeout(() => { maybeChantiers().catch(() => {}) }, 25_000)
 writeState({ startedAt: new Date().toISOString() }).catch(() => {})

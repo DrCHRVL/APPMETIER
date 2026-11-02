@@ -1,8 +1,8 @@
 /**
  * SIRAL — Attaché de justice · REGISTRE des pièces (le sommaire vivant).
  *
- * Le chaînon entre l'arborescence (OÙ sont les pièces) et les fiches de
- * chantier (ce qu'elles contiennent, en profondeur) : une entrée PAR PIÈCE,
+ * Le chaînon entre l'arborescence (OÙ sont les pièces) et leur lecture
+ * intégrale (ce qu'elles contiennent, en profondeur) : une entrée PAR PIÈCE,
  * constituée AU FIL DE L'EAU, en deux étages :
  *
  *  1. ENTITÉS DÉTERMINISTES — téléphones, plaques, IBAN, adresses — extraites
@@ -20,7 +20,7 @@
  * Le registre nourrit : registre_lire (sommaire pièce par pièce, filtrable),
  * registre_recouper (recoupement inter-dossiers PAR ENTITÉ, avec citation
  * des pièces exactes des deux côtés — la matière première de la carto), la
- * description du dossier et le démarrage ciblé d'un chantier.
+ * description du dossier et le flux tendu.
  *
  * Stockage : une enveloppe CHIFFRÉE (clé globale) par dossier —
  * attache/registre/<docKey>.json — noms, numéros et adresses n'apparaissent
