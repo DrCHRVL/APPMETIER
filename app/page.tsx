@@ -22,7 +22,7 @@ import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
 import { useInfractionFilter } from '@/hooks/useInfractionFilter';
 import { useDocumentSearch } from '@/hooks/useDocumentSearch';
-import { CompteRendu, Enquete, NewEnqueteData, ProlongationHistoryEntry, Tag, ToDoItem } from '@/types/interfaces';
+import { CompteRendu, DocumentEnquete, Enquete, NewEnqueteData, ProlongationHistoryEntry, Tag, ToDoItem } from '@/types/interfaces';
 import { StorageManager } from '@/utils/storage';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ToastProvider, useToast } from '@/contexts/ToastContext';
@@ -52,7 +52,7 @@ import {
 } from '@/utils/recoupements/corpus';
 import { RecoupementsModal } from '@/components/recoupements/RecoupementsModal';
 import { useRecoupementActions } from '@/hooks/useRecoupementActions';
-import type { Recoupement } from '@/types/recoupementTypes';
+import type { PieceSuspecte, Recoupement } from '@/types/recoupementTypes';
 import { ContentieuxManager } from '@/utils/contentieuxManager';
 import { appendModifications, diffEnqueteUpdates } from '@/utils/modificationLogger';
 import { useTags } from '@/hooks/useTags';
@@ -1604,6 +1604,91 @@ function AppContent() {
       .catch(() => showToast('Enregistrement impossible', 'error'));
   }, [instructions, handleUpdateInstruction, applyOverboardUpdate, showToast]);
 
+  /**
+   * Écrit dans une enquête désignée par sa clé de veille (« enq:<ctx>#<id> »),
+   * là où elle vit : le store pour le contentieux ouvert, le
+   * ContentieuxManager sinon (qui refuse de lui-même la lecture seule).
+   * `maj` rend les modifications (null : rien à écrire). Rend false si
+   * l'enquête est introuvable ou l'écriture refusée.
+   */
+  const ecrireEnqueteParCle = useCallback(async (
+    dossierKey: string | null,
+    maj: (e: Enquete) => Partial<Enquete> | null,
+  ): Promise<boolean> => {
+    const m = /^enq:(.+)#(\d+)$/.exec(dossierKey || '');
+    if (!m) return false;
+    const ctxId = m[1] as ContentieuxId;
+    const id = Number(m[2]);
+    const store = useEnquetesStore.getState();
+    if (store.contentieuxId === ctxId) {
+      const live = store.ownEnquetes.find(e => e.id === id);
+      if (live) {
+        const updates = maj(live);
+        if (updates) {
+          store.updateEnquete(id, updates);
+          applyOverboardUpdate(id, updates, ctxId);
+        }
+        return true;
+      }
+    }
+    const manager = ContentieuxManager.getInstance();
+    const liste = manager.getEnquetes(ctxId);
+    const cible = liste.find(e => e.id === id);
+    if (!cible) return false;
+    const updates = maj(cible);
+    if (!updates) return true;
+    const majee = appendModifications(
+      { ...cible, ...updates, dateMiseAJour: new Date().toISOString() },
+      diffEnqueteUpdates(cible, updates),
+    );
+    const ok = await manager.setEnquetes(ctxId, liste.map(e => (e.id === cible.id ? majee : e)));
+    if (ok) applyOverboardUpdate(id, updates, ctxId);
+    return ok;
+  }, [applyOverboardUpdate]);
+
+  /**
+   * Déplace une pièce signalée comme mal classée vers le dossier où elle
+   * semble devoir aller : l'original chiffré change de dossier sur le
+   * serveur (rien n'est réécrit), puis la liste des pièces des deux enquêtes
+   * suit. Toujours à la demande expresse du magistrat, après confirmation.
+   */
+  const handleDeplacerPieceSuspecte = useCallback(async (p: PieceSuspecte) => {
+    if (!window.confirm(`Déplacer « ${p.piece} »\nde ${p.dossier}\nvers ${p.dossierProbable} ?`)) return;
+    let meta: Awaited<ReturnType<typeof window.siralBridge.transferDocument>>;
+    try {
+      meta = await window.siralBridge.transferDocument(p.dossier, p.piece, p.dossierProbable);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Déplacement impossible', 'error');
+      return;
+    }
+    // La fiche de la pièce dans l'enquête d'origine (à défaut, reconstruite).
+    let fiche: DocumentEnquete | undefined;
+    const origineOk = p.nature === 'instruction' ? true : await ecrireEnqueteParCle(p.dossierKey, (e) => {
+      fiche = (e.documents || []).find(d => d.cheminRelatif === p.piece);
+      return fiche ? { documents: (e.documents || []).filter(d => d.cheminRelatif !== p.piece) } : null;
+    });
+    const nom = meta.rel.split('/').pop() || meta.rel;
+    const ext = (nom.match(/\.([^.]+)$/)?.[1] || '').toLowerCase();
+    const nouvelle: DocumentEnquete = {
+      ...(fiche || {
+        nom,
+        nomOriginal: meta.originalName || nom,
+        extension: ext,
+        taille: meta.size,
+        dateAjout: meta.savedAt,
+        type: (['pdf', 'doc', 'docx', 'odt', 'html', 'msg', 'txt'].includes(ext) ? ext : 'autre') as DocumentEnquete['type'],
+      }),
+      id: Date.now(),
+      cheminRelatif: meta.rel,
+    };
+    const cibleOk = p.natureProbable === 'instruction' ? true : await ecrireEnqueteParCle(p.dossierProbableKey, (e) => (
+      (e.documents || []).some(d => d.cheminRelatif === meta.rel) ? null : { documents: [...(e.documents || []), nouvelle] }
+    ));
+    recoupements.pieceBienClassee(p); // traitée : elle quitte la liste
+    if (origineOk && cibleOk) showToast(`Pièce déplacée vers ${p.dossierProbable}`, 'success');
+    else showToast(`Pièce déplacée sur le serveur ; la liste des pièces de ${!origineOk ? p.dossier : p.dossierProbable} n'a pas pu être mise à jour — ouvrez le dossier pour la rafraîchir`, 'warning');
+  }, [ecrireEnqueteParCle, recoupements, showToast]);
+
   // Signaux touchant le dossier ouvert — absents s'il n'y a rien à dire.
   const recoupementsDuDossier = useMemo(() => {
     if (!selectedEnquete) return undefined;
@@ -2463,6 +2548,7 @@ return (
         onVus={recoupements.marquerVus}
         piecesSuspectes={recoupements.piecesSuspectes}
         onPieceBienClassee={recoupements.pieceBienClassee}
+        onDeplacerPiece={handleDeplacerPieceSuspecte}
       />}
 
       <AlertsModal

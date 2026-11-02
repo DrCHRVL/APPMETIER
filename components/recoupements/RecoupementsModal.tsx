@@ -51,6 +51,8 @@ export interface RecoupementsModalProps {
   /** Pièces peut-être mal classées — elles fabriquent de faux recoupements. */
   piecesSuspectes?: PieceSuspecte[];
   onPieceBienClassee?: (piece: PieceSuspecte) => void;
+  /** Déplace la pièce vers le dossier probable (après confirmation). */
+  onDeplacerPiece?: (piece: PieceSuspecte) => Promise<void>;
 }
 
 export function RecoupementsModal({
@@ -73,6 +75,7 @@ export function RecoupementsModal({
   onVus,
   piecesSuspectes = [],
   onPieceBienClassee,
+  onDeplacerPiece,
 }: RecoupementsModalProps) {
   const [onglet, setOnglet] = useState<'actifs' | 'ecartes' | 'classement'>('actifs');
 
@@ -139,7 +142,7 @@ export function RecoupementsModal({
 
         <div className="flex-1 overflow-auto">
           {onglet === 'classement' ? (
-            <PiecesMalClassees pieces={piecesSuspectes} onBienClassee={onPieceBienClassee} />
+            <PiecesMalClassees pieces={piecesSuspectes} onBienClassee={onPieceBienClassee} onDeplacer={onDeplacerPiece} />
           ) : onglet === 'actifs' ? (
             signaux.length > 0 ? (
               <RecoupementList
@@ -178,16 +181,18 @@ export function RecoupementsModal({
  * Pièces peut-être mal classées : une ligne par pièce, le dossier où elle
  * semble devoir aller et ce qui le fait penser. Rien n'est déplacé d'office.
  */
-function PiecesMalClassees({ pieces, onBienClassee }: {
+function PiecesMalClassees({ pieces, onBienClassee, onDeplacer }: {
   pieces: PieceSuspecte[];
   onBienClassee?: (piece: PieceSuspecte) => void;
+  onDeplacer?: (piece: PieceSuspecte) => Promise<void>;
 }) {
+  const [enCours, setEnCours] = useState<string | null>(null);
   return (
     <div className="divide-y divide-gray-100">
       <p className="px-3 py-2 text-[11.5px] leading-snug text-gray-500">
         Ces pièces parlent d&apos;un autre dossier — ses lignes interceptées, ses mis en cause, ses
         véhicules — et presque pas du leur : versées au mauvais endroit, elles créent de faux
-        recoupements. À vérifier, puis à verser dans le bon dossier.
+        recoupements. À vérifier, puis à déplacer vers le bon dossier.
       </p>
       {pieces.map(p => (
         <div key={`${p.dossier}|${p.piece}`} className="flex items-start gap-2 px-3 py-2">
@@ -207,6 +212,19 @@ function PiecesMalClassees({ pieces, onBienClassee }: {
               {p.marques.map(m => `${m.nature} ${m.valeur}${m.dansProbable === 'déclarée' ? ' (déclarée là-bas)' : ''}${m.dansActuel ? ' (aussi ici)' : ''}`).join(' · ')}
             </div>
           </div>
+          {onDeplacer && (
+            <Button size="sm" variant="outline" className="h-6 flex-shrink-0 px-2 text-[11px]"
+              disabled={enCours !== null}
+              title={`Déplacer la pièce vers ${p.dossierProbable} (confirmation demandée)`}
+              onClick={async () => {
+                setEnCours(`${p.dossier}|${p.piece}`);
+                try { await onDeplacer(p); } finally { setEnCours(null); }
+              }}>
+              {enCours === `${p.dossier}|${p.piece}`
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <>Déplacer vers {p.dossierProbable}</>}
+            </Button>
+          )}
           {onBienClassee && (
             <Button size="sm" variant="ghost" className="h-6 flex-shrink-0 px-2 text-[11px] text-gray-500"
               title="Cette pièce est bien à sa place : ne plus la signaler"
