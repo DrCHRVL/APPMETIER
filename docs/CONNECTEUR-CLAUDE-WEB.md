@@ -21,15 +21,16 @@ connaissances, statistiques et graphiques, écritures réversibles (actes, CR,
   (`kb_chercher` / `kb_lire`), le dossier (NATINF, mis en cause,
   échéancier, chronologie), les **propositions d'actes** que l'attaché a
   pré-remplies, et le **fichier global** (`dossier_global`). L'acte rédigé
-  se range dans SIRAL par `produire_document` (atelier « Actes rédigés » :
-  relecture, export PDF/Word officiel, validation ; `acteMeta` pour qu'une
-  écoute ou une géolocalisation rejoigne l'échéancier). Une retouche se fait
-  au même endroit, en reprenant l'`id` de l'acte.
+  **reste dans Claude web** : il est livré dans la conversation (texte prêt
+  à signer, ou Word) et n'est **jamais rangé dans SIRAL** — aucun acte à y
+  valider. SIRAL ne reçoit que les synthèses et analyses
+  (`remettre_livrable`) ; une mesure à suivre à l'échéancier s'y inscrit par
+  `enregistrer_acte` / `acter_prolongation`, sur instruction explicite.
 - **L'attaché de SIRAL (service, runs CLI)** est un **analyste** : il
   actualise les dossiers à chaque pièce reçue, recoupe, améliore la donnée,
   prépare la matière d'un acte (proposition d'acte pré-remplie, préparation
   de DML, chronologie) et remet des analyses — il **ne rédige plus** les
-  actes (`produire_document` n'existe pas dans ses runs). Trames et skills
+  actes (`produire_document` n'est exposé ni à ses runs ni au connecteur). Trames et skills
   restent dans SIRAL pour être lus par Claude web et **améliorés** par
   l'attaché (étude du corpus d'actes validés, propositions ✓/✗).
 - Le **fichier global** remplace, pour le cas courant, les chantiers
@@ -70,9 +71,9 @@ connaissances, statistiques et graphiques, écritures réversibles (actes, CR,
   citées par leur numéro P-xxxx ;
 - « Enregistre l'autorisation d'écoute signée ce matin » → `modifier_acte`
   (écriture versionnée, auditée) ;
-- « Rédige la prolongation et range-la dans le dossier » → `trame_lire` +
-  `skill_lire` + `lire_dossier`, rédaction ici, puis `produire_document`
-  (atelier « Actes rédigés », exports officiels) ;
+- « Rédige la prolongation » → `trame_lire` + `skill_lire` +
+  `lire_dossier`, rédaction et livraison ici, dans la conversation (rien
+  n'est rangé dans SIRAL) ;
 - « 2026/000123 : DUPONT, MARTIN et DURAND déférés le 24/09. DUPONT et
   MARTIN en CRPC — 12 mois dont 6 avec sursis probatoire, 8 mois ferme et
   500 € d'amende. Renvoi au 15/10 pour DURAND » → `enregistrer_audience`

@@ -133,7 +133,7 @@ export async function dossierRedaction(keys, numero, { acte = '' } = {}) {
     '2. Lire le fichier global : la fiche et la chronologie d\'abord, puis les thèmes utiles à l\'acte (auditions, téléphonie, décisions…). Citer les pièces par leur numéro P-xxxx ou leur chemin.',
     '3. Reprendre l\'acte précédent du même type s\'il existe, actualiser avec les éléments nouveaux.',
     '4. Viser les NATINF enregistrés du dossier (section « Infractions (NATINF) » de la fiche).',
-    '5. Ranger l\'acte rédigé dans SIRAL par le connecteur : `produire_document` (numero, type, titre daté, source = nom exact de la trame, acteMeta pour une écoute ou une géolocalisation).',
+    '5. Livrer l\'acte dans la conversation Claude web (texte prêt à signer, ou Word) — il n\'est pas rangé dans SIRAL.',
     '',
   ].join('\n')
   entries.unshift({ name: 'LISEZMOI.md', data: md(lisezmoi) })
