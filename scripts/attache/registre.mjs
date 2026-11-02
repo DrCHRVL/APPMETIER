@@ -11,7 +11,8 @@
  *     là que se cachent les liens entre dossiers (un numéro qui apparaît dans
  *     deux procédures, une plaque, une adresse commune).
  *  2. MINI-FICHE IA — type de pièce, date, PERSONNES (noms, alias, rôle),
- *     résumé de 2-3 lignes — produite par lots courts (modèle économe, un
+ *     résumé — établie sur la pièce ENTIÈRE (une pièce longue est lue en
+ *     tranches successives, fusionnées) — produite par lots courts (modèle économe, un
  *     seul tour, AUCUN outil), au fil de l'eau, gouvernance forfait comprise.
  *     Les copies exactes (même empreinte) héritent de la fiche du porteur :
  *     jamais deux lectures du même contenu.
@@ -44,13 +45,27 @@ const RUN_TIMEOUT_MS = Number(process.env.SIRAL_ATTACHE_REGISTRE_TIMEOUT_MIN || 
 // Aucun outil : le modèle lit le texte joint et répond en JSON, point.
 const DISALLOWED_TOOLS = 'Bash,Edit,Write,NotebookEdit,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite,KillShell,BashOutput'
 
-// Un lot = quelques pièces par run court. Le prompt part en UN argument
+// Un lot = quelques tranches par run court. Le prompt part en UN argument
 // (-p) : argv unitaire plafonné à 128 Kio sous Linux — on reste largement
 // en dessous, consignes comprises (mêmes bornes de principe qu'analyse.mjs).
+// Une pièce n'est JAMAIS tronquée : une pièce longue est lue en tranches
+// successives (légèrement chevauchantes, pour ne pas couper un nom), réparties
+// sur autant de lots qu'il faut ; la fiche se fusionne tranche après tranche.
 const LOT_PIECES = 8
-const CHARS_PAR_PIECE = 9_000
+const TRANCHE = 9_000
+const RECOUVREMENT = 300
 const CHARS_TOTAL = 80_000
-const ECHECS_MAX = 2 // au-delà, la pièce est laissée sans fiche (entités déjà là)
+const ECHECS_MAX = 2 // échecs CONSÉCUTIFS : au-delà, la pièce est laissée sans fiche (entités déjà là)
+const PERSONNES_MAX = 300
+const RESUME_MAX = 4_000
+
+// Une fiche est à (re)faire tant qu'elle n'a pas été établie sur la pièce
+// ENTIÈRE — les fiches d'avant le découpage en tranches ne lisaient que les
+// 9 000 premiers caractères : elles sont reprises (l'ancienne reste servie
+// d'ici là), sauf sur une pièce courte, simplement marquée.
+function ficheAFaire(e) {
+  return (!e.fiche || !e.fiche.integrale) && (e.ficheEchecs || 0) < ECHECS_MAX
+}
 
 // ── Stockage ─────────────────────────────────────────────────────────────
 
@@ -140,11 +155,16 @@ function systemPromptRegistre() {
 }
 
 function promptLotFiches(keys, numero, lot) {
-  const donnees = lot.map(({ rel, texte }) => `\n\n═══ PIÈCE ${rel} ═══\n${texte}`).join('')
+  const donnees = lot.map(({ id, texte }) => `\n\n═══ PIÈCE ${id} ═══\n${texte}`).join('')
+  const parties = lot.some((x) => x.parties > 1)
   return [
     `SOMMAIRE DU DOSSIER « ${numero} » — mini-fiche de chacune des ${lot.length} pièces jointes ci-dessous.`,
     '',
     blocConsigne(keys, 'registre_fiche', { dossier: numero }),
+    ...(parties ? [
+      '',
+      'PIÈCES LONGUES : une pièce longue arrive par PARTIES (« [partie k/n] » dans son entête). Fiche chaque partie comme une pièce à part : "chemin" = l\'entête EXACT, mention de partie comprise ; personnes et résumé de CETTE partie seulement (les autres parties ont leur propre fiche, tout est fusionné ensuite).',
+    ] : []),
     '',
     '───── PIÈCES ─────',
     donnees,
@@ -203,7 +223,7 @@ function nettoieFiche(f) {
   const personnes = (Array.isArray(f.personnes) ? f.personnes : [])
     .map((p) => (typeof p === 'string' ? { nom: p } : p))
     .filter((p) => p && String(p.nom || '').trim())
-    .slice(0, 30)
+    .slice(0, PERSONNES_MAX)
     .map((p) => ({
       nom: String(p.nom).slice(0, 120),
       ...(p.alias ? { alias: String(p.alias).slice(0, 120) } : {}),
@@ -220,23 +240,51 @@ function nettoieFiche(f) {
 
 /**
  * Propage la fiche d'un porteur vers ses copies exactes (même sha) — gratuit.
+ * Une fiche établie sur la pièce entière l'emporte sur une fiche ancienne.
  * Rend le nombre de copies servies.
  */
 function propageFichesDoublons(reg) {
   const ficheParSha = new Map()
   for (const [rel, e] of Object.entries(reg.pieces)) {
-    if (e.sha && e.fiche && !ficheParSha.has(e.sha)) ficheParSha.set(e.sha, { rel, fiche: e.fiche })
+    if (!e.sha || !e.fiche) continue
+    const prev = ficheParSha.get(e.sha)
+    if (!prev || (!prev.fiche.integrale && e.fiche.integrale)) ficheParSha.set(e.sha, { rel, fiche: e.fiche })
   }
   let n = 0
   for (const [rel, e] of Object.entries(reg.pieces)) {
-    if (e.fiche || !e.sha) continue
+    if (!e.sha) continue
     const porteur = ficheParSha.get(e.sha)
-    if (porteur && porteur.rel !== rel) {
-      e.fiche = { ...porteur.fiche, copieDe: porteur.rel }
-      n++
-    }
+    if (!porteur || porteur.rel === rel) continue
+    if (e.fiche && (e.fiche.integrale || !porteur.fiche.integrale)) continue
+    e.fiche = { ...porteur.fiche, copieDe: porteur.fiche.copieDe || porteur.rel }
+    delete e.ficheEnCours
+    n++
   }
   return n
+}
+
+/** Fusionne la fiche d'une tranche dans la fiche cumulée de la pièce. */
+function fusionnerFiches(cumul, f) {
+  if (!cumul) return f
+  const personnes = [...cumul.personnes]
+  const index = new Map(personnes.map((p, i) => [mecCanonId(p.nom) || p.nom, i]))
+  for (const p of f.personnes) {
+    const cle = mecCanonId(p.nom) || p.nom
+    if (!index.has(cle)) {
+      if (personnes.length < PERSONNES_MAX) { index.set(cle, personnes.length); personnes.push(p) }
+      continue
+    }
+    const q = personnes[index.get(cle)]
+    personnes[index.get(cle)] = { ...q, ...(!q.alias && p.alias ? { alias: p.alias } : {}), ...(!q.role && p.role ? { role: p.role } : {}) }
+  }
+  return {
+    ...cumul,
+    type: cumul.type && cumul.type !== 'autre' ? cumul.type : f.type,
+    ...(cumul.datePiece || f.datePiece ? { datePiece: cumul.datePiece || f.datePiece } : {}),
+    personnes,
+    resume: [cumul.resume, f.resume].filter(Boolean).join(' … ').slice(0, RESUME_MAX),
+    majLe: f.majLe,
+  }
 }
 
 /**
@@ -258,10 +306,13 @@ export async function registreFichesStep(keys, { maxPieces = LOT_PIECES, docKey:
     for (const rel of Object.keys(reg.pieces)) {
       if (!presentes.has(rel)) { delete reg.pieces[rel]; purgees++ }
     }
+    // une seule lecture par contenu : les copies exactes héritent ensuite
+    const shaVus = new Set()
     const aFicher = Object.entries(reg.pieces)
-      .filter(([, e]) => !e.fiche && (e.ficheEchecs || 0) < ECHECS_MAX)
+      .filter(([, e]) => ficheAFaire(e))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .filter(([, e]) => !e.sha || (!shaVus.has(e.sha) && shaVus.add(e.sha)))
       .map(([rel]) => rel)
-      .sort()
     if (!aFicher.length) {
       if (copies || purgees) writeRegistre(keys, docKey, reg)
       continue
@@ -270,17 +321,27 @@ export async function registreFichesStep(keys, { maxPieces = LOT_PIECES, docKey:
     // Le numéro lisible du dossier : retrouvé depuis la clé serveur.
     const numero = numeroDepuisDocKey(keys, docKey) || docKey
 
-    // Textes du lot (déjà extraits par l'ingestion : extraire:false suffit)
+    // Tranches du lot (textes déjà extraits par l'ingestion : extraire:false
+    // suffit). Une pièce longue reprend à la tranche où elle s'était arrêtée.
     const lot = []
     let total = 0
     for (const rel of aFicher) {
       if (lot.length >= maxPieces || total >= CHARS_TOTAL) break
+      const e = reg.pieces[rel]
       let res
       try { res = await texteDocumentIntegral(keys, docKey, rel, { extraire: false }) } catch { res = { ok: false } }
-      if (!res.ok) { reg.pieces[rel].ficheEchecs = (reg.pieces[rel].ficheEchecs || 0) + 1; continue }
-      const texte = String(res.texte).slice(0, CHARS_PAR_PIECE)
-      total += texte.length
-      lot.push({ rel, texte })
+      if (!res.ok) { e.ficheEchecs = (e.ficheEchecs || 0) + 1; continue }
+      const texte = String(res.texte)
+      const parties = Math.max(1, Math.ceil(texte.length / TRANCHE))
+      // fiche ancienne sur une pièce courte : elle avait déjà tout lu
+      if (e.fiche && !e.fiche.integrale && parties === 1) { e.fiche.integrale = true; continue }
+      const depuis = e.ficheEnCours?.parties === parties ? e.ficheEnCours.faites : 0
+      for (let k = depuis; k < parties; k++) {
+        if (lot.length >= maxPieces || total >= CHARS_TOTAL) break
+        const t = texte.slice(Math.max(0, k * TRANCHE - RECOUVREMENT), (k + 1) * TRANCHE)
+        total += t.length
+        lot.push({ rel, partie: k, parties, texte: t, id: parties > 1 ? `${rel} [partie ${k + 1}/${parties}]` : rel })
+      }
     }
     if (!lot.length) { writeRegistre(keys, docKey, reg); continue }
 
@@ -288,25 +349,43 @@ export async function registreFichesStep(keys, { maxPieces = LOT_PIECES, docKey:
     const run = await runClaudeJson(promptLotFiches(keys, numero, lot), model)
     let faites = 0
     let echecs = 0
+    const echouees = new Set()
+    const echoue = (rel) => {
+      if (echouees.has(rel)) return
+      echouees.add(rel)
+      reg.pieces[rel].ficheEchecs = (reg.pieces[rel].ficheEchecs || 0) + 1
+      echecs++
+    }
     if (run.ok) {
       const parChemin = new Map()
       for (const f of run.data) {
         const rel = String(f?.chemin || f?.rel || '')
         if (rel) parChemin.set(rel, f)
       }
-      for (const { rel } of lot) {
-        const fiche = nettoieFiche(parChemin.get(rel))
-        if (fiche) { reg.pieces[rel].fiche = fiche; delete reg.pieces[rel].ficheEchecs; faites++ }
-        else { reg.pieces[rel].ficheEchecs = (reg.pieces[rel].ficheEchecs || 0) + 1; echecs++ }
+      const seule = (rel) => lot.filter((x) => x.rel === rel).length === 1
+      for (const { rel, id, partie, parties } of lot) {
+        if (echouees.has(rel)) continue // une tranche manquée : les suivantes attendront
+        const e = reg.pieces[rel]
+        const fiche = nettoieFiche(parChemin.get(id) || (seule(rel) ? parChemin.get(rel) : undefined))
+        if (!fiche) { echoue(rel); continue }
+        const enCours = partie === 0 ? null : e.ficheEnCours
+        const cumul = fusionnerFiches(enCours?.fiche || null, fiche)
+        delete e.ficheEchecs
+        if (partie + 1 === parties) {
+          e.fiche = { ...cumul, integrale: true, ...(parties > 1 ? { parties } : {}) }
+          delete e.ficheEnCours
+          faites++
+        } else {
+          e.ficheEnCours = { parties, faites: partie + 1, fiche: cumul }
+        }
       }
       await recordUsage({ run: 'registre', model, usage: extractUsage(run.envelope) })
     } else {
-      for (const { rel } of lot) reg.pieces[rel].ficheEchecs = (reg.pieces[rel].ficheEchecs || 0) + 1
-      echecs = lot.length
+      for (const { rel } of lot) echoue(rel)
     }
     propageFichesDoublons(reg)
     writeRegistre(keys, docKey, reg)
-    const restantes = Object.values(reg.pieces).filter((e) => !e.fiche && (e.ficheEchecs || 0) < ECHECS_MAX).length
+    const restantes = Object.values(reg.pieces).filter(ficheAFaire).length
     return { dossier: numero, faites, copies, echecs, restantes, ...(run.ok ? {} : { erreur: run.error }) }
   }
   return null
