@@ -14,7 +14,7 @@
  *     l'attaché ne réveille pas le dossier ;
  *   - un second passage sans neuf ne lance aucun run ;
  *   - un CR ajouté par l'app (relève) repasse en file et est joint au run ;
- *   - un versement massif est indexé sans passage rapide (aucun run) ;
+ *   - un versement massif est programmé pour l'analyse complète, sans passage rapide ;
  *   - le PREMIER versement sur un dossier que le flux n'a jamais vu est traité :
  *     la pièce qui provoque le réveil précède le point de référence, elle ne doit
  *     pas être prise pour du stock ancien.
@@ -192,11 +192,14 @@ attendu('passage : TOUS les CR existants joints en texte intégral (le nouveau n
   /COMPTES RENDUS EXISTANTS[\s\S]*FAITS NOUVEAUX : MARTIN Paul fournit la résine \(PV\/D1\)/.test(prompt3)
   && !/COMPTES RENDUS EXISTANTS[\s\S]*MARTIN vu au garage[\s\S]*CR NOUVEAUX/.test(prompt3))
 
-// ── 6. Versement massif → indexé, sans run
+// ── 6. Versement massif → analyse complète programmée, sans passage rapide
 for (let i = 0; i < flux.VERSEMENT_MASSIF_SEUIL; i++) verse(`PV/Masse/D${1000 + i}.txt`, `Procès-verbal numéro ${i} : constatations.`)
 flux.enfiler(keys, { numero: NUM, raison: 'document', par: 'greffe' })
 const b4 = await flux.traiterDossier(keys, NUM)
-attendu('versement massif : indexé, pas de run', b4.massif === true && appels.runs.length === 2, JSON.stringify(b4))
+attendu('versement massif : pas de passage rapide', b4.massif === true && appels.runs.length === 2, JSON.stringify(b4))
+const { listerVersements } = await import(`${REPO}/scripts/attache/versement.mjs`)
+const prog = listerVersements().find((v) => v.numero === NUM)
+attendu('versement massif : analyse complète programmée, toutes ses pièces', prog?.etat === 'attente' && prog.rels.length >= flux.VERSEMENT_MASSIF_SEUIL, JSON.stringify({ etat: prog?.etat, n: prog?.rels?.length }))
 const reg4 = readRegistre(keys, KEY)
 attendu('pièces du versement massif marquées', Object.values(reg4.pieces).filter((e) => e.flux?.massif).length >= flux.VERSEMENT_MASSIF_SEUIL)
 attendu('file vidée', flux.fileAttente().enAttente.length === 0)

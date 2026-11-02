@@ -35,6 +35,7 @@ import { donneesDescription, couverturePieces, estimerTotalMs, estimerRedactionM
 import { ingestPass } from './attache/ingest.mjs'
 import { passeRecoupements, dernierResultat } from './attache/recoupements.mjs'
 import { registreFichesStep } from './attache/registre.mjs'
+import { versementsStep } from './attache/versement.mjs'
 import { enfiler as fluxEnfiler, balayer as fluxBalayer, pomper as fluxPomper, fileAttente as fluxFileAttente, FLUX_QUIET_MS } from './attache/flux.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
@@ -808,6 +809,23 @@ async function maybeRegistreFiches() {
     }
   } finally {
     registreRunning = false
+  }
+}
+
+// ── Analyse complète des versements massifs (attache/versement.mjs) ──
+// Programmés par le flux tendu ; registre poussé la nuit, puis synthèse
+// complète classée au dossier — de nuit, ou d'office au-delà de 24 h.
+let versementsRunning = false
+async function maybeVersements() {
+  if (versementsRunning) return
+  versementsRunning = true
+  try {
+    const keys = loadKeyring()
+    if (!keys) return
+    const b = await versementsStep(keys, { nuit: inNightWindow(), onHold: (quoi) => autonomousOnHold(keys, quoi) })
+    if (b) console.log(`[attache] versement « ${b.numero} » : ${b.etape}${b.total ? ` (${b.pretes}/${b.total} pièces fichées)` : ''}${b.erreur ? ` — ${b.erreur}` : ''}`)
+  } finally {
+    versementsRunning = false
   }
 }
 
@@ -2057,6 +2075,7 @@ setInterval(() => {
   decale(20_000, 'flux', 'flux tendu (file d\'attente)', () => fluxTick())
   decale(30_000, 'ingestion', 'ingestion des pièces', () => maybeIngest())
   decale(90_000, 'registre', 'mini-fiches du registre', () => maybeRegistreFiches())
+  decale(105_000, 'versements', 'analyse des versements massifs', () => maybeVersements())
   decale(120_000, 'recoupements', 'recoupements entre dossiers', () => maybeRecoupements())
   decale(150_000, 'global', 'fichiers globaux', () => maybeGlobaux())
 }, POLL_MINUTES * 60 * 1000)

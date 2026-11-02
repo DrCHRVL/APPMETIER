@@ -591,9 +591,14 @@ actes corrigés ou refusés (voir « Instructions du projet Claude web »).
      rien de neuf, il n'écrit rien. Silencieux : aucune carte, aucune question.
   Le CR de l'attaché ne réveille pas le dossier (l'état du flux est recalé
   après chaque passage). **Versement massif** (≥ `SIRAL_ATTACHE_DESC_CHANTIER_SEUIL`,
-  100 pièces nouvelles d'un coup) : pas de passage rapide — les pièces sont
-  **indexées** (texte, entités, registre, fichier global), carte au fil ; leur
-  exploitation se fait en profondeur depuis Claude web.
+  100 pièces nouvelles d'un coup) : pas de passage rapide — **analyse
+  complète programmée** (`scripts/attache/versement.mjs`) : chaque pièce
+  fichée en entier au registre (poussé à plein régime la nuit), puis une
+  **synthèse complète** — personnes et rôles, véhicules, lignes, adresses,
+  comptes, chronologie, points à vérifier, cotes à l'appui — classée au
+  dossier comme compte rendu, mis en cause manquants proposés. De nuit de
+  préférence, d'office au-delà de 24 h d'attente ; consigne « versement »
+  (Paramètres → Attaché IA).
   Les étages 2 à 4 passent par le **gouverneur de forfait** (différés, jamais
   perdus) ; l'ingestion, elle, tourne toujours. Consommation sous le poste
   **« Flux »** de « Consommation IA » ; audit `flux_traite` / `flux_massif`.

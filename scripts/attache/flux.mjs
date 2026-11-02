@@ -43,6 +43,7 @@ import { audit, publishFeed } from './journal.mjs'
 import { runAgent, agentConfig } from './agent.mjs'
 import { economicalModel } from './subagents.mjs'
 import { prompt as promptConsigne } from './consignes.mjs'
+import { enregistrerVersement } from './versement.mjs'
 
 const FILE = () => attacheDir('flux.json')
 
@@ -55,10 +56,10 @@ const FLUX_LOTS_MAX = 3
 // Pièces nouvelles jointes au run (fiches) par passage.
 const FLUX_PIECES_MAX = 24
 // Au-delà de ce nombre de pièces NOUVELLES d'un coup (jonction, versement
-// d'un dossier entier), le passage rapide n'a plus de sens : les pièces sont
-// indexées (texte, entités, mini-fiches du registre, fichier global) et
-// restent à la disposition de l'analyse de fond depuis Claude web, sans run
-// de comparaison. (Variable d'environnement historique conservée.)
+// d'un dossier entier), le passage rapide n'a plus de sens : le versement est
+// PROGRAMMÉ pour une analyse complète (attache/versement.mjs) — registre
+// établi pièce par pièce, puis synthèse complète classée au dossier, de nuit
+// de préférence. (Variable d'environnement historique conservée.)
 const bounded = (v, min, max, dflt) => {
   const n = Math.floor(Number(v))
   return Number.isFinite(n) && n >= min && n <= max ? n : dflt
@@ -558,10 +559,11 @@ export async function traiterDossier(keys, numero, { onHold = async () => false 
   bilan.actes = delta.actes.length
   if (delta.marqueesSilence) writeRegistre(keys, docKey, reg)
 
-  // Versement massif : indexé, pas de passage rapide (cf. VERSEMENT_MASSIF_SEUIL).
+  // Versement massif : analyse complète programmée (cf. VERSEMENT_MASSIF_SEUIL).
   const nouvelles = delta.pretes.length + delta.enAttente.length
   if (nouvelles >= VERSEMENT_MASSIF_SEUIL) {
-    const message = `Versement massif (${nouvelles} pièces) : pièces indexées (texte, entités, registre, fichier global), sans analyse rapide — à exploiter en profondeur depuis Claude web.`
+    enregistrerVersement(num, [...delta.pretes, ...delta.enAttente])
+    const message = `Versement massif (${nouvelles} pièces) : analyse complète programmée — chaque pièce fichée en entier, puis synthèse complète (personnes et rôles, véhicules, lignes, adresses, chronologie) classée au dossier, de nuit de préférence.`
     for (const rel of [...delta.pretes, ...delta.enAttente]) {
       if (reg.pieces[rel]) reg.pieces[rel].flux = { le: new Date().toISOString(), massif: true }
     }

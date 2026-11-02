@@ -117,6 +117,8 @@ export function donneesDescription(keys, numero) {
       `${estNeuf(Date.parse(f.verseeLe)) ? '★ ' : ''}■ ${f.chemin}${f.type ? ` — ${f.type}` : ''}${f.datePiece ? ` — ${f.datePiece}` : ''}${f.copieDe ? ` (copie de ${f.copieDe})` : ''}`,
       f.resume ? `  ${f.resume}` : null,
       pers ? `  Personnes : ${pers}` : null,
+      (f.vehicules || []).length ? `  Véhicules : ${f.vehicules.map((v) => [v.plaque, v.description].filter(Boolean).join(' ') + (v.utilisateur ? ` (${v.utilisateur})` : '')).join(' ; ')}` : null,
+      (f.lignes || []).length ? `  Lignes : ${f.lignes.map((l) => l.numero + (l.utilisateur ? ` (${l.utilisateur})` : '')).join(' ; ')}` : null,
       ent ? `  Entités : ${ent}` : null,
     ].filter(Boolean).join('\n')
     if (bloc.length > budget) { omises++; continue }

@@ -137,16 +137,33 @@ export const SOCLES = {
     'Recoupe (recouper_personnes) puis PROPOSE (jamais tracé d\'office) : proposer_lien entre personnes reliées, proposer_mec_carto pour un suspect/surnom absent des dossiers, proposer_dossier_carto pour une architecture cachée (grappe autour d\'une même figure — ex. un détenu qui pilote plusieurs affaires), proposer_note_mec pour enrichir la fiche d\'une personne déjà connue (append-only), proposer_camp_carto quand un GROS amas se structure en groupes rivaux (membres sûrs uniquement ; les camps déjà assignés par le magistrat priment).',
   ].join('\n'),
 
+  versement: [
+    'But : la SYNTHÈSE COMPLÈTE d\'un versement massif de pièces, pour que le magistrat sache tout ce qu\'il contient sans l\'ouvrir. Le REGISTRE AGRÉGÉ du versement est joint plus bas : toutes les personnes (rôles relevés, cotes), véhicules, lignes, adresses, comptes, puis la chronologie pièce par pièce. Il a été établi pièce par pièce, sur le texte intégral.',
+    'MÉTHODE : pars du registre joint ; LIS EN ENTIER (lire_document) les pièces clés — PV de synthèse, auditions des principaux mis en cause, rapports — et vérifie dans les pièces ce qui reste ambigu (qui utilise telle ligne, qui conduit tel véhicule, quel rôle). registre_lire et pieces_chercher (numero:"{{dossier}}") pour localiser. Prends le temps qu\'il faut : l\'exhaustivité prime.',
+    'TA RÉPONSE FINALE EST LA SYNTHÈSE, en markdown, sections exactes, chaque fait COTÉ (chemin de la pièce) :',
+    '## Synthèse des faits — ce que le versement établit, en prose dense : qui fait quoi, où, quand, comment ; ce qui est nouveau pour le dossier.',
+    '## Personnes et rôles — TOUTES les personnes en cause (pas les enquêteurs) : identité telle que dans les pièces, alias, rôle dans les faits (dans les termes des pièces), éléments à charge ou à décharge, cotes. Signale les mis en cause déjà déclarés.',
+    '## Véhicules — plaque, modèle, qui l\'utilise, ce qu\'on en sait, cotes.',
+    '## Lignes téléphoniques — numéro, utilisateur (surnom compris), ce qu\'on en sait, cotes.',
+    '## Adresses et lieux — domiciles, points de deal, caches, cotes.',
+    '## Comptes et flux financiers — s\'il y en a.',
+    '## Chronologie — les faits datés, un par ligne, cote.',
+    '## Points à vérifier — contradictions, pistes, actes à envisager.',
+    'ÉCRITURES PERMISES : proposer_mec pour chaque personne qui devrait figurer aux mis en cause et n\'y est pas (rôle décrit + cote) ; actualiser_description si le versement change la compréhension du dossier. N\'écris PAS de compte rendu toi-même (pas de classer_note) : le moteur classe ta synthèse au dossier.',
+  ].join('\n'),
+
   registre_fiche: [
     'But : le SOMMAIRE du dossier — une mini-fiche par pièce jointe, pour retrouver sans relire et recouper entre dossiers.',
     'SORTIE : un TABLEAU JSON STRICT, un objet par pièce jointe, AUCUN texte autour, AUCUNE balise markdown :',
     '[{ "chemin": "<chemin exact de la pièce, repris tel quel de son entête ═══ PIÈCE … ═══>",',
     '   "type": "<PV audition | PV synthèse | PV constatations | ordonnance | réquisition | rapport | retranscription | expertise | courrier | autre>",',
     '   "datePiece": "AAAA-MM-JJ — la date de l\'acte lui-même, pas celle du versement ; omets le champ si introuvable",',
-    '   "personnes": [ { "nom": "NOM Prénom — VERBATIM de la pièce, orthographe conservée", "alias": "surnom éventuel", "role": "mis en cause | victime | témoin | enquêteur | tiers cité (un ou deux mots)" } ],',
+    '   "personnes": [ { "nom": "NOM Prénom — VERBATIM de la pièce, orthographe conservée", "alias": "surnom éventuel", "role": "qualité dans la procédure (mis en cause, victime, témoin, enquêteur, tiers cité) PUIS, s\'il y en a un, le rôle que la pièce lui prête dans les faits, dans SES termes — ex. « mis en cause — guetteur », « témoin — client régulier », « tiers — loue le box »" } ],',
+    '   "vehicules": [ { "plaque": "AA-123-BB si citée", "description": "marque, modèle, couleur", "utilisateur": "qui le conduit, l\'utilise ou en est titulaire, d\'après la pièce" } ],',
+    '   "lignes": [ { "numero": "06… tel qu\'écrit", "utilisateur": "qui l\'utilise ou en est titulaire, d\'après la pièce (surnom compris)" } ],',
     '   "resume": "2 à 3 phrases denses : qui fait quoi, où, quand — le fait utile, pas la forme" }]',
     'PERSONNES — le champ qui compte : EXHAUSTIF et FIDÈLE. Chaque personne nommée dans la pièce, surnoms et alias compris (« dit Momo »), orthographe de la pièce conservée — ce sont ces noms qui permettent les recoupements entre dossiers. N\'invente rien : une donnée absente s\'omet.',
-    'Téléphones, plaques, IBAN et adresses sont déjà extraits automatiquement par ailleurs : ne les recopie dans le résumé que s\'ils PORTENT le fait (ex. « la ligne 06… est attribuée à X »).',
+    'VÉHICULES et LIGNES : ceux dont la pièce dit quelque chose (qui conduit, qui utilise, à qui c\'est attribué). Les numéros et plaques sont aussi extraits automatiquement par ailleurs : ce qui compte ici, c\'est le RATTACHEMENT à une personne. Tableaux vides omis.',
     'Pièce illisible ou vide : type "autre", resume "pièce illisible ou vide", personnes [].',
   ].join('\n'),
 }
@@ -173,6 +190,12 @@ export const CATALOGUE = [
     id: 'mec', groupe: 'Rédaction automatique', label: 'Détection des mis en cause',
     resume: 'Le prompt qui relit tout le dossier pour PROPOSER (✓/✗) les personnes mises en cause manquantes.',
     quand: 'Sur l\'icône « Actualiser » de la section Mis en cause. Le fil de l\'eau (pièce par pièce, avec rôle décrit) passe par le flux tendu.',
+    variables: ['{{dossier}}'],
+  },
+  {
+    id: 'versement', groupe: 'Rédaction automatique', label: 'Analyse complète d\'un versement massif',
+    resume: 'Le prompt de la synthèse complète d\'un versement massif : personnes et rôles, véhicules, lignes, adresses, comptes, chronologie, points à vérifier — classée au dossier comme compte rendu.',
+    quand: 'Après un versement d\'au moins 100 pièces nouvelles, une fois toutes les pièces fichées au registre — de nuit de préférence, d\'office au-delà de 24 h d\'attente. Le registre agrégé du versement est joint au prompt.',
     variables: ['{{dossier}}'],
   },
   {

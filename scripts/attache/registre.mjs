@@ -58,6 +58,7 @@ const RECOUVREMENT = 300
 const CHARS_TOTAL = 80_000
 const ECHECS_MAX = 2 // échecs CONSÉCUTIFS : au-delà, la pièce est laissée sans fiche (entités déjà là)
 const PERSONNES_MAX = 300
+const OBJETS_MAX = 100 // véhicules, lignes par fiche
 const REPONSE_CHARS_MAX = 350_000 // taille d'une réponse d'outil (pas un plafond de résultats)
 const RESUME_MAX = 4_000
 
@@ -231,10 +232,18 @@ function nettoieFiche(f) {
       ...(p.alias ? { alias: String(p.alias).slice(0, 120) } : {}),
       ...(p.role ? { role: String(p.role).slice(0, 160) } : {}),
     }))
+  const objets = (liste, champs) => (Array.isArray(liste) ? liste : [])
+    .filter((x) => x && typeof x === 'object' && champs.some((c) => String(x[c] || '').trim()))
+    .slice(0, OBJETS_MAX)
+    .map((x) => Object.fromEntries(champs.filter((c) => String(x[c] || '').trim()).map((c) => [c, String(x[c]).slice(0, 160)])))
+  const vehicules = objets(f.vehicules, ['plaque', 'description', 'utilisateur'])
+  const lignes = objets(f.lignes, ['numero', 'utilisateur'])
   return {
     type: String(f.type || 'autre').slice(0, 60),
     ...(f.datePiece ? { datePiece: String(f.datePiece).slice(0, 10) } : {}),
     personnes,
+    ...(vehicules.length ? { vehicules } : {}),
+    ...(lignes.length ? { lignes } : {}),
     resume: String(f.resume || '').slice(0, 700),
     majLe: new Date().toISOString(),
   }
@@ -279,8 +288,21 @@ function fusionnerFiches(cumul, f) {
     const q = personnes[index.get(cle)]
     personnes[index.get(cle)] = { ...q, ...(!q.alias && p.alias ? { alias: p.alias } : {}), ...(!q.role && p.role ? { role: p.role } : {}) }
   }
+  const unir = (a = [], b = [], cle) => {
+    const out = [...a]
+    for (const x of b) {
+      const k = cle(x)
+      const i = out.findIndex((y) => cle(y) === k)
+      if (i < 0) { if (out.length < OBJETS_MAX) out.push(x) } else out[i] = { ...x, ...out[i] }
+    }
+    return out
+  }
+  const vehicules = unir(cumul.vehicules, f.vehicules, (v) => normAligne(v.plaque || v.description || '').replace(/[^a-z0-9]/g, ''))
+  const lignes = unir(cumul.lignes, f.lignes, (l) => String(l.numero || '').replace(/\D/g, '').slice(-9))
   return {
     ...cumul,
+    ...(vehicules.length ? { vehicules } : {}),
+    ...(lignes.length ? { lignes } : {}),
     type: cumul.type && cumul.type !== 'autre' ? cumul.type : f.type,
     ...(cumul.datePiece || f.datePiece ? { datePiece: cumul.datePiece || f.datePiece } : {}),
     personnes,
@@ -422,6 +444,8 @@ export function lireRegistre(keys, numero, { filtre, offset, limit } = {}) {
         type: e.fiche.type,
         ...(e.fiche.datePiece ? { datePiece: e.fiche.datePiece } : {}),
         personnes: e.fiche.personnes,
+        ...(e.fiche.vehicules ? { vehicules: e.fiche.vehicules } : {}),
+        ...(e.fiche.lignes ? { lignes: e.fiche.lignes } : {}),
         resume: e.fiche.resume,
         ...(e.fiche.copieDe ? { copieDe: e.fiche.copieDe } : {}),
       } : { fiche: 'pas encore établie (fil de l\'eau en cours)' }),
@@ -439,6 +463,8 @@ export function lireRegistre(keys, numero, { filtre, offset, limit } = {}) {
       const bloc = [
         e.chemin, e.type, e.resume,
         ...(e.personnes || []).flatMap((p) => [p.nom, p.alias, p.role]),
+        ...(e.vehicules || []).flatMap((v) => [v.plaque, v.description, v.utilisateur]),
+        ...(e.lignes || []).flatMap((l) => [l.numero, l.utilisateur]),
         ...Object.values(e.entites || {}).flat(),
       ].filter(Boolean).join('\n')
       const n = normAligne(bloc)
