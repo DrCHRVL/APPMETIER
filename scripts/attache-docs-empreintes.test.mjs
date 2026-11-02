@@ -8,8 +8,7 @@
  *   - dossier_arborescence annote les copies (copieExacteDe) sans jamais
  *     écarter une pièce simplement voisine ;
  *   - pieces_chercher trouve (insensible casse/accents, mots en ET), sert les
- *     extraits avec le chemin exact, saute les doublons exacts et fouille
- *     aussi les fiches de dépouillement ;
+ *     extraits avec le chemin exact et saute les doublons exacts ;
  *   - createChantier écarte les copies exactes des lots (chaque contenu lu
  *     une fois) et les nomme dans le devis.
  *
@@ -56,8 +55,9 @@ fs.writeFileSync(
 )
 
 const { writeDocBlob, listDocsMeta, docServerKey, attacheTj } = await import(`${REPO}/scripts/attache/store.mjs`)
-const { ensureDocShas, groupesDoublons, arborescenceDocuments, chercherDansPieces, normAligne } =
+const { ensureDocShas, groupesDoublons, arborescenceDocuments, normAligne } =
   await import(`${REPO}/scripts/attache/dossier.mjs`)
+const { chercherDansPieces } = await import(`${REPO}/scripts/attache/recherche.mjs`)
 
 const KEY = docServerKey(NUM)
 const verse = (rel, texte, meta = {}) =>
@@ -125,12 +125,6 @@ attendu('jumeau MD/ servi pour l\'original', Boolean(r3.pieces[0]), 'la pièce .
 
 const r4 = await chercherDansPieces(keys, NUM, { requete: 'clio', pochette: 'Actes' })
 attendu('filtre pochette respecté', r4.pieces.length === 0, JSON.stringify(r4.pieces))
-
-// ── fiches de dépouillement fouillées en premier
-const { saveProduction } = await import(`${REPO}/scripts/attache/productions.mjs`)
-await saveProduction(keys, { numero: NUM, type: 'fiche', titre: 'Fiche — PV/Proc1 — lot 1', contenu: '## Personnes\n- DURAND Kévin : transports de résine, Clio grise FG-527-XZ (D12)', source: 'chantier:test' })
-const r5 = await chercherDansPieces(keys, NUM, { requete: 'FG-527-XZ' })
-attendu('les fiches sont fouillées', r5.fiches.length === 1 && r5.fiches[0].extraits[0].includes('FG-527-XZ'), JSON.stringify(r5.fiches))
 
 // ── chantier : les copies exactes sortent des lots
 const { createChantier } = await import(`${REPO}/scripts/attache/chantier.mjs`)

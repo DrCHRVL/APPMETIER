@@ -27,8 +27,9 @@ import {
   enregistrerActe, acterProlongation, classerNote, ajouterTodo, terminerTodo, listerDml,
   actualiserDescription, diagnostiquerDossier, diagnostiquerAffichage, arborescenceDocuments,
   ajouterNatinfs, creerDossier, ajouterMec, modifierMec, modifierActe, modifierDossier, archiverDossier,
-  enqueteExiste, chercherDansPieces,
+  enqueteExiste,
 } from './attache/dossier.mjs'
+import { chercherDansPieces } from './attache/recherche.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine } from './attache/routines.mjs'
 import { searchNatinf } from './attache/natinf.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
@@ -380,18 +381,23 @@ const TOOLS = [
   },
   {
     name: 'pieces_chercher',
-    description: 'RECHERCHE PLEIN TEXTE dans les pièces d\'un dossier (enquête ou instruction) — l\'outil pour LOCALISER une information (« où parle-t-on de X ? », un nom, un numéro, une plaque, une adresse) SANS relire les pièces une à une. Cherche d\'abord dans les FICHES de dépouillement (déjà synthétiques et cotées — la voie rapide), puis dans le texte des pièces (copies markdown du téléversement + caches d\'extraction ; les pièces jamais extraites le sont au passage, par lots bornés). Tous les mots sont exigés ensemble (ET), insensible à la casse et aux accents, doublons exacts fouillés une seule fois. Rend des extraits avec le chemin exact de chaque pièce — enchaîne avec lire_document (offset au besoin) pour lire le passage en entier. Si la réponse indique des pièces `nonExtraites`, RELANCE la même recherche : chaque appel étend la couverture, définitivement (cache). Zéro coût modèle : tout se passe côté serveur.',
+    description: 'RECHERCHE PLEIN TEXTE dans le texte INTÉGRAL des pièces — l\'outil pour LOCALISER une information (« où parle-t-on de X ? », un nom, un numéro, une plaque, une adresse, un indice) SANS relire les pièces une à une. DEUX PORTÉES : `numero` renseigné = UN dossier (n° d\'enquête, d\'instruction, ou libellé d\'un dossier manuel de la carte — ses documents versés sont fouillés comme des pièces) ; `numero` VIDE = TOUT LE FONDS (enquêtes en cours ET archivées, instructions, dossiers de la carte), parcouru dans l\'ordre : tant que `curseurSuivant` figure dans la réponse, rappelle avec la même requête et ce curseur — ne conclus qu\'à `fin: true`. SYNTAXE : mots juxtaposés = TOUS exigés dans la même pièce (ET) ; « OU » en capitales (ou « | ») entre alternatives — une famille de synonymes en un seul appel (« nourrice OU stockage OU planque OU "garder la marchandise" ») ; "entre guillemets" = expression exacte (mots consécutifs) ; un mot trouve aussi ses dérivés (« stock » → stocker, stockage) ; casse et accents indifférents. Chaque résultat donne le chemin exact, les termes trouvés, le nombre d\'occurrences et des extraits — enchaîne avec lire_document (ou carto_lire_document pour la carte) pour LIRE la pièce en entier avant de conclure : un mot présent ne prouve rien (une ORTC cite « Vu le réquisitoire définitif » sans être un RD). Rien n\'est caché : un dossier se pagine (offset), le fonds se reprend (curseur), et les pièces jamais extraites sont NOMMÉES (piecesNonFouillees) — relance pour les couvrir. Zéro coût modèle : tout se passe côté serveur.',
     inputSchema: {
       type: 'object',
       properties: {
-        numero: { type: 'string' },
-        requete: { type: 'string', description: 'Mots à trouver TOUS (2 caractères min chacun) — noms, numéros, plaques, lieux. Peu de mots précis > une phrase.' },
-        pochette: { type: 'string', description: 'Limiter à une pochette de l\'arborescence (ex. "PV/GOSSE"). Vide = tout le dossier.' },
-        limite: { type: 'number', description: 'Nombre max de pièces en résultat (défaut 12, max 20).' },
+        numero: { type: 'string', description: 'Dossier visé : n° d\'enquête ou d\'instruction, ou libellé d\'un dossier de la carte. VIDE = tout le fonds.' },
+        requete: { type: 'string', description: 'Mots (2 caractères min), "expressions exactes", alternatives séparées par OU. Ex. : nourrice OU "chez sa mère" OU cave stupéfiants' },
+        pochette: { type: 'string', description: 'Limiter à une pochette de l\'arborescence (ex. "PV/GOSSE") — dans chaque dossier parcouru. Vide = tout.' },
+        limite: { type: 'number', description: 'Pièces par page (défaut 20, max 100).' },
+        extraits: { type: 'number', description: 'Extraits par pièce (défaut 3, max 10).' },
+        offset: { type: 'number', description: 'UN dossier : rang du 1er résultat (offsetSuivant de la réponse précédente).' },
+        curseur: { type: 'string', description: 'TOUT LE FONDS : curseurSuivant de la réponse précédente (reprise exacte du parcours).' },
       },
-      required: ['numero', 'requete'],
+      required: ['requete'],
     },
-    handler: async (a) => chercherDansPieces(keys, a.numero, { requete: a.requete, pochette: a.pochette, limite: a.limite }),
+    handler: async (a) => chercherDansPieces(keys, a.numero, {
+      requete: a.requete, pochette: a.pochette, limite: a.limite, extraits: a.extraits, offset: a.offset, curseur: a.curseur,
+    }),
   },
   {
     name: 'registre_lire',
