@@ -47,8 +47,9 @@ const DIRECT_RUNS = new Set(['chat', 'chat-dossier', 'chat-carto', 'proactif'])
 // Modèle des travaux d'appoint (sous-agents, consolidation d'apprentissage) :
 // un modèle RAPIDE par défaut — jamais celui du run principal, qui peut être
 // Opus et rendrait ces lots lourds et gourmands.
-const DEFAULT_SUBMODEL_ENV = () => sanitizeModel(process.env.SIRAL_ATTACHE_SUBAGENT_MODEL) || 'claude-sonnet-5'
-const ECO_SUBMODEL = 'claude-haiku-4-5-20251001'
+const DEFAULT_SUBMODEL_ENV = () => sanitizeModel(process.env.SIRAL_ATTACHE_SUBAGENT_MODEL) || 'sonnet'
+// Des ALIAS, jamais d'identifiant daté : le CLI les fait suivre les sorties d'Anthropic.
+const ECO_SUBMODEL = 'haiku'
 
 /** Modèle économe effectif : choix du magistrat (« Sous-agents »), sinon rapide (Haiku en mode économe). */
 export function economicalModel(cfg = agentConfig()) {

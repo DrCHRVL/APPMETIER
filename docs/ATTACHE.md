@@ -636,6 +636,64 @@ actes corrigés ou refusés (voir « Instructions du projet Claude web »).
     **numéro du dossier** où il figure déjà.
   Rien n'est bloqué sur un simple rapprochement : le magistrat voit le doublon
   possible et tranche lui-même d'un ✓ ou d'un ✗.
+- **Interrogation du fonds** (`scripts/attache/interrogation.mjs`) : une
+  **question large** qui exige de sonder **toutes** les pièces d'un dossier
+  ou du fonds entier (enquêtes en cours et archivées, instructions,
+  documents de la carte), sans mot-clé possible. Déposée par Claude web via
+  le connecteur (`fonds_interroger`) ou par l'attaché, elle est exécutée
+  **côté service** : chaque pièce est soumise au modèle **avec la
+  question** et rend un **verdict** (pertinente ou non, score,
+  justification, extraits verbatim — une pièce longue est lue en tranches,
+  verdict fusionné) ; à la fin, **contrôle d'élusion** (un échantillon des
+  pièces écartées est relu → taux d'élusion, pièces manquées estimées,
+  rappel estimé) puis **synthèse** citant chaque pièce, remise en
+  **livrable** (fil « pendant votre absence », « Actes rédigés » du dossier
+  ou hors dossier). Lots repris à chaque tick, **gouverneur de forfait**
+  (différés, jamais perdus), curseur persistant : un lot en échec ne saute
+  aucune pièce, trois échecs consécutifs mettent l'interrogation en échec
+  (résultats partiels lisibles). `niveau:"fiches"` : passe rapide sur les
+  mini-fiches du registre, pièces sans fiche nommées non lues. Aucune
+  interface dans l'app : suivi par `interrogations_lister` /
+  `interrogation_lire`, arrêt par `interrogation_arreter`. Consignes
+  « Interrogation du fonds — verdict / synthèse » (Paramètres → Attaché
+  IA). Consommation sous le poste **« interrogation »** ; audit
+  `interrogation_deposee` / `interrogation_fait` / `interrogation_arretee`.
+  **Modèles, règle du magistrat** : Haiku pour le simple (un verdict par
+  pièce, `SIRAL_ATTACHE_INTERROGATION_VERDICT_MODEL`, défaut `haiku`),
+  Sonnet pour le complexe (synthèse, `SIRAL_ATTACHE_INTERROGATION_MODEL`,
+  défaut `sonnet`), Opus en **dernier recours** seulement :
+  `puissance:"renforcee"` (verdicts Sonnet, synthèse Opus) quand un résultat
+  standard a déçu et que le magistrat le demande. Toujours des **alias**,
+  jamais d'identifiant daté : le CLI `claude` du conteneur les fait suivre
+  les sorties d'Anthropic (même règle pour le modèle économe des
+  sous-agents, `haiku`, et leur défaut, `sonnet`).
+- **Rapports de dossier** (`scripts/attache/rapport.mjs`) : l'étage
+  au-dessus du registre — **un rapport de synthèse par dossier**, bâti sur
+  le plan d'un réquisitoire définitif ramené à l'essentiel : genèse et
+  cadre, protagonistes (Prénom NOM, domicile à la première mention, alias
+  traduits, rôle, liens), activité et logistique (chiffres en chiffres),
+  données matérielles, **topographie des responsabilités** par personne (à
+  charge et à décharge, évolutions de version), chronologie, **lacunes et
+  ouvertures** (actes sans résultat, personnes jamais entendues, pièces
+  illisibles, renvois vers d'autres affaires) et **pièces clés** à ouvrir
+  en premier — chaque affirmation cotée, sans détail procédural sans valeur
+  probante. Rédigé **une fois** depuis le registre agrégé de toutes ses
+  pièces, par le modèle de synthèse. Un gros dossier (> 150 pièces, plusieurs pochettes,
+  `SIRAL_ATTACHE_RAPPORT_POCHETTE_SEUIL`) a d'abord **un rapport par
+  pochette**, puis le rapport du dossier depuis ceux-ci ; seule une pochette
+  qui a bougé est réécrite. Chaque rapport porte la **signature** du
+  registre dont il vient : réécrit seulement si elle a bougé, et seulement
+  quand toutes les pièces sont fichées ou abandonnées. Entretien de **nuit**
+  (quelques dossiers par passage, gouverneur de forfait) et **à la demande**
+  d'une interrogation du fonds au niveau **« rapports »** : une lecture par
+  dossier au lieu d'une par pièce, puis **approfondissement** automatique
+  pièce par pièce des seuls dossiers retenus (interrogation enchaînée,
+  `suiteDe` / `suiteId`). Lecture par `rapport_lire` (texte, fraîcheur,
+  couverture, pochettes). C'est le patron des « community reports » de
+  GraphRAG, ramené à l'unité naturelle du parquet. Consigne « Rapport de
+  dossier » ; consommation sous le poste **« rapport »** ; stockage chiffré
+  `attache/rapports/`. Modèle : `SIRAL_ATTACHE_RAPPORT_MODEL` (défaut
+  `sonnet`, alias suivi par le CLI).
 - **Relance les dossiers dormants** : `lister_dossiers` marque `dormant:true`
   tout dossier sans mouvement depuis plus de 2 mois — une routine de veille en
   tire un projet de mail de relance au directeur d'enquête, prêt à coller.

@@ -165,7 +165,7 @@ function piecesDuDossier(docKey, pochette) {
  * Le fonds entier, dans un ordre STABLE (celui du curseur) : enquêtes en
  * cours puis archivées, dossiers d'instruction, dossiers manuels de la carte.
  */
-function sourcesDuFonds(keys) {
+export function sourcesDuFonds(keys) {
   const sources = []
   const vus = new Set()
   const ajoute = (s) => { if (!vus.has(s.cle)) { vus.add(s.cle); sources.push(s) } }
@@ -188,7 +188,7 @@ function sourcesDuFonds(keys) {
 }
 
 /** Texte d'une pièce : { ok, texte, pagesImagesNonLues } ou { nonExtrait } / { ok:false }. */
-async function textePiece(keys, source, rel, extraire) {
+export async function textePiece(keys, source, rel, extraire) {
   if (source.carte) {
     const doc = (source.carte.documents || []).find((x) => String(x.nom) === rel)
     return doc ? { ok: true, texte: String(doc.texte || '') } : { ok: false }
@@ -197,12 +197,23 @@ async function textePiece(keys, source, rel, extraire) {
   return res.ok ? { ok: true, texte: res.texte, pagesImagesNonLues: res.extra?.pagesImagesNonLues } : res
 }
 
-function listePieces(source, pochette) {
+export function listePieces(source, pochette) {
   if (source.carte) {
     const pieces = (source.carte.documents || []).map((x) => String(x.nom))
     return { pieces, total: pieces.length, doublons: 0 }
   }
   return piecesDuDossier(source.cle, pochette)
+}
+
+/** Source d'UN dossier : enquête ou instruction par son numéro ; à défaut, dossier manuel de la carte portant ce libellé. */
+export function sourceDuDossier(keys, numero) {
+  const canon = numeroCanonique(keys, numero)
+  let source = { cle: docServerKey(canon), dossier: canon, nature: 'dossier' }
+  if (!listDocsMeta(attacheTj(), source.cle).length) {
+    const carte = dossierCarte(keys, numero)
+    if (carte) source = { cle: `carte:${carte.label}`, dossier: carte.label, nature: 'carte', carte }
+  }
+  return source
 }
 
 // ── Recherche ────────────────────────────────────────────────────────────
@@ -227,12 +238,7 @@ export async function chercherDansPieces(keys, numero, opts = {}) {
 }
 
 async function chercherDansUnDossier(keys, numero, { pochette, offset, alternatives, maxExtraits, limite, requete }) {
-  const canon = numeroCanonique(keys, numero)
-  let source = { cle: docServerKey(canon), dossier: canon, nature: 'dossier' }
-  if (!listDocsMeta(attacheTj(), source.cle).length) {
-    const carte = dossierCarte(keys, numero)
-    if (carte) source = { cle: `carte:${carte.label}`, dossier: carte.label, nature: 'carte', carte }
-  }
+  const source = sourceDuDossier(keys, numero)
   const { pieces: rels, total, doublons } = listePieces(source, pochette)
 
   const pieces = []
