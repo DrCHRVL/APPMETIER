@@ -29,8 +29,8 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { attacheTj, tjDataDir, attacheDir, ensureDir, listDocsMeta, readJson, atomicWrite } from './store.mjs'
-import { ensureDocShas, texteDocumentIntegral } from './dossier.mjs'
-import { extraireEntites, majEntitesRegistre } from './registre.mjs'
+import { ensureDocShas, texteDocumentIntegral, sourceTexteIncomplete } from './dossier.mjs'
+import { extraireEntites, majEntitesRegistre, readRegistre } from './registre.mjs'
 
 // v2 : l'ingestion alimente aussi le REGISTRE (entités déterministes par
 // pièce — téléphones, plaques, IBAN, adresses). Un état v1 est repris une
@@ -147,6 +147,10 @@ export async function ingestPass(keys, {
     //    textes en mémoire, seulement leurs entités.
     const echecs = { ...(state.echecs || {}) }
     const entiteItems = []
+    // Entrées du registre relevées AVANT la lecture intégrale : leur source de
+    // texte est vérifiée avant relecture (la relecture remplace un cache partiel).
+    let regAvant = { pieces: {} }
+    try { regAvant = readRegistre(keys, docKey) } catch { /* registre absent */ }
     let enAttente = 0
     for (const d of metas) {
       const rel = String(d.rel)
@@ -154,6 +158,11 @@ export async function ingestPass(keys, {
       if (echecs[rel] === String(d.savedAt)) continue // échec connu, pièce inchangée
       if (budgetProbes <= 0) { enAttente++; continue } // repris au prochain tick
       budgetProbes--
+      const avant = regAvant.pieces?.[rel]
+      let sourceIncomplete = false
+      if (avant && !avant.texteComplet) {
+        try { sourceIncomplete = sourceTexteIncomplete(keys, docKey, rel) } catch { /* jamais bloquant */ }
+      }
       let res
       try {
         res = await texteDocumentIntegral(keys, docKey, rel, { extraire: false })
@@ -165,12 +174,13 @@ export async function ingestPass(keys, {
           res = await texteDocumentIntegral(keys, docKey, rel, { echeance })
         } catch { res = { ok: false } }
         if (res.ok) bilan.extraites++
-        // lecture partielle (échéance) : le dossier reste à reprendre
-        if (res.ok && res.extra?.partiel) enAttente++
+        // lecture partielle (échéance) : le dossier reste à reprendre, et ni
+        // entités ni fiche ne sont relevées sur un texte incomplet
+        if (res.ok && res.extra?.partiel) { enAttente++; continue }
       }
       if (res.ok) {
         delete echecs[rel]
-        entiteItems.push({ rel, sha: d.sha, entites: extraireEntites(res.texte) })
+        entiteItems.push({ rel, sha: d.sha, entites: extraireEntites(res.texte), sourceIncomplete })
       } else {
         echecs[rel] = String(d.savedAt)
         bilan.echecs++

@@ -619,6 +619,26 @@ function tidyPdfText(text) {
 const COPIE_INCOMPLETE = /\[page \d+ : image sans couche texte\]|…\[conversion tronquée/
 
 /**
+ * La source de texte ACTUELLE d'une pièce est-elle incomplète ? — copie
+ * markdown du téléversement avec pages images ou tronquée, ou cache
+ * d'extraction partiel (ancien plafond OCR, annexes différées). C'est le texte
+ * qu'ont lu les fiches et entités faites avant la lecture intégrale : à
+ * appeler AVANT de relire la pièce (la relecture remplace le cache partiel).
+ */
+export function sourceTexteIncomplete(keys, key, cheminRelatif) {
+  if (!/\.(txt|html?|md|csv|json|eml)$/i.test(cheminRelatif) && !cheminRelatif.startsWith('MD/')) {
+    const mdBlob = readDocBlob(attacheTj(), key, 'MD/' + cheminRelatif.replace(/\.[^./]+$/, '') + '.md')
+    const md = mdBlob ? decryptDocBlob(keys.global, mdBlob) : null
+    if (md && COPIE_INCOMPLETE.test(md.toString('utf8'))) return true
+  }
+  const env = readJson(docCachePath(key, cheminRelatif), null)
+  if (env) {
+    try { if (CACHE_PARTIEL.test(String(decryptJson(keys.global, env)?.texte || ''))) return true } catch { /* cache illisible */ }
+  }
+  return false
+}
+
+/**
  * Texte d'un document chiffré du dossier (PDF → texte, txt/html bruts).
  * L'extraction PDF n'a lieu qu'UNE fois : le résultat est mis en cache
  * (voir ci-dessus) — l'original PDF reste intact sur le serveur.

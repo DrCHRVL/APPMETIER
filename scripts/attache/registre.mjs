@@ -133,14 +133,26 @@ export function majEntitesRegistre(keys, docKey, items) {
   if (!items || !items.length) return 0
   const reg = readRegistre(keys, docKey)
   let n = 0
-  for (const { rel, sha, entites } of items) {
+  for (const { rel, sha, entites, sourceIncomplete = false } of items) {
     const prev = reg.pieces[rel]
-    if (prev && prev.sha === (sha ?? null) && prev.entites) continue
+    // `texteComplet` : entités relevées sur le texte INTÉGRAL (OCR de toutes les
+    // pages). Une entrée antérieure est relevée une fois de plus, sur le texte
+    // complet — numéros et plaques des annexes compris.
+    if (prev && prev.sha === (sha ?? null) && prev.entites && prev.texteComplet) continue
+    const garde = prev && prev.sha === (sha ?? null) ? { ...prev } : {} // sha changé = pièce re-versée : fiche périmée
+    // Fiche faite sur un texte INCOMPLET (copie sans OCR, cache partiel) :
+    // à refaire — le rapport du dossier suivra (sa signature bouge).
+    if (sourceIncomplete && garde.fiche && !garde.fiche.texteComplet) {
+      delete garde.fiche
+      delete garde.ficheEnCours
+      delete garde.ficheEchecs
+    }
     reg.pieces[rel] = {
-      ...(prev && prev.sha === (sha ?? null) ? prev : {}), // sha changé = pièce re-versée : fiche périmée
+      ...garde,
       sha: sha ?? null,
       entites,
       entitesLe: new Date().toISOString(),
+      texteComplet: true,
     }
     n++
   }
@@ -321,7 +333,7 @@ function fusionnerFiches(cumul, f) {
  * persisté. Le service l'appelle au tick, APRÈS son contrôle de forfait.
  * Rend null si rien à faire, sinon { dossier, faites, copies, echecs, restantes }.
  */
-export async function registreFichesStep(keys, { maxPieces = LOT_PIECES, docKey: seulement = null } = {}) {
+export async function registreFichesStep(keys, { maxPieces = LOT_PIECES, docKey: seulement = null, echeance = null } = {}) {
   // `docKey` : passage CIBLÉ sur un seul dossier (flux tendu) — sinon le
   // premier dossier du registre qui a du travail.
   for (const docKey of docKeysAvecRegistre().filter((k) => !seulement || k === seulement)) {
@@ -358,6 +370,14 @@ export async function registreFichesStep(keys, { maxPieces = LOT_PIECES, docKey:
       const e = reg.pieces[rel]
       let res
       try { res = await texteDocumentIntegral(keys, docKey, rel, { extraire: false }) } catch { res = { ok: false } }
+      // Texte pas encore extrait (OCR de fond pas encore passé) : on l'extrait
+      // ICI plutôt que de compter un échec — deux échecs abandonnaient la
+      // pièce sans fiche. Lecture interrompue par l'échéance : on attend.
+      if (!res.ok && res.nonExtrait) {
+        if (echeance && Date.now() > echeance) continue
+        try { res = await texteDocumentIntegral(keys, docKey, rel, { echeance }) } catch { res = { ok: false } }
+      }
+      if (res.ok && res.extra?.partiel) continue
       if (!res.ok) { e.ficheEchecs = (e.ficheEchecs || 0) + 1; continue }
       const texte = String(res.texte)
       const parties = Math.max(1, Math.ceil(texte.length / TRANCHE))
@@ -400,7 +420,8 @@ export async function registreFichesStep(keys, { maxPieces = LOT_PIECES, docKey:
         const cumul = fusionnerFiches(enCours?.fiche || null, fiche)
         delete e.ficheEchecs
         if (partie + 1 === parties) {
-          e.fiche = { ...cumul, integrale: true, ...(parties > 1 ? { parties } : {}) }
+          // texteComplet : fiche faite sur le texte INTÉGRAL (OCR compris)
+          e.fiche = { ...cumul, integrale: true, texteComplet: true, ...(parties > 1 ? { parties } : {}) }
           delete e.ficheEnCours
           faites++
         } else {

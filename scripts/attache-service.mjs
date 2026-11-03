@@ -724,7 +724,7 @@ async function runActualiserMec(numero, trigger = 'manuel') {
     const lots = Math.min(DESC_LOTS_FICHES, Math.ceil(couverturePieces(keys, num).sansFiche.length / 8))
     for (let i = 0; i < lots; i++) {
       let r = null
-      try { r = await registreFichesStep(keys, { docKey }) } catch { r = null }
+      try { r = await registreFichesStep(keys, { docKey, echeance }) } catch { r = null }
       if (!r || !r.restantes) break
     }
     const result = await runAgent({
