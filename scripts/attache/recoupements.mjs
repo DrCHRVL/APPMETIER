@@ -28,11 +28,14 @@ import {
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { texteDocumentIntegral } from './dossier.mjs'
 import { allInstructionDossiers } from './instru.mjs'
-import { buildCorpus, docTextKey } from '../../lib/recoupements/corpusCore.mjs'
+import { buildCorpus, docTextKey, enqueteKey, instructionKey } from '../../lib/recoupements/corpusCore.mjs'
+import { detecterPiecesMalClassees } from './classement.mjs'
+import { publishFeed } from './journal.mjs'
 import { LIBELLE_KIND, LIBELLE_ORIGINE, detecterRecoupements } from '../../lib/recoupements/moteurCore.mjs'
 
 /** Coffre de sortie — clé globale, lisible de tous les utilisateurs. */
 const COFFRE = 'recoupements'
+const REPONSE_CHARS_MAX = 350_000 // taille d'une réponse d'outil (pas un plafond de résultats)
 
 /**
  * Temps maximal consacré à EXTRAIRE le texte des pièces jamais lues, par
@@ -153,6 +156,16 @@ export async function passeRecoupements(keys, { progression = () => {}, extracti
   })
   if (!signaux) throw new Error('Détection interrompue')
 
+  // Pièces peut-être mal classées : elles fabriquent de faux ponts. Le signal
+  // qui ne repose, d'un côté, que sur elles est marqué (pieceSuspecte).
+  progression({ etape: 'classement' })
+  let piecesSuspectes = []
+  try {
+    piecesSuspectes = marquerPiecesSuspectes(keys, parContentieux, instructions, signaux)
+  } catch (e) {
+    console.error('[attache] pièces mal classées :', e)
+  }
+
   const resultat = {
     v: 1,
     calculeAt: new Date().toISOString(),
@@ -170,12 +183,95 @@ export async function passeRecoupements(keys, { progression = () => {}, extracti
       caracteresLus: bilan.caracteres,
     },
     signaux,
+    piecesSuspectes,
   }
 
   const savedAt = resultat.calculeAt
   const envelope = encryptJson(keys.global, resultat, { savedAt, savedBy: author(keys) })
+  const avant = dernieresSuspectes(keys)
   await writeVault(attacheTj(), COFFRE, envelope, author(keys))
+  // Une pièce nouvellement soupçonnée : le magistrat le sait au fil.
+  const nouvelles = piecesSuspectes.filter((x) => !avant.has(`${x.dossier}|${x.piece}`))
+  if (nouvelles.length) {
+    await publishFeed(keys, {
+      type: 'note',
+      titre: `${nouvelles.length} pièce(s) peut-être mal classée(s)`,
+      resume: nouvelles.slice(0, 10).map((x) => `${x.piece} — versée dans ${x.dossier}, semble appartenir à ${x.dossierProbable} (${x.certitude})`).join('\n')
+        + (nouvelles.length > 10 ? `\n… et ${nouvelles.length - 10} autre(s) — vue d'ensemble des recoupements.` : ''),
+    }).catch(() => {})
+  }
   return resultat
+}
+
+/** Pièces soupçonnées au passage précédent (`dossier|piece`), pour ne signaler que le neuf. */
+function dernieresSuspectes(keys) {
+  const envelope = readVault(attacheTj(), COFFRE)
+  if (!envelope) return new Set()
+  try {
+    return new Set((decryptJson(keys.global, envelope).piecesSuspectes || []).map((x) => `${x.dossier}|${x.piece}`))
+  } catch { return new Set() }
+}
+
+/**
+ * Détecte les pièces peut-être mal classées sur tout le corpus de la veille,
+ * leur donne les clés de dossier de l'application (pour l'affichage), et
+ * marque chaque signal dont un côté ne repose QUE sur elles.
+ */
+function marquerPiecesSuspectes(keys, parContentieux, instructions, signaux) {
+  const enquetes = []
+  const cleEnquete = new Map() // numéro → { key, docs: Map(nom affiché → chemin) }
+  for (const [ctx, liste] of parContentieux) {
+    for (const e of liste || []) {
+      if (!e?.numero) continue
+      enquetes.push(e)
+      cleEnquete.set(String(e.numero), {
+        key: enqueteKey(ctx, e.id),
+        docs: new Map((e.documents || []).map((d) => [String(d.nomOriginal || d.nom || ''), String(d.cheminRelatif || '')])),
+      })
+    }
+  }
+  const cleInstruction = new Map()
+  for (const d of instructions || []) {
+    const n = d.numeroInstruction || d.numeroParquet
+    if (n) cleInstruction.set(String(n), instructionKey(d.id))
+  }
+  const cleDe = (numero) => cleEnquete.get(numero)?.key || cleInstruction.get(numero) || null
+
+  const suspectes = detecterPiecesMalClassees(keys, { enquetes, instructions })
+    .map((x) => ({ ...x, dossierKey: cleDe(x.dossier), dossierProbableKey: cleDe(x.dossierProbable) }))
+  const parPiece = new Map(suspectes.map((x) => [`${x.dossier}|${x.piece}`, x]))
+
+  // Occurrence → pièce : une enquête cite ses documents par leur nom affiché ;
+  // une instruction cite ceux de sa préliminaire en « préliminaire N · nom ».
+  const pieceDe = (o) => {
+    if (o.origine !== 'document') return null
+    let numero = String(o.dossier?.numero || '')
+    let nom = String(o.detail || '')
+    const m = /^préliminaire (.+?) · (.+)$/.exec(nom)
+    if (m) { numero = m[1]; nom = m[2] }
+    const rel = cleEnquete.get(numero)?.docs.get(nom)
+    return rel ? parPiece.get(`${numero}|${rel}`) || null : null
+  }
+  for (const signal of signaux) {
+    const parDossier = new Map()
+    for (const o of signal.occurrences || []) {
+      const k = o.dossier?.key || o.dossier?.numero
+      if (!parDossier.has(k)) parDossier.set(k, [])
+      parDossier.get(k).push(pieceDe(o))
+    }
+    for (const [k, liste] of parDossier) {
+      if (!liste.length || !liste.every(Boolean)) continue
+      signal.pieceSuspecte = {
+        dossierKey: k,
+        dossier: liste[0].dossier,
+        pieces: [...new Set(liste.map((x) => x.piece))],
+        dossierProbable: liste[0].dossierProbable,
+        certitude: liste.every((x) => x.certitude === 'forte') ? 'forte' : 'moyenne',
+      }
+      break
+    }
+  }
+  return suspectes
 }
 
 /** Dernier résultat connu, sans recalculer (pour le panneau d'administration). */
@@ -200,7 +296,7 @@ export function dernierResultat(keys) {
  * reste un SIGNALEMENT : à vérifier dans les pièces citées avant tout
  * proposer_lien.
  */
-export function lireSignaux(keys, { numero, nature, inedits, limite = 30, offset = 0 } = {}) {
+export function lireSignaux(keys, { numero, nature, inedits, limite, offset = 0 } = {}) {
   const envelope = readVault(attacheTj(), COFFRE)
   if (!envelope) {
     return {
@@ -224,14 +320,18 @@ export function lireSignaux(keys, { numero, nature, inedits, limite = 30, offset
   if (inedits) signaux = signaux.filter((s) => s.pontInedit)
   if (borneNum) signaux = signaux.filter(toucheDossier)
 
+  // TOUT est rendu : aucun plafond en nombre, toutes les occurrences gardées
+  // par le moteur. Seule borne, la TAILLE d'une réponse : la suite est alors
+  // annoncée (offsetSuivant) — rien n'est perdu.
   const total = signaux.length
-  const page = signaux.slice(offset, offset + Math.min(Math.max(1, limite), 100)).map((s) => {
+  const debut = Math.max(0, Math.floor(Number(offset) || 0))
+  const lim = Number(limite) > 0 ? Math.floor(Number(limite)) : Infinity
+  const formes = signaux.slice(debut).map((s) => {
     const parDossier = new Map()
     for (const o of s.occurrences || []) {
       const cle = o.dossier?.key || o.dossier?.numero || '?'
       if (!parDossier.has(cle)) parDossier.set(cle, [])
       const liste = parDossier.get(cle)
-      if (liste.length >= 2) continue // 2 occurrences par dossier suffisent à citer
       liste.push({
         dossier: o.dossier?.numero || o.dossier?.label,
         ou: LIBELLE_ORIGINE[o.origine] || o.origine,
@@ -247,14 +347,26 @@ export function lireSignaux(keys, { numero, nature, inedits, limite = 30, offset
       pontInedit: s.pontInedit || undefined,
       dossiers: [...parDossier.keys()],
       occurrences: [...parDossier.values()].flat(),
+      ...(s.pieceSuspecte ? { pieceSuspecte: s.pieceSuspecte } : {}),
     }
   })
+  const page = []
+  let taille = 0
+  for (const f of formes) {
+    if (page.length >= lim) break
+    const t = JSON.stringify(f).length
+    if (page.length && taille + t > REPONSE_CHARS_MAX) break
+    page.push(f)
+    taille += t
+  }
+  const suite = debut + page.length < total ? debut + page.length : null
 
   return {
     calculeAt: r.calculeAt,
     perimetre: r.perimetre,
     total,
-    offset,
+    offset: debut,
+    ...(suite != null ? { offsetSuivant: suite, suite: `${total - suite} signal(aux) après cette page (taille de réponse atteinte) — rappelle avec offset:${suite}` } : {}),
     signaux: page,
     note: 'Signaux triés du plus solide au plus faible par le chantier. « pontInedit » = les dossiers du signal ne partagent AUCUN mis en cause déclaré : le rapprochement que rien ne montrait encore. Vérifier chaque signal dans les pièces citées (lire_document) avant d\'en conclure quoi que ce soit.',
   }

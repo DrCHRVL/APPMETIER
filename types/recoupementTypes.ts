@@ -112,6 +112,37 @@ export interface Recoupement {
    * le moteur ne connaît pas la surcouche de cartographie.
    */
   pairesInedites: Array<[string, string]>;
+  /**
+   * Un côté du signal ne repose QUE sur des pièces peut-être mal classées
+   * (cf. PieceSuspecte) : faux recoupement probable.
+   */
+  pieceSuspecte?: {
+    dossierKey: string;
+    dossier: string;
+    pieces: string[];
+    dossierProbable: string;
+    certitude: 'forte' | 'moyenne';
+  };
+}
+
+/**
+ * Pièce PEUT-ÊTRE MAL CLASSÉE : ses marques (lignes, plaques, IBAN, personnes)
+ * renvoient à un autre dossier et presque pas au sien — une interception
+ * versée dans le mauvais dossier, typiquement. Calculée par le service
+ * (scripts/attache/classement.mjs) à chaque veille.
+ */
+export interface PieceSuspecte {
+  dossier: string;
+  dossierKey: string | null;
+  nature: 'enquête' | 'instruction';
+  piece: string;
+  dossierProbable: string;
+  dossierProbableKey: string | null;
+  natureProbable: 'enquête' | 'instruction';
+  certitude: 'forte' | 'moyenne';
+  poidsActuel: number;
+  poidsProbable: number;
+  marques: Array<{ nature: string; valeur: string; dansProbable: 'déclarée' | 'pièces' | null; dansActuel: boolean }>;
 }
 
 /** Geste de l'utilisateur sur un signal, mémorisé par utilisateur. */
@@ -161,4 +192,6 @@ export interface RecoupementsSyncFile {
     caracteresLus: number;
   };
   signaux: Recoupement[];
+  /** Pièces peut-être mal classées (absent des coffres d'avant la détection). */
+  piecesSuspectes?: PieceSuspecte[];
 }

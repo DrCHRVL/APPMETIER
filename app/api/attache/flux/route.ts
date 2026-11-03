@@ -19,7 +19,7 @@ interface Attente { numero: string, depuis: string, raisons: string[], pretDansM
 interface Bilan {
   numero: string, at: string, pieces?: number, enAttente?: number, crs?: number, actes?: number,
   crEcrit?: number, mecProposes?: number, actesProposes?: number, descriptionChangee?: boolean,
-  run?: boolean, chantier?: boolean, differe?: boolean, message?: string, erreur?: string,
+  run?: boolean, massif?: boolean, differe?: boolean, message?: string, erreur?: string,
 }
 
 export async function GET(req: Request) {

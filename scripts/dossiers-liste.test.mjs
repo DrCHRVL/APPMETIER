@@ -1,6 +1,6 @@
 /**
  * SIRAL — test de la LISTE DES DOSSIERS servie à l'attaché (lister_dossiers)
- * et des outils de CHANTIER exposés au modèle.
+ * et de la recherche dans tout le fonds (pieces_chercher sans numéro).
  *
  * Motif : sur un stock réel (une soixantaine d'enquêtes en cours, autant
  * d'archivées), `lister_dossiers(archives:true)` rendait une réponse de
@@ -10,9 +10,9 @@
  * être extraite »). Le correctif : rendu compact, filtre, pagination, mode
  * ARCHIVES SEULES, et une page bornée en caractères quoi qu'on demande.
  *
- * Couvre aussi la sortie de secours quand un travail ne tient pas dans une
- * conversation : les outils `chantier_proposer` / `chantier_piloter`, qui
- * déposent un DEVIS dans la bande « Analyses profondes ».
+ * Couvre aussi le travail de masse : les chantiers d'analyse profonde ont été
+ * retirés (plus aucun outil exposé) ; une recherche dans tout le fonds passe
+ * par pieces_chercher sans numéro, servie par le MCP.
  *
  *   node scripts/dossiers-liste.test.mjs
  */
@@ -128,8 +128,8 @@ async function outil(name, args = {}) {
 
 const liste = await dispatchMcp({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
 const noms = (liste?.result?.tools || []).map((t) => t.name)
-attendu('outils de chantier exposés au modèle',
-  ['chantiers_etat', 'chantier_proposer', 'chantier_piloter'].every((n) => noms.includes(n)),
+attendu('plus aucun outil de chantier exposé au modèle',
+  !noms.some((n) => n.startsWith('chantier')),
   noms.filter((n) => n.startsWith('chantier')).join(', '))
 
 const schema = (liste?.result?.tools || []).find((t) => t.name === 'lister_dossiers')?.inputSchema
@@ -143,47 +143,19 @@ attendu('lister_dossiers(portee:"archives") passe par le MCP',
   viaMcp.texte.slice(0, 120))
 attendu('la sortie MCP tient sous le plafond', viaMcp.texte.length < 220_000, `${viaMcp.texte.length} caractères`)
 
-// Aucun document n'est déposé dans ce bac à sable : le devis doit refuser
-// PROPREMENT, avec le remède — pas planter le run.
-const devis = await outil('chantier_proposer', { type: 'dossier', numero: '2026/9001 - RESEAU 1', consigne: '5 rue Vulfran Mollet' })
-attendu('chantier_proposer refuse proprement un dossier sans pièces',
-  String(devis.json?.erreur || '').includes('Aucune pièce déposée'), devis.texte.slice(0, 160))
-const liens = await outil('chantier_proposer', { type: 'liens', numeros: ['2026/9001 - RESEAU 1'] })
-attendu('chantier "liens" exige au moins deux dossiers',
-  String(liens.json?.erreur || '').toLowerCase().includes('deux dossiers'), liens.texte.slice(0, 160))
-const piloter = await outil('chantier_piloter', { id: 'inexistant', action: 'lancer' })
-attendu('chantier_piloter refuse un identifiant inconnu', Boolean(piloter.json?.erreur), piloter.texte.slice(0, 120))
-
-// ── Le devis, bout en bout : des pièces versées → un chantier dans la bande
-// « Analyses profondes », en attente de validation du magistrat.
+// ── Travail de masse : une adresse cherchée dans tout le fonds, via le MCP
 const { writeDocBlob, docServerKey, attacheTj } = await import(`${REPO}/scripts/attache/store.mjs`)
-const { listChantiers } = await import(`${REPO}/scripts/attache/chantier.mjs`)
 const CIBLE = '2026/9002 - RESEAU 2'
 for (let i = 1; i <= 30; i++) {
   writeDocBlob(attacheTj(), docServerKey(CIBLE), `PV/Proc1/D${i}_audition.txt`,
     encryptDocBlob(keyGlobal, Buffer.from(`Audition n°${i} — 5 rue Vulfran Mollet, appartement 4.`, 'utf8')), { savedBy: 'test' })
 }
-const propose = await outil('chantier_proposer', { type: 'dossier', numero: CIBLE, consigne: 'Relever toute mention du 5 rue Vulfran Mollet' })
-const devisRendu = propose.json?.chantiers?.[0]
-attendu('chantier_proposer dépose un DEVIS (rien n\'est lancé)', devisRendu?.etat === 'devis', propose.texte.slice(0, 200))
-attendu('le devis est chiffré : pièces, lots, jetons, heures, nuits',
-  devisRendu?.estimation?.pieces === 30 && devisRendu.estimation.lots >= 3
-  && devisRendu.estimation.heures > 0 && devisRendu.estimation.nuits >= 1,
-  JSON.stringify(devisRendu?.estimation))
-attendu('le cumul du devis est rendu au modèle', propose.json?.devis?.pieces === 30)
-
-const dansLaBande = listChantiers(keys).find((c) => c.id === devisRendu?.id)
-attendu('le chantier apparaît dans la bande « Analyses profondes »', Boolean(dansLaBande), `${listChantiers(keys).length} chantier(s)`)
-attendu('la bande le montre comme déposé par l\'attaché', dansLaBande?.origine === 'attache', dansLaBande?.origine)
-attendu('son angle reprend la demande du magistrat', String(dansLaBande?.consigne || '').includes('Vulfran Mollet'))
-attendu('le journal dit d\'où il vient',
-  (dansLaBande?.journal || []).some((j) => j.evenement.includes('proposé par l\'attaché')),
-  (dansLaBande?.journal || [])[0]?.evenement?.slice(0, 90))
-
-const lance = await outil('chantier_piloter', { id: devisRendu.id, action: 'lancer' })
-attendu('chantier_piloter lance le chantier validé', lance.json?.etat === 'en_cours', lance.texte.slice(0, 160))
-const enPause = await outil('chantier_piloter', { id: devisRendu.id, action: 'pause' })
-attendu('… et sait le mettre en pause sans perte', enPause.json?.etat === 'pause', enPause.texte.slice(0, 160))
+const fonds = await outil('pieces_chercher', { requete: '"5 rue Vulfran Mollet"', limite: 100 })
+attendu('pieces_chercher sans numéro : tout le fonds, jusqu\'à la fin',
+  fonds.json?.fin === true && fonds.json?.pieces?.length === 30 && fonds.json.pieces.every((p) => p.dossier === CIBLE),
+  fonds.texte.slice(0, 200))
+const page1 = await outil('pieces_chercher', { requete: 'vulfran', limite: 10 })
+attendu('… et se reprend au curseur', page1.json?.pieces?.length === 10 && Boolean(page1.json?.curseurSuivant), page1.texte.slice(0, 160))
 
 fs.rmSync(SCRATCH, { recursive: true, force: true })
 if (echecs.length) {

@@ -6,7 +6,7 @@
  * Les « Consignes permanentes » valent pour tout ce que fait l'attaché. Ici,
  * c'est l'étage en dessous : le prompt de CHAQUE tâche automatique — la
  * description d'un dossier, la recherche profonde dans la cartographie,
- * chaque étage d'un chantier d'analyse profonde.
+ * les mini-fiches du registre.
  *
  * Ces prompts étaient figés dans le code : le magistrat les voit désormais
  * tels quels (le « socle »), et pour chacun choisit de les COMPLÉTER (son
@@ -152,7 +152,7 @@ export function AttacheConsignesSection({ onNotice }: { onNotice?: (m: string) =
         <SlidersHorizontal className="h-4 w-4 text-[#2B5746]" />
         <span className="text-sm font-semibold text-gray-800">Consignes par domaine</span>
         <span className="text-[11px] text-gray-400">
-          les prompts métier — descriptions, recherches profondes, analyse profonde
+          les prompts métier — descriptions, recherches profondes, registre
         </span>
         {nbPersonnalisees > 0 && (
           <span className="rounded-full bg-[#2B5746]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#2B5746]">
@@ -170,7 +170,7 @@ export function AttacheConsignesSection({ onNotice }: { onNotice?: (m: string) =
       {!open ? (
         <p className="px-3 py-3 text-xs text-gray-400">
           Le texte exact que reçoit l&apos;attaché pour chaque tâche automatique : rédaction des descriptions,
-          recherche profonde dans la cartographie, chaque étage d&apos;un chantier d&apos;analyse profonde.
+          recherche profonde dans la cartographie, mini-fiches du registre.
           Vous le lisez, vous le complétez, ou vous le remplacez.
         </p>
       ) : (

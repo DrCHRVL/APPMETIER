@@ -22,8 +22,8 @@
  * Ce que la liste NE mélange PAS : les fiches et synthèses sorties des chantiers
  * d'analyse profonde. Un chantier en produit des centaines ; noyer les quelques
  * actes à signer dedans, c'est perdre la corbeille du magistrat. Elles sont
- * tenues à part, derrière « voir les N productions de chantier » (leur vraie
- * place restant l'atelier des chantiers, chantier par chantier).
+ * tenues à part, derrière « voir les N productions de chantier » (les
+ * chantiers ont été retirés ; leurs productions restent consultables ici).
  *
  * Chiffrement E2E : l'app ne voit jamais le texte — le navigateur déchiffre
  * pour l'afficher et rechiffre lors d'une édition manuelle.
@@ -91,7 +91,7 @@ const TYPE_LABEL: Record<string, string> = {
   autre: 'Acte',
 };
 
-export function ProductionsSection({ numero, titre, service, masquerSiVide, filtreSource }: {
+export function ProductionsSection({ numero, titre, service, masquerSiVide }: {
   numero: string;
   /** Titre de la section (défaut : « Actes rédigés »). */
   titre?: string;
@@ -99,9 +99,6 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
   service?: string;
   /** Ne rien afficher tant qu'aucun acte n'existe (usage tableau de bord). */
   masquerSiVide?: boolean;
-  /** Ne montrer que les productions dont `source` commence par ce préfixe
-   *  (ex. « chantier:<id> » — les fiches et la synthèse d'un chantier). */
-  filtreSource?: string;
 }) {
   // Interrupteur « fonctionnalités IA » : coché, les actes rédigés disparaissent
   // des fiches dossier comme le reste de l'attaché.
@@ -140,13 +137,13 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
         if (rec) out.push(rec as Production);
       }
       out.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
-      setItems(filtreSource ? out.filter((p) => String(p.source || '').startsWith(filtreSource)) : out);
+      setItems(out);
     } catch {
       setAvailable(false);
     } finally {
       setLoading(false);
     }
-  }, [numero, filtreSource]);
+  }, [numero]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -314,11 +311,8 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
   // les deux quittent la liste courante et se retrouvent dans l'archive.
   const enAttente = items.filter((p) => !p.traite && !p.refuse);
   const traites = items.filter((p) => p.traite || p.refuse);
-  // Quand la section est DÉJÀ filtrée sur un chantier (atelier des chantiers),
-  // tout ce qu'elle montre EST du chantier : on ne retrie pas une seconde fois.
-  const trier = !filtreSource;
-  const actes = trier ? enAttente.filter((p) => !estDeChantier(p)) : enAttente;
-  const productionsChantier = trier ? enAttente.filter(estDeChantier) : [];
+  const actes = enAttente.filter((p) => !estDeChantier(p));
+  const productionsChantier = enAttente.filter(estDeChantier);
   const visibles = vue === 'traites' ? traites : vue === 'chantier' ? productionsChantier : actes;
 
   return (
@@ -348,10 +342,9 @@ export function ProductionsSection({ numero, titre, service, masquerSiVide, filt
           )}
           {vue === 'chantier' && (
             <p className="mb-2 rounded-lg border border-indigo-200 bg-indigo-50/50 px-3 py-1.5 text-[11px] leading-snug text-indigo-900">
-              Fiches et synthèses sorties des chantiers d&apos;analyse profonde. Ce ne sont pas des
-              actes à signer : c&apos;est la matière première sur laquelle l&apos;attaché s&apos;appuie.
-              Leur place est « Analyses profondes », chantier par chantier — elles sont ici pour
-              mémoire, hors de la liste des actes.
+              Fiches et synthèses sorties des anciens chantiers d&apos;analyse profonde. Ce ne sont
+              pas des actes à signer — elles sont conservées ici pour mémoire, hors de la liste des
+              actes.
             </p>
           )}
           {visibles.length === 0 ? (

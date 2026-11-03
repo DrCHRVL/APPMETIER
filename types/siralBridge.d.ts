@@ -275,6 +275,13 @@ interface SiralBridgeApi {
    *  final (segments nettoyés). Refuse d'écraser une pièce existante. */
   moveDocument: (enqueteNumero: string, from: string, to: string) => Promise<string>;
 
+  /** Transfère une pièce vers un AUTRE dossier (pièce mal classée) — même
+   *  chemin dans le dossier cible, jumeau markdown compris. Refuse d'écraser.
+   *  Rend l'entrée d'index de la pièce déplacée. */
+  transferDocument: (fromNumero: string, rel: string, toNumero: string) => Promise<{
+    rel: string; size: number; savedAt: string; originalName?: string;
+  }>;
+
   // Documents : octets déchiffrés (base64) et texte extrait d'un PDF —
   // utilisés par la recherche dans les documents et les aperçus.
   readDocumentData: (enqueteNumero: string, cheminRelatif: string) => Promise<string | null>;

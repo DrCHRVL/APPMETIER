@@ -215,7 +215,7 @@ const { construireGraphe, analyseAvancee, cheminEntre } =
   verifie('veille : nature lisible + valeur', tout.signaux[0].nature === 'Même ligne'
     && tout.signaux[0].valeur === '06 12 34 56 78', JSON.stringify(tout.signaux[0]))
   const occE1 = tout.signaux[0].occurrences.filter((o) => o.dossier.includes('000001'))
-  verifie('veille : au plus 2 occurrences par dossier', occE1.length === 2, JSON.stringify(occE1))
+  verifie('veille : TOUTES les occurrences servies (plus de coupe à 2 par dossier)', occE1.length === 3, JSON.stringify(occE1))
 
   verifie('veille : filtre inedits', lireSignaux(keys, { inedits: true }).total === 1)
   verifie('veille : filtre nature', lireSignaux(keys, { nature: 'personne' }).total === 1)

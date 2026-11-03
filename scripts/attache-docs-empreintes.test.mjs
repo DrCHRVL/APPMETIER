@@ -8,10 +8,7 @@
  *   - dossier_arborescence annote les copies (copieExacteDe) sans jamais
  *     écarter une pièce simplement voisine ;
  *   - pieces_chercher trouve (insensible casse/accents, mots en ET), sert les
- *     extraits avec le chemin exact, saute les doublons exacts et fouille
- *     aussi les fiches de dépouillement ;
- *   - createChantier écarte les copies exactes des lots (chaque contenu lu
- *     une fois) et les nomme dans le devis.
+ *     extraits avec le chemin exact et saute les doublons exacts.
  *
  * Fabrique un SIRAL_DATA_DIR réel (clé-maître, trousseau remis, coffre
  * ctx-crimorg chiffré, blobs SIR1) puis appelle directement les modules.
@@ -56,8 +53,9 @@ fs.writeFileSync(
 )
 
 const { writeDocBlob, listDocsMeta, docServerKey, attacheTj } = await import(`${REPO}/scripts/attache/store.mjs`)
-const { ensureDocShas, groupesDoublons, arborescenceDocuments, chercherDansPieces, normAligne } =
+const { ensureDocShas, groupesDoublons, arborescenceDocuments, normAligne } =
   await import(`${REPO}/scripts/attache/dossier.mjs`)
+const { chercherDansPieces } = await import(`${REPO}/scripts/attache/recherche.mjs`)
 
 const KEY = docServerKey(NUM)
 const verse = (rel, texte, meta = {}) =>
@@ -126,25 +124,6 @@ attendu('jumeau MD/ servi pour l\'original', Boolean(r3.pieces[0]), 'la pièce .
 const r4 = await chercherDansPieces(keys, NUM, { requete: 'clio', pochette: 'Actes' })
 attendu('filtre pochette respecté', r4.pieces.length === 0, JSON.stringify(r4.pieces))
 
-// ── fiches de dépouillement fouillées en premier
-const { saveProduction } = await import(`${REPO}/scripts/attache/productions.mjs`)
-await saveProduction(keys, { numero: NUM, type: 'fiche', titre: 'Fiche — PV/Proc1 — lot 1', contenu: '## Personnes\n- DURAND Kévin : transports de résine, Clio grise FG-527-XZ (D12)', source: 'chantier:test' })
-const r5 = await chercherDansPieces(keys, NUM, { requete: 'FG-527-XZ' })
-attendu('les fiches sont fouillées', r5.fiches.length === 1 && r5.fiches[0].extraits[0].includes('FG-527-XZ'), JSON.stringify(r5.fiches))
-
-// ── chantier : les copies exactes sortent des lots
-const { createChantier } = await import(`${REPO}/scripts/attache/chantier.mjs`)
-const ch = await createChantier(keys, { type: 'dossier', numero: NUM })
-attendu('devis : copies exactes écartées des lots', ch.totalPieces === 5 && ch.piecesDeposees === 6, JSON.stringify({ totalPieces: ch.totalPieces, piecesDeposees: ch.piecesDeposees }))
-attendu('devis : doublons nommés', ch.doublonsExclus === 1 && ch.estimation.doublonsExclus === 1, JSON.stringify(ch.estimation))
-// le résumé n'expose pas les lots : on relit le plan brut
-const { readChantier } = await import(`${REPO}/scripts/attache/chantier.mjs`)
-const brut = readChantier(keys, ch.id)
-const lotsRels = brut.plan.flatMap((p) => p.lots.flatMap((l) => l.pieces))
-attendu('la copie exacte absente des lots', !lotsRels.includes('PV/Proc2/D340_audition_DURAND.txt'), JSON.stringify(lotsRels))
-attendu('le porteur présent dans les lots', lotsRels.includes('PV/Proc1/D12_audition_DURAND.txt'))
-attendu('la version voisine présente dans les lots', lotsRels.includes('PV/Proc1/D13_audition_DURAND_suite.txt'))
-
 // ── ingestion de fond : extraction + empreinte d'office, échecs mémorisés
 const { ingestPass } = await import(`${REPO}/scripts/attache/ingest.mjs`)
 verse('PV/Proc1/D200_scan_illisible.pdf', '%PDF-faux-scan-sans-couche-texte')
@@ -206,6 +185,12 @@ const rec3 = recouperRegistres(keys, { entite: '06 12 34 56 78' })
 attendu('recherche d\'une valeur formatée', rec3.recoupements.some((r) => r.entite === 'tel:0612345678'), JSON.stringify(rec3.recoupements.map((r) => r.entite)))
 const rec4 = recouperRegistres(keys, { numero: NUM2 })
 attendu('filtre par dossier', rec4.recoupements.every((r) => r.dossiers.some((d) => d.dossier === NUM2)), JSON.stringify(rec4.recoupements.map((r) => r.entite)))
+const rec5 = recouperRegistres(keys, { limite: 1 })
+const rec6 = recouperRegistres(keys, { limite: 1, offset: rec5.offsetSuivant })
+attendu('pagination des recoupements : rien de caché', rec5.total >= 2 && rec5.recoupements.length === 1 && rec5.offsetSuivant === 1
+  && rec6.recoupements.length === 1 && rec6.recoupements[0].entite !== rec5.recoupements[0].entite, JSON.stringify({ t: rec5.total, s: rec5.offsetSuivant }))
+const plaque = recouperRegistres(keys, { entite: 'FG-527-XZ' }).recoupements[0]
+attendu('pièces au-delà de la liste comptées', plaque.dossiers.every((d) => !d.piecesTotal || d.piecesTotal > d.pieces.length), JSON.stringify(plaque.dossiers))
 
 // ── déplacement d'une pièce (moveDoc préserve savedAt) : la signature
 // d'ingestion doit bouger quand même (empreinte des chemins) et le registre

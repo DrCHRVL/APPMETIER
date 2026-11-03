@@ -22,7 +22,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Enquete } from '@/types/interfaces';
-import type { Recoupement, RecoupementAcks, RecoupementsSyncFile } from '@/types/recoupementTypes';
+import type { PieceSuspecte, Recoupement, RecoupementAcks, RecoupementsSyncFile } from '@/types/recoupementTypes';
 import { enqueteKey } from '@/utils/recoupements/corpus';
 import {
   ackPour,
@@ -69,6 +69,10 @@ export interface RecoupementsApi {
   marquerVus: (signaux: Recoupement[]) => void;
   ecarter: (signal: Recoupement) => void;
   reactiver: (signal: Recoupement) => void;
+  /** Pièces peut-être mal classées (hors celles déclarées bien classées). */
+  piecesSuspectes: PieceSuspecte[];
+  /** « Cette pièce est bien à sa place » : ne plus la signaler. */
+  pieceBienClassee: (piece: PieceSuspecte) => void;
 }
 
 export interface UseRecoupementsOptions {
@@ -81,6 +85,9 @@ export interface UseRecoupementsOptions {
 }
 
 const VIDE: Recoupement[] = [];
+
+/** Clé du geste « bien classée » d'une pièce suspecte. */
+const ackPiece = (p: PieceSuspecte) => `piece:${p.dossier}|${p.piece}`;
 
 export function useRecoupements({
   enquetesByContentieux,
@@ -316,6 +323,17 @@ export function useRecoupements({
     return { parDossier: tous, nouveauxParDossier: neufs };
   }, [signaux, nouveaux]);
 
+  // Pièces peut-être mal classées : mêmes règles de visibilité que les
+  // signaux ; « bien classée » se mémorise comme un geste (clé « piece: »).
+  const piecesSuspectes = useMemo<PieceSuspecte[]>(() => (fichier?.piecesSuspectes || [])
+    .filter(p => !(p.dossierKey && clesInterdites.has(p.dossierKey))
+      && !(p.dossierProbableKey && clesInterdites.has(p.dossierProbableKey))
+      && !acks[ackPiece(p)]),
+  [fichier, clesInterdites, acks]);
+  const pieceBienClassee = useCallback((p: PieceSuspecte) => {
+    appliquer({ [ackPiece(p)]: { stateKey: p.dossierProbable, action: 'ecarte', at: new Date().toISOString() } });
+  }, [appliquer]);
+
   const chantier = useMemo<RecoupementsChantier | null>(
     () => (fichier
       ? { calculeAt: fichier.calculeAt, dureeMs: fichier.dureeMs, perimetre: fichier.perimetre }
@@ -340,8 +358,11 @@ export function useRecoupements({
     marquerVus,
     ecarter,
     reactiver,
+    piecesSuspectes,
+    pieceBienClassee,
   }), [
     signaux, nouveaux, parDossier, nouveauxParDossier, ecartes, chargement, chantier,
     detectionEnCours, lancerDetection, estNouveau, estRevenu, marquerVu, marquerVus, ecarter, reactiver,
+    piecesSuspectes, pieceBienClassee,
   ]);
 }

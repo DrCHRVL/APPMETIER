@@ -330,6 +330,64 @@ export async function moveDoc(tj: string, enquete: string, from: string, to: str
   })
 }
 
+/**
+ * Transfère une pièce d'un dossier à un AUTRE (pièce versée au mauvais
+ * endroit). Comme moveDoc, le contenu chiffré n'est jamais réécrit — toutes
+ * les pièces d'un TJ sont chiffrées avec la même clé, l'original est déplacé
+ * tel quel. L'entrée d'index (empreinte, date de dépôt, auteur) suit, le
+ * jumeau markdown aussi. Refuse d'écraser une pièce du dossier cible.
+ * Verrous pris dans un ordre stable : deux transferts croisés ne s'attendent
+ * pas mutuellement.
+ */
+export async function transferDoc(tj: string, fromEnquete: string, rel: string, toEnquete: string, toRel: string = rel): Promise<DocMeta> {
+  if (fromEnquete === toEnquete) throw new Error('Dossier cible identique au dossier d\'origine')
+  const src = docPath(tj, fromEnquete, rel)
+  const dst = docPath(tj, toEnquete, toRel)
+  const [a, b] = [fromEnquete, toEnquete].sort()
+  return withFileLock(`docs:${tj}:${a}`, () => withFileLock(`docs:${tj}:${b}`, async () => {
+    if (!fs.existsSync(src)) throw new Error('Pièce introuvable')
+    if (fs.existsSync(dst)) throw new Error('Une pièce existe déjà sous ce chemin dans le dossier cible')
+    fs.mkdirSync(path.dirname(dst), { recursive: true })
+    fs.renameSync(src, dst)
+    const indexSrc = readJson<DocMeta[]>(docMetaPath(tj, fromEnquete), [])
+    const indexDst = readJson<DocMeta[]>(docMetaPath(tj, toEnquete), [])
+    const entry = indexSrc.find((d) => d.rel === rel)
+    const moved: DocMeta = {
+      ...(entry || { size: fs.statSync(dst).size, savedAt: new Date().toISOString(), savedBy: '' }),
+      rel: toRel,
+      category: toRel.split('/')[0],
+    }
+    let nextSrc = indexSrc.filter((d) => d.rel !== rel)
+    let nextDst = indexDst.filter((d) => d.rel !== toRel).concat(moved)
+    // jumeau markdown : même transfert, même règle (jamais d'écrasement)
+    const mdFrom = 'MD/' + rel.replace(/\.[^./]+$/, '') + '.md'
+    const mdTo = 'MD/' + toRel.replace(/\.[^./]+$/, '') + '.md'
+    try {
+      const mdSrc = docPath(tj, fromEnquete, mdFrom)
+      const mdDst = docPath(tj, toEnquete, mdTo)
+      if (fs.existsSync(mdSrc) && !fs.existsSync(mdDst)) {
+        fs.mkdirSync(path.dirname(mdDst), { recursive: true })
+        fs.renameSync(mdSrc, mdDst)
+        const md = nextSrc.find((d) => d.rel === mdFrom)
+        nextSrc = nextSrc.filter((d) => d.rel !== mdFrom)
+        if (md) nextDst = nextDst.filter((d) => d.rel !== mdTo).concat({ ...md, rel: mdTo })
+      }
+    } catch { /* le jumeau est un confort : l'original a bougé, c'est l'essentiel */ }
+    writeJson(docMetaPath(tj, fromEnquete), nextSrc)
+    writeJson(docMetaPath(tj, toEnquete), nextDst)
+    // pochette d'origine devenue vide : ménage silencieux (jamais la racine)
+    try {
+      let dir = path.dirname(src)
+      const racine = tjDataDir(tj, 'docs', fromEnquete)
+      while (dir !== racine && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
+        fs.rmdirSync(dir)
+        dir = path.dirname(dir)
+      }
+    } catch { /* best-effort */ }
+    return moved
+  }))
+}
+
 export async function deleteDoc(tj: string, enquete: string, rel: string): Promise<boolean> {
   const p = docPath(tj, enquete, rel)
   return withFileLock(`docs:${tj}:${enquete}`, async () => {

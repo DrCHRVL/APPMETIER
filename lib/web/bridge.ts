@@ -630,6 +630,30 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       return cleanTo
     },
     /**
+     * Transfère une pièce vers un AUTRE dossier (pièce versée au mauvais
+     * endroit) : l'original chiffré est déplacé tel quel, le jumeau markdown
+     * suit, les deux index sont mis à jour. Même chemin dans le dossier
+     * cible ; refuse d'écraser. Rend l'entrée d'index de la pièce déplacée.
+     */
+    transferDocument: async (fromNumero: unknown, rel: unknown, toNumero: unknown) => {
+      const res = await api(`/api/docs/${encodeURIComponent(serverKey(String(fromNumero)))}/transfer`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ from: String(rel), toEnquete: serverKey(String(toNumero)) }),
+        timeoutMs: 30000,
+      })
+      if (!res.ok) {
+        let msg = 'Transfert refusé (' + res.status + ')'
+        try {
+          const d = await res.json() as { error?: string }
+          if (d?.error) msg = d.error
+        } catch { /* réponse sans corps JSON */ }
+        throw new NetworkError(msg)
+      }
+      const d = await res.json() as { meta: { rel: string, size: number, savedAt: string, originalName?: string } }
+      return d.meta
+    },
+    /**
      * Dépose un document sous un chemin relatif COMPLET (sous-pochettes
      * permises) — versement « dossier complet » du module instruction :
      * le markdown converti part chiffré, l'arborescence d'origine est

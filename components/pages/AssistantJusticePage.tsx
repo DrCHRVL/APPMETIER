@@ -33,7 +33,6 @@ import { InboxWidget } from '@/components/attache/InboxWidget';
 import { ProductionsSection } from '@/components/attache/ProductionsSection';
 import { ActesRedigesDossiers } from '@/components/attache/ActesRedigesDossiers';
 import { NouveauxDossiersPropositions } from '@/components/attache/NouveauxDossiersPropositions';
-import { ChantiersSection } from '@/components/attache/ChantiersSection';
 import { FichierGlobalSection } from '@/components/attache/FichierGlobalSection';
 
 /** Types de propositions tranchables ici (constante stable : évite un
@@ -105,11 +104,6 @@ export const AssistantJusticePage = ({ onOpenDossier, serviceDuDossier, serviceI
       {/* HORS DOSSIER : actes rangés sans dossier depuis Claude web, états de
           balayage, livrables sans numéro — invisible tant qu'il n'y en a aucun. */}
       <ProductionsSection numero="_hors-dossier" titre="Actes rédigés — hors dossier" masquerSiVide />
-
-      {/* Chantiers d'analyse profonde (moteur de nuit, par lots) : relégués
-          derrière le fichier global, qui couvre désormais le cas courant. Le
-          poste de pilotage reste ici pour les chantiers existants. */}
-      <ChantiersSection />
 
       {/* Boîte mail dédiée de l'attaché : contrôle « bien reçu / en cours / traité ». */}
       <InboxWidget />

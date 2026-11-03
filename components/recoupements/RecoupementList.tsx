@@ -281,6 +281,14 @@ function SignalLigne({
               déjà relié
             </span>
           )}
+          {signal.pieceSuspecte && (
+            <span
+              className="ml-1.5 rounded bg-red-50 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-red-700"
+              title={`Faux recoupement probable : dans ${signal.pieceSuspecte.dossier}, la valeur n'est relevée que dans ${signal.pieceSuspecte.pieces.length > 1 ? 'des pièces qui semblent' : 'une pièce qui semble'} appartenir à ${signal.pieceSuspecte.dossierProbable} (${signal.pieceSuspecte.pieces.join(', ')}) — pièce mal classée ?`}
+            >
+              pièce mal classée ?
+            </span>
+          )}
           {ouvert
             ? <ChevronDown className="ml-1 inline h-3 w-3 text-gray-400" />
             : <ChevronRight className="ml-1 inline h-3 w-3 text-gray-400" />}

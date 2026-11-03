@@ -9,9 +9,13 @@ versées, 1 073 pièces). À affiner avant développement.*
 > puis un bloc par pièce), lu par Claude web via le connecteur
 > (`dossier_global`, paginé, pochette par pochette) ou téléchargé en `.txt`
 > depuis la page Assistant de justice pour être versé dans un projet Claude
-> web, où la rédaction se fait. Les chantiers décrits ci-dessous existent
-> toujours (moteur de nuit, par lots) mais ne sont plus la voie par défaut ;
-> la bande « Analyses profondes » est reléguée derrière le fichier global.
+> web, où la rédaction se fait.
+>
+> **Retrait (2026-11-02).** Les chantiers décrits ci-dessous (moteur de nuit,
+> par lots, devis) ont été **supprimés** : l'analyse de fond se fait depuis
+> Claude web, avec le connecteur — `dossier_global`, et `pieces_chercher`
+> sans numéro pour localiser dans tout le fonds. Ce document reste pour
+> l'historique de la réflexion.
 
 ## Le constat de départ
 
@@ -155,8 +159,8 @@ manque des fiches, ils déclenchent d'abord un chantier de type 1.
   fil de l'assistant (`createChantiersEnMasse`, portées `archives` / `toutes`
   / `en_cours` côté moteur), avancement persisté et REPRIS après un
   redémarrage du service (`reprendreMasse`).
-- **Le moteur, deuxième génération** (fait — voir
-  AMELIORATIONS-ANALYSE-PROFONDE.md pour le détail) : vague GLISSANTE bornée à
+- **Le moteur, deuxième génération** (fait — détail dans l’historique git,
+  docs/AMELIORATIONS-ANALYSE-PROFONDE.md, retiré) : vague GLISSANTE bornée à
   front × 2 lots par pas (plus de barrière sur le lot le plus lent), équité
   entre chantiers actifs, plafond de jetons par chantier (pause propre),
   jetons RÉELS comptés à côté du devis, rythme observé → temps restant,
