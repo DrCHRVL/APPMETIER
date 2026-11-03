@@ -43,7 +43,6 @@ const RUN_TIMEOUT_MS = Number(process.env.SIRAL_ATTACHE_RAPPORT_TIMEOUT_MIN || 8
 // par pochette d'abord (le registre agrégé d'un gros dossier ne tient pas
 // dans un prompt sans rogner la chronologie).
 const POCHETTE_SEUIL = Number(process.env.SIRAL_ATTACHE_RAPPORT_POCHETTE_SEUIL || 150)
-const RAPPORT_MAX = 20_000 // caractères conservés par rapport
 const POCHETTES_DONNEES_MAX = 90_000
 const LOTS_FICHES = 4 // lots de mini-fiches poussés par appel quand des fiches manquent
 const ENTRETIEN_DOSSIERS_MAX = 2
@@ -122,7 +121,8 @@ async function rediger(keys, { numero, entete, donnees }) {
   const texte = String(run?.texte || '').trim()
   if (!run?.ok || texte.length < 200) return { ok: false, error: run?.error || 'rapport vide' }
   await recordUsage({ run: 'rapport', model: RAPPORT_MODEL, usage: extractUsage(run.envelope) })
-  return { ok: true, texte: texte.slice(0, RAPPORT_MAX) }
+  // Conservé EN ENTIER : une coupe perdait la fin du rapport (lacunes, pièces clés).
+  return { ok: true, texte }
 }
 
 /**

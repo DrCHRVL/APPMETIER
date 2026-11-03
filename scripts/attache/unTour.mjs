@@ -32,7 +32,7 @@ export function runUnTour({ prompt, systeme, model, json = false, label = 'un-to
   const cwd = attacheDir('workdir')
   ensureDir(cwd)
   const args = [
-    '-p', prompt,
+    '-p',
     '--output-format', 'json',
     ...(systeme ? ['--append-system-prompt', systeme] : []),
     '--disallowedTools', DISALLOWED_TOOLS,
@@ -42,10 +42,14 @@ export function runUnTour({ prompt, systeme, model, json = false, label = 'un-to
   return new Promise((resolve) => {
     let child
     try {
-      child = spawn(CLAUDE_BIN, args, { cwd, env: { ...process.env, SIRAL_ATTACHE_RUN: label }, stdio: ['ignore', 'pipe', 'pipe'] })
+      child = spawn(CLAUDE_BIN, args, { cwd, env: { ...process.env, SIRAL_ATTACHE_RUN: label }, stdio: ['pipe', 'pipe', 'pipe'] })
     } catch (e) {
       return resolve({ ok: false, error: `CLI claude non lançable : ${e.message}` })
     }
+    // Prompt par l'ENTRÉE STANDARD, jamais en argument : un argv unitaire est
+    // plafonné à 128 Kio (E2BIG) — un dossier joint en entier le dépasse.
+    child.stdin.on('error', () => {})
+    child.stdin.end(String(prompt))
     let stdout = ''
     let stderrTail = ''
     let settled = false

@@ -41,6 +41,12 @@ const recu = r.data
 attendu('prompt de 300 000 caractères (≈ 600 Kio) lancé sans E2BIG', r.ok, JSON.stringify(r).slice(0, 200))
 attendu('prompt reçu INTACT par le CLI', recu?.longueur === prompt.length && recu?.fin.endsWith('FIN-DU-DOSSIER'), JSON.stringify(recu))
 
+// unTour (interrogation du fonds, rapports de dossier) : même exigence
+const { runUnTour } = await import(`${REPO}/scripts/attache/unTour.mjs`)
+const u = await runUnTour({ prompt, timeoutMs: 30_000 })
+const recuU = (() => { try { return JSON.parse(u.texte) } catch { return null } })()
+attendu('unTour : prompt de 300 000 caractères reçu INTACT', u.ok && recuU?.longueur === prompt.length && recuU?.fin.endsWith('FIN-DU-DOSSIER'), JSON.stringify(u).slice(0, 200))
+
 fs.rmSync(SCRATCH, { recursive: true, force: true })
 if (echecs.length) { console.log(`\n${echecs.length} échec(s).`); process.exit(1) }
 console.log('\nTous les tests passent.')
