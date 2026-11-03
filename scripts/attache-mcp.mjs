@@ -345,17 +345,19 @@ const TOOLS = [
         niveau: { type: 'string', description: '"rapports" (tout le fonds : un rapport par dossier, puis approfondissement des dossiers retenus), "pieces" (défaut : chaque pièce en entier) ou "fiches".' },
         approfondir: { type: 'boolean', description: 'Niveau rapports seulement : relire pièce par pièce les dossiers retenus (défaut oui). false = s\'arrêter aux rapports.' },
         pochette: { type: 'string', description: 'Restreindre à une pochette (panorama de dossier_arborescence).' },
+        puissance: { type: 'string', description: '"standard" (défaut : verdicts par Haiku, synthèse par Sonnet) ou "renforcee" (verdicts par Sonnet, synthèse par Opus) — DERNIER RECOURS, seulement quand le magistrat juge un résultat standard décevant et le demande : bien plus coûteux.' },
       },
       required: ['question'],
     },
     handler: async (a) => {
-      const it = creerInterrogation(keys, { question: a.question, numero: a.numero, niveau: a.niveau, pochette: a.pochette, approfondir: a.approfondir })
-      await audit(keys, 'interrogation_deposee', { id: it.id, numero: it.numero, niveau: it.niveau, pieces: it.total })
+      const it = creerInterrogation(keys, { question: a.question, numero: a.numero, niveau: a.niveau, pochette: a.pochette, approfondir: a.approfondir, puissance: a.puissance })
+      await audit(keys, 'interrogation_deposee', { id: it.id, numero: it.numero, niveau: it.niveau, puissance: it.puissance, pieces: it.total })
       return {
         ok: true,
         id: it.id,
         perimetre: it.numero ? `dossier « ${it.numero} »` : 'tout le fonds',
         niveau: it.niveau,
+        puissance: it.puissance,
         ...(it.niveau === 'rapports' ? { approfondir: it.approfondir } : {}),
         devis: it.niveau === 'rapports'
           ? { dossiers: it.plan.length, pieces: it.total, lots: Math.ceil(it.plan.length / 6), note: 'Une lecture par dossier (son rapport). Les rapports absents ou périmés sont d\'abord rédigés (une rédaction par dossier, après ses mini-fiches). L\'approfondissement des dossiers retenus relira leurs pièces une à une.' }

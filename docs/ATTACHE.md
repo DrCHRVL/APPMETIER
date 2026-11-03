@@ -641,7 +641,7 @@ actes corrigés ou refusés (voir « Instructions du projet Claude web »).
   ou du fonds entier (enquêtes en cours et archivées, instructions,
   documents de la carte), sans mot-clé possible. Déposée par Claude web via
   le connecteur (`fonds_interroger`) ou par l'attaché, elle est exécutée
-  **côté service** : chaque pièce est soumise au modèle économe **avec la
+  **côté service** : chaque pièce est soumise au modèle **avec la
   question** et rend un **verdict** (pertinente ou non, score,
   justification, extraits verbatim — une pièce longue est lue en tranches,
   verdict fusionné) ; à la fin, **contrôle d'élusion** (un échantillon des
@@ -658,12 +658,27 @@ actes corrigés ou refusés (voir « Instructions du projet Claude web »).
   « Interrogation du fonds — verdict / synthèse » (Paramètres → Attaché
   IA). Consommation sous le poste **« interrogation »** ; audit
   `interrogation_deposee` / `interrogation_fait` / `interrogation_arretee`.
+  **Modèles, règle du magistrat** : Haiku pour le simple (un verdict par
+  pièce, `SIRAL_ATTACHE_INTERROGATION_VERDICT_MODEL`, défaut `haiku`),
+  Sonnet pour le complexe (synthèse, `SIRAL_ATTACHE_INTERROGATION_MODEL`,
+  défaut `sonnet`), Opus en **dernier recours** seulement :
+  `puissance:"renforcee"` (verdicts Sonnet, synthèse Opus) quand un résultat
+  standard a déçu et que le magistrat le demande. Toujours des **alias**,
+  jamais d'identifiant daté : le CLI `claude` du conteneur les fait suivre
+  les sorties d'Anthropic (même règle pour le modèle économe des
+  sous-agents, `haiku`, et leur défaut, `sonnet`).
 - **Rapports de dossier** (`scripts/attache/rapport.mjs`) : l'étage
-  au-dessus du registre — **un rapport de synthèse par dossier** (objet,
-  personnes et rôles, modus operandi et logistique, lieux / véhicules /
-  lignes / comptes, chronologie, liens et manques, cotes à l'appui), rédigé
-  **une fois** depuis le registre agrégé de toutes ses pièces, par le
-  modèle de synthèse. Un gros dossier (> 150 pièces, plusieurs pochettes,
+  au-dessus du registre — **un rapport de synthèse par dossier**, bâti sur
+  le plan d'un réquisitoire définitif ramené à l'essentiel : genèse et
+  cadre, protagonistes (Prénom NOM, domicile à la première mention, alias
+  traduits, rôle, liens), activité et logistique (chiffres en chiffres),
+  données matérielles, **topographie des responsabilités** par personne (à
+  charge et à décharge, évolutions de version), chronologie, **lacunes et
+  ouvertures** (actes sans résultat, personnes jamais entendues, pièces
+  illisibles, renvois vers d'autres affaires) et **pièces clés** à ouvrir
+  en premier — chaque affirmation cotée, sans détail procédural sans valeur
+  probante. Rédigé **une fois** depuis le registre agrégé de toutes ses
+  pièces, par le modèle de synthèse. Un gros dossier (> 150 pièces, plusieurs pochettes,
   `SIRAL_ATTACHE_RAPPORT_POCHETTE_SEUIL`) a d'abord **un rapport par
   pochette**, puis le rapport du dossier depuis ceux-ci ; seule une pochette
   qui a bougé est réécrite. Chaque rapport porte la **signature** du

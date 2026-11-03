@@ -38,15 +38,21 @@ import { sourcesDuFonds, sourceDuDossier, listePieces, textePiece } from './rech
 import { readRegistre } from './registre.mjs'
 import { lireRapport, assurerRapport } from './rapport.mjs'
 import { bloc as blocConsigne } from './consignes.mjs'
-import { economicalModel } from './subagents.mjs'
 import { extractUsage, recordUsage } from './usage.mjs'
 import { saveProduction } from './productions.mjs'
 import { audit, publishFeed } from './journal.mjs'
 import { runUnTour } from './unTour.mjs'
 
 const RUN_TIMEOUT_MS = Number(process.env.SIRAL_ATTACHE_INTERROGATION_TIMEOUT_MIN || 6) * 60 * 1000
-// Synthèse finale : un cran au-dessus des verdicts (elle engage la réponse).
+// Règle du magistrat : Haiku pour le simple (un verdict par pièce), Sonnet
+// pour le complexe (la synthèse, qui engage la réponse), Opus en dernier
+// recours seulement — `puissance:"renforcee"` quand un résultat a déçu. Des
+// ALIAS, jamais d'identifiant daté : le CLI les fait suivre les sorties.
+const VERDICT_MODEL = process.env.SIRAL_ATTACHE_INTERROGATION_VERDICT_MODEL || 'haiku'
 const SYNTHESE_MODEL = process.env.SIRAL_ATTACHE_INTERROGATION_MODEL || 'sonnet'
+const RENFORCE = { verdict: 'sonnet', synthese: 'opus' }
+const modeleVerdict = (it) => (it.puissance === 'renforcee' ? RENFORCE.verdict : VERDICT_MODEL)
+const modeleSynthese = (it) => (it.puissance === 'renforcee' ? RENFORCE.synthese : SYNTHESE_MODEL)
 // Même rangement « hors dossier » que les livrables du connecteur (attache-mcp.mjs).
 const HORS_DOSSIER = '_hors-dossier'
 
@@ -113,7 +119,7 @@ export function listerInterrogations(keys) {
  * `approfondir` (défaut oui) enchaîne la lecture pièce par pièce des
  * dossiers retenus. Rend l'interrogation avec son devis.
  */
-export function creerInterrogation(keys, { question, numero, niveau, pochette, dossiers, approfondir, suiteDe } = {}) {
+export function creerInterrogation(keys, { question, numero, niveau, pochette, dossiers, approfondir, suiteDe, puissance } = {}) {
   const q = String(question || '').trim()
   if (q.length < QUESTION_MIN) throw new Error(`Question trop courte (${QUESTION_MIN} caractères minimum) : formule ce que la lecture doit chercher, avec ses variantes.`)
   const niv = ['fiches', 'rapports'].includes(niveau) ? niveau : 'pieces'
@@ -142,6 +148,7 @@ export function creerInterrogation(keys, { question, numero, niveau, pochette, d
     ...(pochette ? { pochette: String(pochette) } : {}),
     ...(niv === 'rapports' ? { approfondir: approfondir !== false } : {}),
     ...(suiteDe ? { suiteDe: String(suiteDe) } : {}),
+    puissance: puissance === 'renforcee' ? 'renforcee' : 'standard',
     creeLe: new Date().toISOString(),
     etat: 'attente',
     plan,
@@ -419,7 +426,7 @@ async function jugerProchainLot(keys, it, cache, { rels = null, controle = false
   const avant = { curseur: { ...it.curseur }, enCours: it.enCours ? JSON.parse(JSON.stringify(it.enCours)) : null, nonLues: it.nonLues.length, rels: rels ? [...rels] : null }
   const lot = await prochainLot(keys, it, cache, { rels })
   if (!lot.length) return { ok: true, vide: true }
-  const model = economicalModel()
+  const model = modeleVerdict(it)
   const run = await deps.runModele({ prompt: promptVerdicts(keys, it, lot), model, json: true, label: 'interrogation' })
   if (!run.ok) {
     it.curseur = avant.curseur
@@ -563,21 +570,22 @@ async function terminer(keys, it) {
     it.elusion = { echantillon: echantillon.length, trouvees, taux, manqueesEstimees, rappelEstime: it.pertinentes.length / Math.max(1, it.pertinentes.length + manqueesEstimees) }
     ecrire(keys, it)
   }
-  const run = await deps.runModele({ prompt: promptSynthese(keys, it), model: SYNTHESE_MODEL, json: false, label: 'interrogation_synthese' })
+  const modele = modeleSynthese(it)
+  const run = await deps.runModele({ prompt: promptSynthese(keys, it), model: modele, json: false, label: 'interrogation_synthese' })
   const texte = String(run?.texte || '').trim()
   if (!run?.ok || texte.length < 100) {
     it.echecs = (it.echecs || 0) + 1
     it.erreur = run?.error || 'synthèse vide'
     return { fini: false }
   }
-  await recordUsage({ run: 'interrogation', model: SYNTHESE_MODEL, usage: extractUsage(run.envelope) })
+  await recordUsage({ run: 'interrogation', model: modele, usage: extractUsage(run.envelope) })
   it.synthese = texte
   // Niveau « rapports » : les dossiers retenus sont relus PIÈCE PAR PIÈCE,
   // par une interrogation enchaînée (même question, périmètre réduit).
   if (it.niveau === 'rapports' && it.approfondir && it.pertinentes.length && !it.suiteId) {
     const dossiers = [...new Set(it.pertinentes.map((p) => p.dossier))]
     try {
-      const suite = creerInterrogation(keys, { question: it.question, niveau: 'pieces', dossiers, suiteDe: it.id })
+      const suite = creerInterrogation(keys, { question: it.question, niveau: 'pieces', dossiers, suiteDe: it.id, puissance: it.puissance })
       it.suiteId = suite.id
       it.suiteDossiers = dossiers.length
     } catch (e) { it.suiteErreur = String(e?.message || e) }
@@ -648,6 +656,7 @@ const resume = (it) => ({
   id: it.id,
   question: it.question,
   niveau: it.niveau,
+  puissance: it.puissance || 'standard',
   perimetre: it.numero ? `dossier « ${it.numero} »` : 'tout le fonds',
   ...(it.pochette ? { pochette: it.pochette } : {}),
   etat: it.etat,

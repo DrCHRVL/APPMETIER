@@ -79,8 +79,8 @@ const runs = []
 let panne = 0
 let controleTrouve = false
 I.configurerInterrogation({
-  runModele: async ({ prompt, json }) => {
-    runs.push({ prompt, json })
+  runModele: async ({ prompt, json, model }) => {
+    runs.push({ prompt, json, model })
     if (panne > 0) { panne--; return { ok: false, error: 'délai dépassé' } }
     if (!json) return { ok: true, texte: '## Ce que les pièces établissent\nDURAND a loué un local au nom de la SASU ECRAN [700/1/2026 - ALPHA] PV/D1_audition.txt. '.repeat(3), envelope: {} }
     const ids = [...prompt.matchAll(/═══ PIÈCE (.+?) ═══\n([\s\S]*?)(?=\n\n═══ PIÈCE |$)/g)]
@@ -141,6 +141,13 @@ attendu('carte « livrable » au fil, reliée à la production', carte && carte.
 const detail = I.detailInterrogation(keys, unDossier.id, { limite: 2 })
 attendu('interrogation_lire : synthèse, pièces paginées (les mieux notées d\'abord), avancement complet', detail.synthese && detail.piecesRetenues.length === 2 && detail.offsetSuivant === 2 && detail.avancement.lues === 3 && detail.avancement.restantes === 0, JSON.stringify(detail.avancement))
 attendu('plus rien à faire (l\'arrêtée ne tourne pas)', await I.interrogationsStep(keys) === null)
+attendu('modèles standard : Haiku pour les verdicts, Sonnet pour la synthèse (alias)', runs.filter((x) => x.json).every((x) => x.model === 'haiku') && runs.find((x) => !x.json).model === 'sonnet', JSON.stringify([...new Set(runs.map((x) => x.model))]))
+
+// ── Puissance renforcée (dernier recours) : Sonnet pour les verdicts, Opus pour la synthèse
+runs.length = 0
+const fort = I.creerInterrogation(keys, { question: 'Que dit LEROY des sociétés ?', numero: NUM_B, puissance: 'renforcee' })
+r = await I.interrogationsStep(keys)
+attendu('puissance renforcée : verdicts Sonnet, synthèse Opus', fort.puissance === 'renforcee' && r.etape === 'fait' && runs.filter((x) => x.json).every((x) => x.model === 'sonnet') && runs.find((x) => !x.json).model === 'opus', JSON.stringify(runs.map((x) => x.model)))
 
 // ── Trois échecs consécutifs : échec
 const casse = I.creerInterrogation(keys, { question: 'Une question qui ne marchera pas cette fois.', numero: NUM_B })

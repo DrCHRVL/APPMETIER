@@ -314,7 +314,9 @@ avec un **état de reprise**.
    **rapport de synthèse** (`rapport_lire` le donne aussi d'un appel),
    puis **approfondissement automatique** pièce par pièce des seuls
    dossiers retenus (interrogation enchaînée, `suiteId`). `niveau:"fiches"`
-   pour une passe rapide sur le registre. **Pas de réponse immédiate** : le dire au magistrat, lui donner
+   pour une passe rapide sur le registre. `puissance:"renforcee"` (Sonnet
+   pour les verdicts, Opus pour la synthèse) **uniquement** si le magistrat
+   juge un résultat standard décevant et le demande : dernier recours. **Pas de réponse immédiate** : le dire au magistrat, lui donner
    l'identifiant, et suivre avec `interrogation_lire` dans cette
    conversation ou une autre. À la lecture du résultat : les verdicts sont
    des signalements — lire la pièce (`lire_document`) avant d'en faire

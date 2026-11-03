@@ -82,7 +82,9 @@ connaissances, statistiques et graphiques, écritures réversibles (actes, CR,
   le registre de toutes ses pièces, tenu à jour), une fraction du coût ;
   les dossiers retenus sont ensuite **relus pièce par pièce** par une
   interrogation enchaînée. `niveau:"fiches"` pour une passe rapide sur les
-  mini-fiches du registre ;
+  mini-fiches du registre. Modèles : Haiku pour les verdicts, Sonnet pour
+  la synthèse ; `puissance:"renforcee"` (Sonnet / Opus) en dernier recours,
+  sur demande, quand un résultat a déçu ;
 - « Que contient le dossier 2026/000123 ? » → `rapport_lire` : le rapport de
   synthèse du dossier (objet, personnes et rôles, modus operandi, données
   matérielles, chronologie, liens et manques, cotes à l'appui), avec sa
