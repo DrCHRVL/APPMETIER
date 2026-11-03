@@ -64,6 +64,31 @@ connaissances, statistiques et graphiques, écritures réversibles (actes, CR,
   `stats_graphique` (Claude VOIT les courbes) ;
 - « Extrais tous les mis en cause liés au réseau X et leurs actes » →
   lectures croisées, recoupements ;
+- « Dans tout le fonds, quels dossiers montrent une logistique par société
+  écran ? » → `fonds_interroger` : une **question large, sans mot-clé**,
+  qui exige de sonder **toutes** les pièces. Le service relit chaque pièce
+  du périmètre (un dossier, ou le fonds entier, archives et instructions
+  comprises) **avec la question** et rend un verdict par pièce (pertinente
+  ou non, score, justification, extraits verbatim), puis relit un
+  échantillon des pièces écartées (**contrôle d'élusion** → rappel estimé)
+  et rédige la synthèse, chaque affirmation citant sa pièce. Travail de
+  fond, par lots, dès que le forfait l'autorise : minutes à heures, une
+  nuit pour un fonds entier. Le résultat arrive en **livrable** (fil
+  « pendant votre absence », « Actes rédigés » du dossier ou hors dossier)
+  et se relit par `interrogation_lire` (pièces retenues paginées, non lues
+  nommées, couverture) ; `interrogations_lister`, `interrogation_arreter`.
+  Sur **tout le fonds**, `niveau:"rapports"` : une lecture par **dossier**,
+  celle de son **rapport de synthèse** (écrit une fois par l'attaché depuis
+  le registre de toutes ses pièces, tenu à jour), une fraction du coût ;
+  les dossiers retenus sont ensuite **relus pièce par pièce** par une
+  interrogation enchaînée. `niveau:"fiches"` pour une passe rapide sur les
+  mini-fiches du registre. Modèles : Haiku pour les verdicts, Sonnet pour
+  la synthèse ; `puissance:"renforcee"` (Sonnet / Opus) en dernier recours,
+  sur demande, quand un résultat a déçu ;
+- « Que contient le dossier 2026/000123 ? » → `rapport_lire` : le rapport de
+  synthèse du dossier (objet, personnes et rôles, modus operandi, données
+  matérielles, chronologie, liens et manques, cotes à l'appui), avec sa
+  fraîcheur et sa couverture, sans ouvrir une pièce ;
 - « Prépare le réquisitoire définitif du dossier 2026/000123 » →
   `instructions_projet_lire`, `dossier_global` (fiche, chronologie, registre,
   puis les pièces en texte — thème par thème : auditions, téléphonie,

@@ -301,6 +301,27 @@ avec un **état de reprise**.
    l'exhaustivité prime sur la vitesse. Une réserve d'exhaustivité (« je
    n'ai pas pu ouvrir chaque PV ») n'est jamais une conclusion : poursuivre
    le parcours, ou dire précisément ce qui reste (dossiers, curseur).
+7. **Question large sans mot-clé, qui doit sonder toutes les pièces**
+   (« quels dossiers montrent une logistique par société écran ? »,
+   « quelles auditions contredisent la version de X ? ») : quand le gratuit
+   est épuisé et que la matière déborde la conversation, **`fonds_interroger`**
+   (question complète avec ses variantes et ce qui ne compte pas ;
+   `numero` pour un dossier, vide pour tout le fonds). Sur **un dossier**,
+   niveau `pieces` : le service relit chaque pièce **avec la question**
+   (verdict motivé et cité par pièce), fait un **contrôle d'élusion**
+   (rappel estimé) et rédige la synthèse, remise en livrable. Sur **tout
+   le fonds**, niveau `rapports` : une lecture par dossier, celle de son
+   **rapport de synthèse** (`rapport_lire` le donne aussi d'un appel),
+   puis **approfondissement automatique** pièce par pièce des seuls
+   dossiers retenus (interrogation enchaînée, `suiteId`). `niveau:"fiches"`
+   pour une passe rapide sur le registre. `puissance:"renforcee"` (Sonnet
+   pour les verdicts, Opus pour la synthèse) **uniquement** si le magistrat
+   juge un résultat standard décevant et le demande : dernier recours. **Pas de réponse immédiate** : le dire au magistrat, lui donner
+   l'identifiant, et suivre avec `interrogation_lire` dans cette
+   conversation ou une autre. À la lecture du résultat : les verdicts sont
+   des signalements — lire la pièce (`lire_document`) avant d'en faire
+   état ; reprendre la réserve de couverture (pièces non lues, rappel
+   estimé) telle quelle. `interrogation_arreter` sur instruction.
 
 Cartographie par lots : traite les dossiers par groupes, croise avec
 `recouper_personnes` et `carto_rapprochements`, et dépose les propositions

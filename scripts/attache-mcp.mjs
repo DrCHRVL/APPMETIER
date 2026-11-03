@@ -30,6 +30,8 @@ import {
   enqueteExiste,
 } from './attache/dossier.mjs'
 import { chercherDansPieces } from './attache/recherche.mjs'
+import { creerInterrogation, arreterInterrogation, sommaireInterrogations, detailInterrogation } from './attache/interrogation.mjs'
+import { detailRapport } from './attache/rapport.mjs'
 import { detecterPiecesMalClassees } from './attache/classement.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine } from './attache/routines.mjs'
 import { searchNatinf } from './attache/natinf.mjs'
@@ -331,6 +333,77 @@ const TOOLS = [
       },
     },
     handler: async (a) => lireSignaux(keys, { numero: a.numero, nature: a.nature, inedits: Boolean(a.inedits), limite: a.limite, offset: a.offset }),
+  },
+  {
+    name: 'fonds_interroger',
+    description: 'INTERROGATION DU FONDS — une question LARGE qui exige de sonder TOUTES les pièces (d\'un dossier, ou du fonds entier : enquêtes en cours et archivées, instructions, documents de la carte), sans mot-clé possible (« quels dossiers montrent une logistique par société écran ? », « où parle-t-on d\'un paiement en crypto-actifs ? », « quelles auditions contredisent la version de X ? »). Travail de FOND côté service : chaque pièce est soumise au modèle AVEC la question et rend un VERDICT (pertinente ou non, score, justification, extraits verbatim) ; à la fin, CONTRÔLE D\'ÉLUSION (relecture d\'un échantillon des pièces écartées → rappel estimé) puis SYNTHÈSE d\'ensemble citant chaque pièce — remise en LIVRABLE (fil « pendant votre absence », « Actes rédigés » du dossier ou hors dossier) et lisible par interrogation_lire. Il avance par lots à chaque tick, dès que le forfait l\'autorise : minutes à heures, une nuit pour un fonds entier — pas de réponse immédiate. À proposer dès qu\'une demande suppose de lire plus de pièces qu\'une conversation n\'en tient ; le gratuit (pieces_chercher, registre_recouper, registre_lire, rapport_lire) s\'épuise AVANT. TROIS NIVEAUX : "rapports" (RECOMMANDÉ sur tout le fonds — une lecture par DOSSIER, celle de son rapport de synthèse écrit une fois et tenu à jour, une fraction du coût ; puis, par défaut, APPROFONDISSEMENT automatique pièce par pièce des seuls dossiers retenus, en interrogation enchaînée) ; "pieces" (défaut sur un dossier — texte intégral de chaque pièce, exhaustif, contrôle d\'élusion) ; "fiches" (mini-fiches du registre : rapide, pour cibler ; pièces sans fiche nommées non lues). Rend l\'identifiant et le devis (dossiers, pièces, lots). Formule la question en entier, avec ses variantes et ce qui ne compte pas.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: 'La question du magistrat, complète (ce qui est cherché, ses variantes, ce qui ne compte pas).' },
+        numero: { type: 'string', description: 'UN dossier (n° d\'enquête, d\'instruction ou libellé d\'un dossier de la carte). Vide = tout le fonds.' },
+        niveau: { type: 'string', description: '"rapports" (tout le fonds : un rapport par dossier, puis approfondissement des dossiers retenus), "pieces" (défaut : chaque pièce en entier) ou "fiches".' },
+        approfondir: { type: 'boolean', description: 'Niveau rapports seulement : relire pièce par pièce les dossiers retenus (défaut oui). false = s\'arrêter aux rapports.' },
+        pochette: { type: 'string', description: 'Restreindre à une pochette (panorama de dossier_arborescence).' },
+        puissance: { type: 'string', description: '"standard" (défaut : verdicts par Haiku, synthèse par Sonnet) ou "renforcee" (verdicts par Sonnet, synthèse par Opus) — DERNIER RECOURS, seulement quand le magistrat juge un résultat standard décevant et le demande : bien plus coûteux.' },
+      },
+      required: ['question'],
+    },
+    handler: async (a) => {
+      const it = creerInterrogation(keys, { question: a.question, numero: a.numero, niveau: a.niveau, pochette: a.pochette, approfondir: a.approfondir, puissance: a.puissance })
+      await audit(keys, 'interrogation_deposee', { id: it.id, numero: it.numero, niveau: it.niveau, puissance: it.puissance, pieces: it.total })
+      return {
+        ok: true,
+        id: it.id,
+        perimetre: it.numero ? `dossier « ${it.numero} »` : 'tout le fonds',
+        niveau: it.niveau,
+        puissance: it.puissance,
+        ...(it.niveau === 'rapports' ? { approfondir: it.approfondir } : {}),
+        devis: it.niveau === 'rapports'
+          ? { dossiers: it.plan.length, pieces: it.total, lots: Math.ceil(it.plan.length / 6), note: 'Une lecture par dossier (son rapport). Les rapports absents ou périmés sont d\'abord rédigés (une rédaction par dossier, après ses mini-fiches). L\'approfondissement des dossiers retenus relira leurs pièces une à une.' }
+          : { dossiers: it.plan.length, pieces: it.total, lots: Math.ceil(it.total / (it.niveau === 'fiches' ? 40 : 8)), copiesExactesSautees: it.doublonsExactsSautes },
+        note: 'Déposée : le service la fait avancer par lots (forfait permettant). Le résultat arrivera en livrable ; suivre avec interrogation_lire (id). Dis-le au magistrat : pas de réponse immédiate.',
+      }
+    },
+    write: true,
+  },
+  {
+    name: 'rapport_lire',
+    description: 'RAPPORT DE SYNTHÈSE d\'un dossier — écrit UNE fois par l\'attaché depuis le registre agrégé de toutes ses pièces (objet, personnes et rôles, modus operandi et logistique, lieux / véhicules / lignes / comptes, chronologie, liens et manques — cotes à l\'appui), tenu à jour quand le registre bouge (entretien de nuit, ou à la demande d\'une interrogation « rapports »). Un gros dossier a en plus un rapport par pochette. L\'outil pour savoir en UN appel ce que contient un dossier avant d\'ouvrir ses pièces ; la fraîcheur (aJour, majLe) et la couverture (pièces fichées) sont rendues — un rapport périmé reste utile, il le dit. Zéro coût modèle à la lecture.',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string', description: 'N° d\'enquête ou d\'instruction.' } }, required: ['numero'] },
+    handler: async (a) => detailRapport(keys, a.numero),
+  },
+  {
+    name: 'interrogations_lister',
+    description: 'Les interrogations du fonds déposées (fonds_interroger) : question, périmètre, état (attente, en_cours, fait, echec, arretee), avancement (pièces lues / restantes / non lues), pièces retenues, contrôle d\'élusion. La plus récente d\'abord.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => ({ interrogations: sommaireInterrogations(keys) }),
+  },
+  {
+    name: 'interrogation_lire',
+    description: 'Résultat d\'une interrogation du fonds : synthèse (si faite), PIÈCES RETENUES paginées (dossier, chemin, score, justification, extraits verbatim — les mieux notées d\'abord ; offset/limite), pièces non lues nommées, couverture et contrôle d\'élusion (rappel estimé). Chaque verdict est un SIGNALEMENT : lire la pièce (lire_document) avant d\'en faire état. En cours : l\'avancement.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        offset: { type: 'number', description: 'Rang de la 1re pièce retenue (offsetSuivant de la réponse précédente).' },
+        limite: { type: 'number', description: 'Pièces retenues par page (défaut 50, max 200).' },
+      },
+      required: ['id'],
+    },
+    handler: async (a) => detailInterrogation(keys, a.id, { offset: a.offset, limite: a.limite }) ?? { erreur: `Interrogation ${a.id} introuvable — voir interrogations_lister` },
+  },
+  {
+    name: 'interrogation_arreter',
+    description: 'Arrête une interrogation du fonds en attente ou en cours (sur instruction du magistrat) : les verdicts déjà rendus restent lisibles (interrogation_lire), rien d\'autre ne sera lu ni dépensé.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    handler: async (a) => {
+      const it = arreterInterrogation(keys, a.id)
+      if (!it) return { erreur: `Interrogation ${a.id} introuvable` }
+      await audit(keys, 'interrogation_arretee', { id: it.id, etat: it.etat })
+      return { ok: true, id: it.id, etat: it.etat }
+    },
+    write: true,
   },
   {
     name: 'verifier_completude',
