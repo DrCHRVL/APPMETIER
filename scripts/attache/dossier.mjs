@@ -313,8 +313,10 @@ function acteLine(kind, a) {
   if (a.prolongationsHistory?.length) flags.push(`${a.prolongationsHistory.length} prolongation(s)`)
   const label = kind === 'ecoute' ? `Interception ${a.numero}${a.cible ? ` (${a.cible})` : ''}`
     : kind === 'geoloc' ? `Géolocalisation ${a.objet}`
-    : `${a.type || 'Acte'} — ${stripHtml(a.description || '').slice(0, 160)}`
-  return `- [id ${a.id}] ${label} : ${a.dateDebut || '?'} → ${a.dateFin || '?'} (${flags.join(', ') || 'sans statut'})`
+    : `${a.type || 'Acte'}`
+  // Motivation INTÉGRALE, pour tous les actes : un nom ou un rôle peut être n'importe où.
+  const motivation = stripHtml(a.description || '').trim()
+  return `- [id ${a.id}] ${label} : ${a.dateDebut || '?'} → ${a.dateFin || '?'} (${flags.join(', ') || 'sans statut'})${motivation ? `\n  Motivation : ${motivation}` : ''}`
 }
 
 // ── Rendu markdown d'une enquête, PAR SECTIONS ──
@@ -419,8 +421,8 @@ function crPage(e, crs, offset, limit) {
   let i = from
   for (; i < total && shown < maxCount; i++) {
     const cr = crs[i]
-    let block = `\n### [#${i}] CR du ${cr.date}${cr.enqueteur ? ` — ${cr.enqueteur}` : ''}\n${stripHtml(cr.description || '')}`
-    if (block.length > CR_PAGE_BUDGET) block = block.slice(0, CR_PAGE_BUDGET) + '\n…(CR tronqué — pièce source via dossier_arborescence puis lire_document)'
+    // Un CR n'est JAMAIS tronqué : un CR plus long que la page est servi seul.
+    const block = `\n### [#${i}] CR du ${cr.date}${cr.enqueteur ? ` — ${cr.enqueteur}` : ''}\n${stripHtml(cr.description || '')}`
     if (shown > 0 && used + block.length > CR_PAGE_BUDGET) break
     parts.push(block)
     used += block.length
@@ -531,7 +533,9 @@ export function dossierMarkdown(keys, numero, opts = {}) {
       ]
       break
   }
-  return parts.join('\n').slice(0, 380_000)
+  // Pas de coupe muette : au-delà du plafond de sortie, l'outil borne AVEC un
+  // avertissement (bornerSortie) qui renvoie vers la lecture paginée.
+  return parts.join('\n')
 }
 
 // ── Cache markdown des documents ──
@@ -555,20 +559,23 @@ function docCachePath(enqueteKey, cheminRelatif, variante = '') {
 // ignoré et régénéré une fois, pour que la pagination atteigne toute la pièce.
 // v3 : extraction PAGE PAR PAGE avec OCR des pages images (annexes, captures,
 // planches) — les caches v2, extraits sans OCR par page, sont régénérés une fois.
+// Un cache v3 PARTIEL (pages images différées, ou au-delà de l'ancien plafond
+// de 30 pages OCR) est écarté : la pièce est relue en entier. Aucun plafond de
+// taille : le texte est mis en cache intégralement, la lecture pagine.
 const DOC_CACHE_V = 3
-const TEXTE_CACHE_MAX = 2_000_000
+const CACHE_PARTIEL = /\[page \d+ : image (sans couche texte — )?non océrisée/
 
 function readDocCache(keys, enqueteKey, cheminRelatif, blobHash, variante = '') {
   const env = readJson(docCachePath(enqueteKey, cheminRelatif, variante), null)
   if (!env) return null
   try {
     const c = decryptJson(keys.global, env)
-    return c.blobHash === blobHash && c.v === DOC_CACHE_V ? c : null
+    return c.blobHash === blobHash && c.v === DOC_CACHE_V && !CACHE_PARTIEL.test(String(c.texte || '')) ? c : null
   } catch { return null }
 }
 
 function writeDocCache(keys, enqueteKey, cheminRelatif, blobHash, texte, variante = '') {
-  const record = { v: DOC_CACHE_V, chemin: cheminRelatif, blobHash, texte: String(texte).slice(0, TEXTE_CACHE_MAX), extraitLe: new Date().toISOString() }
+  const record = { v: DOC_CACHE_V, chemin: cheminRelatif, blobHash, texte: String(texte), extraitLe: new Date().toISOString() }
   atomicWrite(docCachePath(enqueteKey, cheminRelatif, variante), JSON.stringify(encryptJson(keys.global, record)))
 }
 
@@ -607,16 +614,40 @@ function tidyPdfText(text) {
     .trim()
 }
 
+// Copie markdown du navigateur INCOMPLÈTE : pages images non océrisées, ou
+// conversion tronquée (ancien plafond de 400 000 caractères).
+const COPIE_INCOMPLETE = /\[page \d+ : image sans couche texte\]|…\[conversion tronquée/
+
+/**
+ * La source de texte ACTUELLE d'une pièce est-elle incomplète ? — copie
+ * markdown du téléversement avec pages images ou tronquée, ou cache
+ * d'extraction partiel (ancien plafond OCR, annexes différées). C'est le texte
+ * qu'ont lu les fiches et entités faites avant la lecture intégrale : à
+ * appeler AVANT de relire la pièce (la relecture remplace le cache partiel).
+ */
+export function sourceTexteIncomplete(keys, key, cheminRelatif) {
+  if (!/\.(txt|html?|md|csv|json|eml)$/i.test(cheminRelatif) && !cheminRelatif.startsWith('MD/')) {
+    const mdBlob = readDocBlob(attacheTj(), key, 'MD/' + cheminRelatif.replace(/\.[^./]+$/, '') + '.md')
+    const md = mdBlob ? decryptDocBlob(keys.global, mdBlob) : null
+    if (md && COPIE_INCOMPLETE.test(md.toString('utf8'))) return true
+  }
+  const env = readJson(docCachePath(key, cheminRelatif), null)
+  if (env) {
+    try { if (CACHE_PARTIEL.test(String(decryptJson(keys.global, env)?.texte || ''))) return true } catch { /* cache illisible */ }
+  }
+  return false
+}
+
 /**
  * Texte d'un document chiffré du dossier (PDF → texte, txt/html bruts).
  * L'extraction PDF n'a lieu qu'UNE fois : le résultat est mis en cache
  * (voir ci-dessus) — l'original PDF reste intact sur le serveur.
  * PAGINÉ (`page` = { offset, limite }) : une pièce très longue se lit en
  * plusieurs appels, offsetSuivant en main — jamais de troncature muette.
- * `page.integrale` : ignorer la copie markdown du téléversement (conversion
- * navigateur, SANS OCR — ses pages images sont marquées mais vides) et lire
- * l'ORIGINAL avec OCR des pages images. C'est la voie pour les annexes en
- * captures d'écran, planches photo, tapissages.
+ * `page.integrale` : ignorer TOUJOURS la copie markdown du téléversement et
+ * relire l'original. Sans lui, la copie n'est servie que si elle est COMPLÈTE
+ * (ni page image, ni conversion tronquée) — sinon l'original est relu, OCR de
+ * toutes les pages images compris.
  */
 export async function readDocumentText(keys, numero, cheminRelatif, page = {}) {
   const key = docServerKey(numeroCanonique(keys, numero))
@@ -628,8 +659,8 @@ export async function readDocumentText(keys, numero, cheminRelatif, page = {}) {
 /**
  * Texte INTÉGRAL d'une pièce (clé serveur déjà résolue) — cœur commun de
  * lire_document et de pieces_chercher. Ordre : copie MD/ du téléversement →
- * cache d'extraction (hash du blob) → extraction (PDF/Office/tableur, OCR
- * seulement si `integrale`). `extraire:false` : ne JAMAIS extraire — servir
+ * cache d'extraction (hash du blob) → extraction (PDF/Office/tableur, OCR de
+ * toutes les pages images). `extraire:false` : ne JAMAIS extraire — servir
  * seulement ce qui existe déjà (MD/, cache, formats bruts) et rendre
  * { ok:false, nonExtrait:true } sinon ; la recherche plein texte borne ainsi
  * son travail et complète l'extraction au fil de ses appels.
@@ -637,16 +668,20 @@ export async function readDocumentText(keys, numero, cheminRelatif, page = {}) {
  * fraîche a réellement eu lieu (comptabilité des budgets recherche/ingestion).
  * Exporté pour la recherche (pieces_chercher) et l'ingestion (ingest.mjs).
  */
-export async function texteDocumentIntegral(keys, key, cheminRelatif, { integrale = false, extraire = true } = {}) {
+export async function texteDocumentIntegral(keys, key, cheminRelatif, { integrale = false, extraire = true, echeance = null } = {}) {
   // Copie markdown déposée AU TÉLÉVERSEMENT (MD/<chemin>.md) : servie en
   // priorité pour les formats non textuels — zéro extraction, texte fidèle
-  // (conversion navigateur), tokens et CPU économisés.
+  // (conversion navigateur), tokens et CPU économisés. MAIS seulement si elle
+  // est COMPLÈTE : la conversion navigateur n'océrise pas (pages images
+  // seulement marquées) et pouvait être tronquée — dans ces cas, l'original est
+  // relu en entier, OCR compris.
   if (!integrale && !/\.(txt|html?|md|csv|json|eml)$/i.test(cheminRelatif) && !cheminRelatif.startsWith('MD/')) {
     const mdRel = 'MD/' + cheminRelatif.replace(/\.[^./]+$/, '') + '.md'
     const mdBlob = readDocBlob(attacheTj(), key, mdRel)
     if (mdBlob) {
       const plain = decryptDocBlob(keys.global, mdBlob)
-      if (plain) return { ok: true, texte: plain.toString('utf8'), extra: { source: 'copie markdown du téléversement' } }
+      const md = plain ? plain.toString('utf8') : ''
+      if (md && !COPIE_INCOMPLETE.test(md)) return { ok: true, texte: md, extra: { source: 'copie markdown du téléversement' } }
     }
   }
   const blob = readDocBlob(attacheTj(), key, cheminRelatif)
@@ -663,23 +698,13 @@ export async function texteDocumentIntegral(keys, key, cheminRelatif, { integral
     if (!extraire) return { ok: false, nonExtrait: true, error: 'Texte non encore extrait' }
     const plain = decryptDocBlob(keys.global, blob)
     if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }
-    // Couche texte native ; OCR automatique seulement si la pièce est un scan
-    // ENTIÈREMENT muet. Les pages images d'une pièce mixte ne sont océrisées
-    // qu'en lecture intégrale (integrale:true) — à la demande, jamais d'office.
-    const res = await extractPdfText(plain, { ocrImages: Boolean(integrale) })
+    // Couche texte native + OCR de TOUTES les pages images (annexes comprises).
+    const res = await extractPdfText(plain, { echeance })
     if (!res.ok) return { ok: false, error: res.error, scanned: res.scanned }
     const texte = tidyPdfText(res.texte)
-    try { writeDocCache(keys, key, cheminRelatif, blobHash, texte, variante) } catch { /* cache facultatif */ }
-    return {
-      ok: true, texte, extra: {
-        source: res.source,
-        extraction: true,
-        ...(res.pagesImagesNonLues ? {
-          pagesImagesNonLues: res.pagesImagesNonLues,
-          noteImages: `${res.pagesImagesNonLues} page(s) image non océrisée(s) dans cette pièce — relire avec integrale:true UNIQUEMENT si leur contenu est nécessaire à la question posée`,
-        } : {}),
-      },
-    }
+    // Lecture interrompue par l'échéance : servie telle quelle, jamais mise en cache.
+    if (!res.partiel) { try { writeDocCache(keys, key, cheminRelatif, blobHash, texte, variante) } catch { /* cache facultatif */ } }
+    return { ok: true, texte, extra: { source: res.source, extraction: true, ...(res.partiel ? { partiel: true } : {}) } }
   }
   const plain = decryptDocBlob(keys.global, blob)
   if (!plain) return { ok: false, error: 'Déchiffrement impossible (format inattendu)' }

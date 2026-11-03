@@ -69,7 +69,7 @@ function subagentSystemPrompt(contexte) {
 /** Exécute UNE sous-tâche (un run headless, résultat = texte final). */
 function runOne({ consigne, mcpConfig, systemPrompt, allowedTools, disallowedTools, model, effort, maxTurns, parent }) {
   const args = [
-    '-p', String(consigne),
+    '-p',
     '--output-format', 'json',
     '--mcp-config', mcpConfig,
     '--allowedTools', allowedTools,
@@ -82,8 +82,12 @@ function runOne({ consigne, mcpConfig, systemPrompt, allowedTools, disallowedToo
   return new Promise((resolve) => {
     const child = spawn(CLAUDE_BIN, args, {
       env: { ...process.env, SIRAL_ATTACHE_RUN: 'sous-agent', SIRAL_ATTACHE_SUBAGENT: '1' },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
     })
+    // Prompt par l'ENTRÉE STANDARD, jamais en argument : un argv unitaire est
+    // plafonné à 128 Kio (E2BIG) — un dossier joint en entier le dépasse.
+    child.stdin.on('error', () => {})
+    child.stdin.end(String(consigne))
     let out = ''
     let errTail = ''
     let settled = false
@@ -105,7 +109,7 @@ function runOne({ consigne, mcpConfig, systemPrompt, allowedTools, disallowedToo
       const usage = extractUsage(parsed)
       if (usage) recordUsage({ run: 'sous-agent', model, usage, parent })
       if (parsed && parsed.subtype === 'success' && typeof parsed.result === 'string') {
-        return finish(true, parsed.result.slice(0, 60_000))
+        return finish(true, parsed.result)
       }
       finish(false, '', parsed?.subtype || `run interrompu (code ${code}) ${errTail.split('\n').slice(-2).join(' ').slice(0, 300)}`)
     })

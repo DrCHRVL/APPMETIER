@@ -79,7 +79,7 @@ function runClaudeJson({ systemPrompt, userPrompt, model, runLabel }) {
   const cwd = attacheDir('workdir')
   ensureDir(cwd)
   const args = [
-    '-p', userPrompt,
+    '-p',
     '--output-format', 'json',
     '--append-system-prompt', systemPrompt,
     '--disallowedTools', DISALLOWED_TOOLS,
@@ -89,10 +89,14 @@ function runClaudeJson({ systemPrompt, userPrompt, model, runLabel }) {
   return new Promise((resolve) => {
     let child
     try {
-      child = spawn(CLAUDE_BIN, args, { cwd, env: { ...process.env, SIRAL_ATTACHE_RUN: 'classement' }, stdio: ['ignore', 'pipe', 'pipe'] })
+      child = spawn(CLAUDE_BIN, args, { cwd, env: { ...process.env, SIRAL_ATTACHE_RUN: 'classement' }, stdio: ['pipe', 'pipe', 'pipe'] })
     } catch (e) {
       return resolve({ ok: false, error: `CLI claude non lançable : ${e.message}` })
     }
+    // Prompt par l'ENTRÉE STANDARD, jamais en argument : un argv unitaire est
+    // plafonné à 128 Kio (E2BIG) — un dossier joint en entier le dépasse.
+    child.stdin.on('error', () => {})
+    child.stdin.end(String(userPrompt))
     let stdout = ''
     let stderrTail = ''
     let settled = false

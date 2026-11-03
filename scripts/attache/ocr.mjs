@@ -12,12 +12,12 @@
  *
  * Désormais : couche texte extraite PAGE PAR PAGE ; les pages muettes (< 25
  * caractères) passent à l'OCR local (poppler `pdftoppm` + `tesseract`, fra)
- * quand les binaires sont présents, dans la limite d'un plafond par pièce ;
- * chaque page restée illisible est MARQUÉE dans le texte rendu — jamais de
- * trou silencieux. Si rien n'est lisible, la pièce est dite ILLISIBLE et
+ * quand les binaires sont présents — TOUTES, sans plafond de pages (par lots,
+ * pour borner disque et délais) ; chaque page restée illisible est MARQUÉE dans
+ * le texte rendu — jamais de trou silencieux. Si rien n'est lisible, la pièce est dite ILLISIBLE et
  * l'attaché ne prépare rien dessus.
  *
- * Tout est borné (pages, résolution, délais) et gardé : la moindre erreur
+ * Tout est borné (résolution, délais par lot) et gardé : la moindre erreur
  * retombe sur « illisible » ou une page marquée, jamais une exception qui
  * casserait la lecture.
  */
@@ -43,9 +43,14 @@ const require = createRequire(import.meta.url)
 const MIN_TEXT_CHARS = 40
 // En-dessous, une PAGE est considérée muette (image) → candidate à l'OCR.
 const PAGE_MIN_CHARS = 25
-// Bornes de l'OCR (une lecture d'outil doit tenir dans le délai du connecteur —
-// 180 s : ~30 pages à 2-5 s/page passent, et le résultat est mis en cache) :
-const OCR_MAX_PAGES = 30
+// OCR de TOUTES les pages muettes : une procédure scannée de 400 pages se lit
+// en entier. Les pages sont traitées par LOTS (rastérisation → OCR → effacement
+// des images) pour borner le disque et le délai de chaque pdftoppm. Le texte
+// est mis en cache : l'ingestion de fond fait ce travail une fois pour toutes.
+const OCR_LOT_PAGES = 20
+// Garde-fou du mode « à l'aveugle » (structure illisible, nombre de pages
+// inconnu) : on avance lot par lot jusqu'à la dernière page réelle.
+const OCR_PAGES_GARDE = 10_000
 const OCR_DPI = 200
 const PDFTOPPM_TIMEOUT_MS = 120_000
 const TESSERACT_TIMEOUT_MS = 45_000
@@ -70,25 +75,42 @@ function hasBinary(name) {
  * fichiers pdftoppm : page-05.png = page 5). Retourne { available, textes } où
  * textes est une Map<numéroDePage, texteOCR>. Ne lève jamais.
  */
-async function ocrPages(plain, pageNums) {
-  if (!pageNums.length) return { available: true, textes: new Map() }
+async function ocrPages(plain, pageNums, { aveugle = false, echeance = null } = {}) {
+  if (!aveugle && !pageNums.length) return { available: true, textes: new Map() }
   if (!hasBinary('pdftoppm') || !hasBinary('tesseract')) {
     return { available: false, textes: new Map() }
   }
   const textes = new Map()
+  const nonOcrisees = []
+  let interrompu = false
   let dir
   try {
     dir = mkdtempSync(path.join(os.tmpdir(), 'siral-ocr-'))
     const pdfPath = path.join(dir, 'in.pdf')
     writeFileSync(pdfPath, plain)
-    // pages triées → plages contiguës → un pdftoppm par plage
-    const ranges = []
-    for (const n of [...pageNums].sort((a, b) => a - b)) {
-      const last = ranges[ranges.length - 1]
-      if (last && n === last[1] + 1) last[1] = n
-      else ranges.push([n, n])
+    // Lots de pages : pages connues → plages contiguës découpées par
+    // OCR_LOT_PAGES ; à l'aveugle → 1-20, 21-40… jusqu'au premier lot vide
+    // (pdftoppm s'arrête de lui-même à la dernière page réelle).
+    const lots = []
+    if (aveugle) {
+      for (let f = 1; f <= OCR_PAGES_GARDE; f += OCR_LOT_PAGES) lots.push([f, f + OCR_LOT_PAGES - 1])
+    } else {
+      for (const n of [...pageNums].sort((a, b) => a - b)) {
+        const last = lots[lots.length - 1]
+        if (last && n === last[1] + 1 && last[1] - last[0] + 1 < OCR_LOT_PAGES) last[1] = n
+        else lots.push([n, n])
+      }
     }
-    for (const [f, l] of ranges) {
+    for (const [f, l] of lots) {
+      // Lecture attendue par le magistrat (échéance) : on s'arrête ENTRE deux
+      // lots ; les pages restantes sont marquées, le texte n'est pas mis en
+      // cache et l'ingestion de fond reprendra la pièce en entier.
+      if (echeance && Date.now() > echeance) {
+        interrompu = true
+        if (aveugle) break
+        for (let n = f; n <= l; n++) nonOcrisees.push(n)
+        continue
+      }
       try {
         await execFileAsync(
           'pdftoppm',
@@ -96,20 +118,25 @@ async function ocrPages(plain, pageNums) {
           { timeout: PDFTOPPM_TIMEOUT_MS },
         )
       } catch { /* plage irrastérisable : ses pages resteront marquées */ }
+      const pngs = readdirSync(dir).filter((x) => /^page-\d+\.png$/i.test(x))
+      if (aveugle && !pngs.length) break // au-delà de la dernière page
+      for (const png of pngs) {
+        const num = Number((png.match(/(\d+)\.png$/i) || [])[1])
+        const base = path.join(dir, png.replace(/\.png$/i, ''))
+        try {
+          // tesseract <image> <base> -l fra → écrit <base>.txt
+          if (Number.isFinite(num)) {
+            await execFileAsync('tesseract', [path.join(dir, png), base, '-l', 'fra'], { timeout: TESSERACT_TIMEOUT_MS })
+            textes.set(num, readFileSync(base + '.txt', 'utf8'))
+          }
+        } catch { /* page sautée : restera marquée */ }
+        // images du lot effacées aussitôt : le disque ne porte qu'un lot
+        try { rmSync(path.join(dir, png), { force: true }); rmSync(base + '.txt', { force: true }) } catch { /* */ }
+      }
     }
-    for (const png of readdirSync(dir).filter((x) => /^page-\d+\.png$/i.test(x))) {
-      const num = Number((png.match(/(\d+)\.png$/i) || [])[1])
-      if (!Number.isFinite(num)) continue
-      const base = path.join(dir, png.replace(/\.png$/i, ''))
-      try {
-        // tesseract <image> <base> -l fra → écrit <base>.txt
-        await execFileAsync('tesseract', [path.join(dir, png), base, '-l', 'fra'], { timeout: TESSERACT_TIMEOUT_MS })
-        textes.set(num, readFileSync(base + '.txt', 'utf8'))
-      } catch { /* page sautée : restera marquée */ }
-    }
-    return { available: true, textes }
+    return { available: true, textes, nonOcrisees, interrompu }
   } catch {
-    return { available: true, textes }
+    return { available: true, textes, nonOcrisees, interrompu }
   } finally {
     if (dir) { try { rmSync(dir, { recursive: true, force: true }) } catch { /* */ } }
   }
@@ -137,7 +164,7 @@ export function assemblePages(pagesTexte, ocrTextes, { ocrAvailable, nonOcrisees
     } else if (differees.includes(p)) {
       out.push(`[page ${p} : image sans couche texte — non océrisée par défaut ; relire avec integrale:true si son contenu est nécessaire]`)
     } else if (nonOcrisees.includes(p)) {
-      out.push(`[page ${p} : image non océrisée — plafond de ${OCR_MAX_PAGES} pages OCR par pièce atteint]`)
+      out.push(`[page ${p} : image non océrisée]`)
     } else if (!ocrAvailable) {
       out.push(`[page ${p} : image sans couche texte — OCR indisponible sur le serveur (installer poppler-utils et tesseract-ocr/fra)]`)
     } else {
@@ -149,17 +176,15 @@ export function assemblePages(pagesTexte, ocrTextes, { ocrAvailable, nonOcrisees
 
 /**
  * Extrait le texte d'un PDF, PAGE PAR PAGE : couche texte native quand elle
- * existe, marqueur explicite pour toute page image. L'OCR des pages images
- * d'une pièce MIXTE (PV tapé + annexes) n'a lieu qu'À LA DEMANDE
- * (`ocrImages: true`) : le texte océrisé allonge chaque lecture faite ensuite
- * par l'agent — c'est un choix pièce par pièce, pas un réflexe. Un document
- * ENTIÈREMENT muet garde l'OCR de secours automatique (sinon rien n'est
- * lisible du tout). Ne lève jamais.
+ * existe, OCR pour TOUTE page image — annexes d'une pièce MIXTE (PV tapé +
+ * captures, planches photo) comme scan intégral : rien n'est laissé de côté.
+ * Marqueur explicite pour une page restée illisible. Ne lève jamais.
+ * `echeance` (horodatage) : lecture attendue — l'OCR s'arrête entre deux lots
+ * passé ce délai ; le résultat porte alors `partiel: true`.
  * @param {Buffer} plain - PDF déchiffré
- * @param {{ocrImages?: boolean}} [opts]
- * @returns {Promise<{ok:true,texte:string,source:'texte'|'ocr'|'texte+ocr',pagesImagesNonLues?:number} | {ok:false,scanned:true,ocrAvailable:boolean,error:string}>}
+ * @returns {Promise<{ok:true,texte:string,source:'texte'|'ocr'|'texte+ocr'} | {ok:false,scanned:true,ocrAvailable:boolean,error:string}>}
  */
-export async function extractPdfText(plain, { ocrImages = false } = {}) {
+export async function extractPdfText(plain, { echeance = null } = {}) {
   // Un petit Buffer Node (< 4 Ko) vit dans le POOL partagé : pdf.js 1.10 lit
   // alors l'ArrayBuffer sous-jacent ENTIER (le pool, données étrangères
   // comprises) et échoue en « bad XRef entry ». Copie dans un ArrayBuffer
@@ -190,26 +215,21 @@ export async function extractPdfText(plain, { ocrImages = false } = {}) {
     if (texte.trim().length >= MIN_TEXT_CHARS) return { ok: true, texte, source: 'texte' }
   }
 
-  // 2) Pages muettes. OCR seulement si demandé (ocrImages) OU si le document
-  //    est ENTIÈREMENT muet — dans ce dernier cas il n'y a rien d'autre à lire.
-  //    Structure illisible par pdf-parse : OCR « à l'aveugle » des premières
-  //    pages (pdftoppm s'arrête de lui-même à la dernière page réelle).
-  const documentEntierMuet = !pagesTexte.length || muettes.length >= pagesTexte.length
-  const doOcr = ocrImages || documentEntierMuet
-  const candidates = pagesTexte.length ? muettes : Array.from({ length: OCR_MAX_PAGES }, (_, i) => i + 1)
-  const aOcr = doOcr ? candidates.slice(0, OCR_MAX_PAGES) : []
-  const nonOcrisees = doOcr ? candidates.slice(OCR_MAX_PAGES) : []
-  const differees = doOcr ? [] : candidates
-  const { available, textes } = await ocrPages(plain, aOcr)
+  // 2) Pages muettes : TOUTES océrisées — annexes d'une pièce mixte (captures,
+  //    planches photo) comme scan intégral. Structure illisible par pdf-parse :
+  //    OCR « à l'aveugle », lot par lot jusqu'à la dernière page réelle.
+  const aveugle = !pagesTexte.length
+  const { available, textes, nonOcrisees = [], interrompu = false } = await ocrPages(plain, muettes, { aveugle, echeance })
+  const partiel = interrompu
 
-  const texte = assemblePages(pagesTexte, textes, { ocrAvailable: available, nonOcrisees, differees })
+  const texte = assemblePages(pagesTexte, textes, { ocrAvailable: available, nonOcrisees })
   // Lisible si un contenu réel subsiste une fois les marqueurs de pages retirés.
   const utile = texte.replace(/\[page \d+ : [^\]]*\]/g, '').trim()
   if (utile.length >= MIN_TEXT_CHARS) {
     const source = pagesTexte.length && muettes.length < pagesTexte.length
       ? (textes.size ? 'texte+ocr' : 'texte')
       : 'ocr'
-    return { ok: true, texte, source, ...(differees.length ? { pagesImagesNonLues: differees.length } : {}) }
+    return { ok: true, texte, source, ...(partiel ? { partiel: true } : {}) }
   }
 
   // 3) Illisible : on le dit franchement (l'attaché ne préparera rien dessus)

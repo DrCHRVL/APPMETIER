@@ -61,7 +61,8 @@ export function DossierCompletSection({ numero }: { numero: string }) {
     for (const { file, path } of list) {
       try {
         if (SKIP_RE.test(file.name)) throw new Error('pas de texte à extraire (image/média/archive)');
-        const { markdown, avertissement } = await fileToMarkdown(file);
+        // Le markdown EST la pièce conservée (pas d'original) : jamais tronqué.
+        const { markdown, avertissement } = await fileToMarkdown(file, { maxChars: Infinity });
         if (!markdown.trim()) throw new Error(avertissement || 'aucun texte extractible');
         const rel = ROOT + path.replace(/\.[^./]+$/, '') + '.md';
         const bytes = new TextEncoder().encode(markdown);

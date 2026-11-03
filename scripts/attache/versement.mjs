@@ -33,7 +33,7 @@ const FILE = () => attacheDir('versements.json')
 const ATTENTE_MAX_MS = 24 * 3600 * 1000 // au-delà, plus d'attente de la nuit
 const TENTATIVES_MAX = 3
 const LOTS_NUIT = 6 // lots de mini-fiches poussés par passage, la nuit
-const DONNEES_MAX = 95_000 // caractères joints au prompt (argv unitaire : 128 Kio)
+const DONNEES_MAX = 300_000 // caractères joints au prompt (entrée standard : seule la fenêtre du modèle compte)
 const COTES_MAX = 8
 const RE_ROLE_NEUTRE = /enqu[eê]teur|policier|gendarme|\bOPJ\b|\bAPJ\b|magistrat|procureur|juge|avocat|greffier|expert|interpr[eè]te|traducteur/i
 
@@ -143,7 +143,8 @@ export function donneesVersement(keys, v, reg, { titre } = {}) {
   const out = [
     '',
     `───── ${titre || `VERSEMENT : ${v.rels.length} pièces, versées le ${v.enregistreLe.slice(0, 10)}`} ─────`,
-    e?.description ? `Description actuelle du dossier : ${String(e.description).replace(/<[^>]+>/g, ' ').slice(0, 2000)}` : null,
+    // EN ENTIER : le run peut réécrire la description à partir de celle-ci.
+    e?.description ? `Description actuelle du dossier : ${String(e.description).replace(/<[^>]+>/g, ' ')}` : null,
     `Mis en cause déjà déclarés : ${(e?.misEnCause || []).map((m) => m.nom).join(', ') || 'aucun'}`,
     '',
     `───── PERSONNES (${personnes.size}) — nom · alias · rôles relevés · cotes ─────`,

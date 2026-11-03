@@ -108,7 +108,7 @@ export async function saveArchitecture(keys, numero, texte) {
     reference: parsed.reference,
     importeLe: new Date().toISOString(),
     nbCotes: parsed.entries.length,
-    entries: parsed.entries.slice(0, 30_000),
+    entries: parsed.entries,
   }
   const env = encryptJson(keys.global, record, { savedAt: record.importeLe })
   ensureDir(attacheDir('cotes'))
@@ -198,6 +198,8 @@ export function buildChronologie(keys, numero) {
     reference: archi?.reference,
     architectureImportee: Boolean(archi),
     nbCotes: archi?.nbCotes,
-    entries: out.slice(0, 2000),
+    // COMPLÈTE : l'ancienne coupe à 2 000 gardait les plus anciennes et jetait
+    // les plus récentes. La lecture par l'attaché pagine (chronologie_lire).
+    entries: out,
   }
 }

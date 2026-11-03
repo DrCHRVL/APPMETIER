@@ -23,8 +23,6 @@
 import zlib from 'node:zlib'
 import { estTableur, classeurEnMarkdown } from '../../lib/tableur/classeurMarkdown.mjs'
 
-const MAX_CHARS = 200_000
-
 // ── Décodage texte : UTF-8 strict, sinon windows-1252 (fichiers Windows FR) ──
 function decodeText(buf) {
   try {
@@ -367,7 +365,6 @@ function tidy(text) {
     .replace(/[ \t]+$/gm, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
-    .slice(0, MAX_CHARS)
 }
 
 /** Vrai si l'extension relève d'un format bureautique traité ici. */

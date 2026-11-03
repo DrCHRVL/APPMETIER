@@ -717,11 +717,14 @@ async function runActualiserMec(numero, trigger = 'manuel') {
     // Pièces nouvelles : ingestion (zéro jeton) puis quelques lots de mini-fiches,
     // pour que le sommaire joint (personnes par pièce) couvre les derniers versements.
     const docKey = docServerKey(numeroCanonique(keys, num))
-    try { await ingestPass(keys, { docKeys: [docKey], maxDossiers: 1, maxExtractions: 40, maxShas: 400, maxProbes: 600 }) } catch { /* jamais bloquant */ }
+    // Échéance : le navigateur attend ce run (9 min au plus, run de 7 min
+    // compris) — un gros scan tout juste versé finira d'être océrisé en fond.
+    const echeance = Date.now() + 90_000
+    try { await ingestPass(keys, { docKeys: [docKey], maxDossiers: 1, maxExtractions: 40, maxShas: 400, maxProbes: 600, echeance }) } catch { /* jamais bloquant */ }
     const lots = Math.min(DESC_LOTS_FICHES, Math.ceil(couverturePieces(keys, num).sansFiche.length / 8))
     for (let i = 0; i < lots; i++) {
       let r = null
-      try { r = await registreFichesStep(keys, { docKey }) } catch { r = null }
+      try { r = await registreFichesStep(keys, { docKey, echeance }) } catch { r = null }
       if (!r || !r.restantes) break
     }
     const result = await runAgent({
