@@ -595,7 +595,7 @@ const TOOLS = [
       properties: {
         numero: { type: 'string', description: 'Nom/numéro du dossier (ex: « 2026/000123 » ou « Réseau ZOUAOUI »)' },
         dateDebut: { type: 'string', description: 'AAAA-MM-JJ (défaut : aujourd\'hui)' },
-        services: { type: 'array', items: { type: 'string' }, description: 'Unité(s)/service(s) d\'enquête (ex: « GIR Amiens »)' },
+        services: { type: 'array', items: { type: 'string' }, description: 'Unité(s)/service(s) d\'enquête, le principal en premier — libellés de la liste des services de l\'app (ex: « GIR », « OLTIM », « COB DOULLENS »). Rapprochés automatiquement du référentiel ; un libellé inconnu est signalé dans la réponse (servicesConnus)' },
         directeurEnquete: { type: 'string', description: 'Directeur d\'enquête (enquêteur qui dirige) — même champ que le formulaire' },
         numeroParquet: { type: 'string', description: 'Numéro de parquet si connu' },
         numeroIDJ: { type: 'string', description: 'Numéro IDJ (Identifiant Justice) si connu' },
@@ -620,7 +620,7 @@ const TOOLS = [
       properties: {
         numero: { type: 'string' },
         directeurEnquete: { type: 'string', description: 'Nouveau directeur d\'enquête (chaîne vide pour effacer)' },
-        services: { type: 'array', items: { type: 'string' }, description: 'Liste COMPLÈTE des services (remplace l\'existante)' },
+        services: { type: 'array', items: { type: 'string' }, description: 'Liste COMPLÈTE des services, le principal en premier (remplace l\'existante) — libellés de la liste des services de l\'app, rapprochés du référentiel' },
         dateDebut: { type: 'string', description: 'AAAA-MM-JJ' },
         numeroParquet: { type: 'string' },
         numeroIDJ: { type: 'string' },

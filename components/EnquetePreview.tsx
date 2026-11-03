@@ -24,6 +24,7 @@ import { NatinfBadge } from './natinf/NatinfBadge';
 import { CopyButton } from './ui/CopyButton';
 import { useUser } from '@/contexts/UserContext';
 import { getLastCR } from '@/utils/compteRenduUtils';
+import { toPlainText } from '@/lib/formatCR';
 import { getProlongationRequestDate, getAutorisationRequestDate, isActeEnAttenteDePose } from '@/utils/acteUtils';
 import { OverboardPin } from '@/types/userTypes';
 import { MagistratBadge } from './MagistratBadge';
@@ -163,10 +164,11 @@ export const EnquetePreview = React.memo(({
   const enqueteAlerts = alerts.filter(alert => alert.enqueteId === enquete.id && alert.status === 'active');
   const hasCRDelayAlert = enqueteAlerts.some(alert => alert.type === 'cr_delay');
 
-  const descriptionPreview = enquete.description
-    ? enquete.description.length > 400
-      ? `${enquete.description.substring(0, 400)}...`
-      : enquete.description
+  const descriptionTexte = toPlainText(enquete.description);
+  const descriptionPreview = descriptionTexte
+    ? descriptionTexte.length > 400
+      ? `${descriptionTexte.substring(0, 400)}...`
+      : descriptionTexte
     : null;
 
   // Services dérivés depuis les tags
