@@ -313,8 +313,10 @@ function acteLine(kind, a) {
   if (a.prolongationsHistory?.length) flags.push(`${a.prolongationsHistory.length} prolongation(s)`)
   const label = kind === 'ecoute' ? `Interception ${a.numero}${a.cible ? ` (${a.cible})` : ''}`
     : kind === 'geoloc' ? `Géolocalisation ${a.objet}`
-    : `${a.type || 'Acte'} — ${stripHtml(a.description || '').slice(0, 160)}`
-  return `- [id ${a.id}] ${label} : ${a.dateDebut || '?'} → ${a.dateFin || '?'} (${flags.join(', ') || 'sans statut'})`
+    : `${a.type || 'Acte'}`
+  // Motivation INTÉGRALE, pour tous les actes : un nom ou un rôle peut être n'importe où.
+  const motivation = stripHtml(a.description || '').trim()
+  return `- [id ${a.id}] ${label} : ${a.dateDebut || '?'} → ${a.dateFin || '?'} (${flags.join(', ') || 'sans statut'})${motivation ? `\n  Motivation : ${motivation}` : ''}`
 }
 
 // ── Rendu markdown d'une enquête, PAR SECTIONS ──

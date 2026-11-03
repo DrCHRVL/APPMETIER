@@ -460,7 +460,8 @@ function promptFlux(keys, e, { fiches, crs, actes, candidats, actesAnalyse }) {
   if (actes.length) {
     donnees.push('', `───── ACTES NOUVEAUX (${actes.length}) ─────`)
     for (const a of actes) {
-      donnees.push(`• ${a.kind} — ${a.numero || a.objet || a.type || ''} — début ${a.dateDebut || '?'} — fin ${a.dateFin || '?'} — statut ${a.statut || ''}${a.description ? ` — ${String(a.description).slice(0, 160)}` : ''}`)
+      // cible et motivation INTÉGRALE : la personne visée n'est souvent que là
+      donnees.push(`• ${a.kind} — ${a.numero || a.objet || a.type || ''}${a.cible ? ` — cible : ${a.cible}` : ''} — début ${a.dateDebut || '?'} — fin ${a.dateFin || '?'} — statut ${a.statut || ''}${a.description ? ` — ${String(a.description)}` : ''}`)
     }
   }
   if (fiches.length) {

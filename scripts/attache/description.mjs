@@ -20,8 +20,6 @@ const CR_ANCIEN_MAX = 1_500
 const PIECES_BUDGET = 90_000
 const DESCRIPTION_MAX = 8_000
 const RECOUPEMENTS_MAX = 25
-// Motivation d'un acte : assez pour en garder la personne visée et son rôle.
-const ACTE_DESC_MAX = 1_000
 
 function stripHtml(html) {
   return String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<[^>]+>/g, '')
@@ -105,8 +103,9 @@ export function donneesDescription(keys, numero) {
   for (const a of actes) {
     // La cible d'une écoute (titulaire / utilisateur de la ligne) est un champ
     // À PART du numéro : sans elle, la personne écoutée n'apparaissait nulle part.
+    // La motivation est jointe EN ENTIER : un nom ou un rôle peut être n'importe où.
     const vise = [a.numero || a.objet, a.cible ? `cible : ${a.cible}` : null].filter(Boolean).join(' — ')
-    out.push(`• ${a.kind} — ${vise} — ${a.dateDebut || '?'} → ${a.dateFin || '?'} — ${a.statut || ''}${a.description ? ` — ${String(a.description).slice(0, ACTE_DESC_MAX)}` : ''}`)
+    out.push(`• ${a.kind} — ${vise} — ${a.dateDebut || '?'} → ${a.dateFin || '?'} — ${a.statut || ''}${a.description ? ` — ${String(a.description)}` : ''}`)
   }
 
   // Pièces serveur : le sommaire du registre, pièce par pièce.

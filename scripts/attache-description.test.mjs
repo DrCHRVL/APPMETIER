@@ -44,7 +44,7 @@ const syncData = {
       // cible renseignée à part (« (Théo FONTAINE) » sous la ligne dans l'app) et
       // motivation longue dont la fin porte le rôle
       { id: 6, numero: '07.81.76.72.88', cible: 'Théo FONTAINE', dateDebut: '2026-10-21', dateFin: '2026-11-20', statut: 'en_cours',
-        description: `${'Contexte. '.repeat(25)}Ligne utilisée par FONTAINE Théo, revendeur pour le compte de LAMBERT Antoine.` },
+        description: `${'Contexte. '.repeat(300)}Ligne utilisée par FONTAINE Théo, revendeur pour le compte de LAMBERT Antoine.` },
     ],
     geolocalisations: [],
     comptesRendus: [
@@ -63,7 +63,7 @@ fs.writeFileSync(
 
 const { writeDocBlob, docServerKey, attacheTj } = await import(`${REPO}/scripts/attache/store.mjs`)
 const { readRegistre, writeRegistre } = await import(`${REPO}/scripts/attache/registre.mjs`)
-const { loadContentieux, actualiserDescription } = await import(`${REPO}/scripts/attache/dossier.mjs`)
+const { loadContentieux, actualiserDescription, dossierMarkdown } = await import(`${REPO}/scripts/attache/dossier.mjs`)
 const { donneesDescription, couverturePieces, avancement, estimerTotalMs, estimerRedactionMs, observerRedaction } = await import(`${REPO}/scripts/attache/description.mjs`)
 const { appendDossierMemory } = await import(`${REPO}/scripts/attache/dossierMemory.mjs`)
 const { SOCLES } = await import(`${REPO}/scripts/attache/consignes.mjs`)
@@ -95,7 +95,9 @@ attendu('tous les CR joints, du plus ancien au plus récent, HTML retiré',
   txt.indexOf('Premier CR') > -1 && txt.indexOf('Premier CR') < txt.indexOf('Rixe quartier Nord') && !txt.includes('<b>'))
 attendu('actes joints', txt.includes('06.11.22.33.44'))
 attendu('cible d\'une écoute jointe avec la ligne', /07\.81\.76\.72\.88[^\n]*Théo FONTAINE/.test(txt))
-attendu('motivation d\'un acte jointe sans perdre sa fin', txt.includes('revendeur pour le compte de LAMBERT Antoine'))
+attendu('motivation d\'un acte jointe EN ENTIER (3 000 car., nom en fin)', txt.includes('revendeur pour le compte de LAMBERT Antoine'))
+attendu('lire_dossier (section actes) rend la motivation intégrale',
+  String(dossierMarkdown(keys, NUM, { section: 'actes' })).includes('revendeur pour le compte de LAMBERT Antoine'))
 attendu('fiche du registre jointe (résumé, personnes, entités)',
   txt.includes('KARIM reconnaît tenir le point de deal.') && txt.includes('KARIM Ali dit Kiki [mis en cause]') && txt.includes('0611223344'))
 attendu('pièce sans fiche listée', txt.includes('- PV/surveillance.pdf'))
