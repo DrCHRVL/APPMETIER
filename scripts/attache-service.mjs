@@ -37,6 +37,7 @@ import { passeRecoupements, dernierResultat } from './attache/recoupements.mjs'
 import { registreFichesStep } from './attache/registre.mjs'
 import { versementsStep } from './attache/versement.mjs'
 import { interrogationsStep } from './attache/interrogation.mjs'
+import { entretenirRapports } from './attache/rapport.mjs'
 import { enfiler as fluxEnfiler, balayer as fluxBalayer, pomper as fluxPomper, fileAttente as fluxFileAttente, FLUX_QUIET_MS } from './attache/flux.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
@@ -845,6 +846,25 @@ async function maybeInterrogations() {
     if (b) console.log(`[attache] interrogation ${b.id} : ${b.etape}${b.total ? ` (${b.lues}/${b.total} pièces lues, ${b.pertinentes} retenue(s), ${b.nonLues} non lue(s))` : ''}${b.erreur ? ` — ${b.erreur}` : ''}`)
   } finally {
     interrogationsRunning = false
+  }
+}
+
+// ── Rapports de dossier (attache/rapport.mjs) ──
+// Travail de FOND réservé à la nuit : réécrit les rapports des dossiers dont
+// le registre est complet et a bougé, quelques-uns par passage. Une
+// interrogation « rapports » les demande elle-même, à toute heure.
+let rapportsRunning = false
+async function maybeRapports() {
+  if (rapportsRunning || !inNightWindow()) return
+  rapportsRunning = true
+  try {
+    const keys = loadKeyring()
+    if (!keys) return
+    const b = await entretenirRapports(keys, { onHold: (quoi) => autonomousOnHold(keys, quoi) })
+    if (activites.rapports) activites.rapports.dernierBilan = b
+    if (b.ecrits || b.erreurs) console.log(`[attache] rapports de dossier : ${b.ecrits} écrit(s) sur ${b.examines} examiné(s)${b.attendentFiches ? `, ${b.attendentFiches} attendent leurs fiches` : ''}${b.restants ? `, ${b.restants} au prochain passage` : ''}${b.erreurs ? `, ${b.erreurs} erreur(s)` : ''}`)
+  } finally {
+    rapportsRunning = false
   }
 }
 
@@ -2096,6 +2116,7 @@ setInterval(() => {
   decale(90_000, 'registre', 'mini-fiches du registre', () => maybeRegistreFiches())
   decale(105_000, 'versements', 'analyse des versements massifs', () => maybeVersements())
   decale(110_000, 'interrogations', 'interrogation du fonds', () => maybeInterrogations())
+  decale(115_000, 'rapports', 'rapports de dossier', () => maybeRapports())
   decale(120_000, 'recoupements', 'recoupements entre dossiers', () => maybeRecoupements())
   decale(150_000, 'global', 'fichiers globaux', () => maybeGlobaux())
 }, POLL_MINUTES * 60 * 1000)

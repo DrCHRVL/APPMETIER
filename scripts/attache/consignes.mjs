@@ -155,6 +155,18 @@ export const SOCLES = {
     ']',
   ].join('\n'),
 
+  rapport_dossier: [
+    'But : le RAPPORT DE SYNTHÈSE d\'un dossier (ou d\'une pochette), rédigé UNE fois depuis le registre agrégé joint — pour qu\'une question posée ensuite à tous les rapports du fonds trouve les dossiers qui répondent, et que le magistrat sache en une lecture ce que contient le dossier. Le registre a été établi pièce par pièce, sur le texte intégral : tu n\'inventes rien qui n\'y soit.',
+    'Sections, en prose dense, en français, chaque affirmation cotée (chemin de la pièce entre crochets) :',
+    '## Objet du dossier — de quoi il s\'agit, la période, les services, l\'état apparent (enquête, instruction, jugé).',
+    '## Personnes et rôles — chaque personne qui compte (mis en cause déclarés d\'abord, puis les autres), son rôle tel que les pièces le donnent, ses alias, les cotes.',
+    '## Modus operandi et logistique — comment les faits se font : approvisionnement, transport, stockage, revente, paiements, sociétés et structures utilisées, moyens de communication.',
+    '## Lieux, véhicules, lignes, comptes — les données matérielles relevées, à qui elles sont rattachées.',
+    '## Chronologie — les faits datés, du plus ancien au plus récent, cotés.',
+    '## Liens et ouvertures — ce qui renvoie à d\'autres affaires, d\'autres réseaux, d\'autres ressorts ; ce qui reste obscur ou contradictoire ; ce qui manque au dossier.',
+    'Longueur : ce qu\'il faut pour être complet, sans paraphrase — un dossier simple tient en une page, un dossier massif en plusieurs. Signé de personne : ne te désigne jamais (ni « IA », ni « attaché »).',
+  ].join('\n'),
+
   interrogation_synthese: [
     'But : RÉPONDRE à la question du magistrat à partir des pièces retenues (jointes plus bas avec leur justification et leurs extraits), en rendant compte honnêtement de la couverture.',
     'Format : prose dense, en français, structurée par points de réponse (titres courts « ## »). Chaque affirmation cite sa pièce entre crochets : [dossier] chemin. Les extraits verbatim utiles sont repris entre guillemets. Regroupe par dossier quand la question couvre tout le fonds.',
@@ -229,6 +241,12 @@ export const CATALOGUE = [
     quand: 'Sur fonds_interroger (Claude web par le connecteur, ou l\'attaché) : lot après lot, à chaque tick du service, dès que le forfait l\'autorise. La question du magistrat est jointe.',
     variables: ['{{question}}'],
     avertissement: 'Le moteur attend un TABLEAU JSON strict : un remplacement qui change la sortie met l\'interrogation en échec.',
+  },
+  {
+    id: 'rapport_dossier', groupe: 'Analyse', label: 'Rapport de dossier',
+    resume: 'Le prompt du rapport de synthèse d\'un dossier (ou d\'une pochette d\'un gros dossier), écrit une fois depuis le registre agrégé : objet, personnes et rôles, modus operandi, données matérielles, chronologie, liens et manques.',
+    quand: 'À l\'entretien de nuit, dès que le registre d\'un dossier est complet et a bougé depuis le dernier rapport ; ou à la demande d\'une interrogation du fonds au niveau « rapports ». Lu par rapport_lire.',
+    variables: ['{{dossier}}'],
   },
   {
     id: 'interrogation_synthese', groupe: 'Analyse', label: 'Interrogation du fonds — synthèse',

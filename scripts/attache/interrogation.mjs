@@ -32,22 +32,21 @@
  */
 import crypto from 'node:crypto'
 import fs from 'node:fs'
-import { spawn } from 'node:child_process'
 import { attacheDir, attacheContentieux, ensureDir, readJson, atomicWrite } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { sourcesDuFonds, sourceDuDossier, listePieces, textePiece } from './recherche.mjs'
 import { readRegistre } from './registre.mjs'
+import { lireRapport, assurerRapport } from './rapport.mjs'
 import { bloc as blocConsigne } from './consignes.mjs'
 import { economicalModel } from './subagents.mjs'
 import { extractUsage, recordUsage } from './usage.mjs'
 import { saveProduction } from './productions.mjs'
 import { audit, publishFeed } from './journal.mjs'
+import { runUnTour } from './unTour.mjs'
 
-const CLAUDE_BIN = process.env.SIRAL_ATTACHE_CLAUDE_BIN || 'claude'
 const RUN_TIMEOUT_MS = Number(process.env.SIRAL_ATTACHE_INTERROGATION_TIMEOUT_MIN || 6) * 60 * 1000
 // Synthèse finale : un cran au-dessus des verdicts (elle engage la réponse).
 const SYNTHESE_MODEL = process.env.SIRAL_ATTACHE_INTERROGATION_MODEL || 'sonnet'
-const DISALLOWED_TOOLS = 'Bash,Edit,Write,NotebookEdit,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite,KillShell,BashOutput'
 // Même rangement « hors dossier » que les livrables du connecteur (attache-mcp.mjs).
 const HORS_DOSSIER = '_hors-dossier'
 
@@ -60,6 +59,8 @@ const TRANCHE = 9_000
 const RECOUVREMENT = 300
 const CHARS_TOTAL = 80_000
 const FICHES_PAR_LOT = 40
+const RAPPORTS_PAR_LOT = 6
+const RAPPORTS_REDIGES_PAR_PASSAGE = 3 // rapports de dossier (ré)écrits par passage, niveau « rapports »
 const LOTS_PAR_PASSAGE = 6
 const ECHECS_MAX = 3 // échecs CONSÉCUTIFS de lot : l'interrogation est mise en échec
 const ELUSION_MAX = 20 // pièces écartées relues au contrôle
@@ -106,13 +107,23 @@ export function listerInterrogations(keys) {
 /**
  * Dépose une interrogation. `numero` vide = tout le fonds (enquêtes en cours
  * et archivées, instructions, dossiers de la carte) ; `pochette` restreint
- * chaque dossier à une pochette. Rend l'interrogation avec son devis.
+ * chaque dossier à une pochette ; `dossiers` (liste de libellés) restreint
+ * le fonds à ces dossiers — c'est ainsi qu'une interrogation « rapports »
+ * lance son approfondissement « pieces » (`suiteDe`). Niveau « rapports » :
+ * `approfondir` (défaut oui) enchaîne la lecture pièce par pièce des
+ * dossiers retenus. Rend l'interrogation avec son devis.
  */
-export function creerInterrogation(keys, { question, numero, niveau, pochette } = {}) {
+export function creerInterrogation(keys, { question, numero, niveau, pochette, dossiers, approfondir, suiteDe } = {}) {
   const q = String(question || '').trim()
   if (q.length < QUESTION_MIN) throw new Error(`Question trop courte (${QUESTION_MIN} caractères minimum) : formule ce que la lecture doit chercher, avec ses variantes.`)
-  const niv = niveau === 'fiches' ? 'fiches' : 'pieces'
-  const sources = String(numero || '').trim() ? [sourceDuDossier(keys, String(numero))] : sourcesDuFonds(keys)
+  const niv = ['fiches', 'rapports'].includes(niveau) ? niveau : 'pieces'
+  let sources
+  if (String(numero || '').trim()) sources = [sourceDuDossier(keys, String(numero))]
+  else if (Array.isArray(dossiers) && dossiers.length) {
+    const voulus = new Set(dossiers.map(String))
+    sources = sourcesDuFonds(keys).filter((s) => voulus.has(s.dossier))
+    if (sources.length === 1) numero = sources[0].dossier
+  } else sources = sourcesDuFonds(keys)
   const plan = []
   let doublons = 0
   for (const s of sources) {
@@ -129,6 +140,8 @@ export function creerInterrogation(keys, { question, numero, niveau, pochette } 
     niveau: niv,
     numero: numero ? plan[0].dossier : null,
     ...(pochette ? { pochette: String(pochette) } : {}),
+    ...(niv === 'rapports' ? { approfondir: approfondir !== false } : {}),
+    ...(suiteDe ? { suiteDe: String(suiteDe) } : {}),
     creeLe: new Date().toISOString(),
     etat: 'attente',
     plan,
@@ -165,53 +178,8 @@ function systemPrompt() {
   ].join('\n')
 }
 
-function parseJsonLoose(text) {
-  const s = String(text || '')
-  try { return JSON.parse(s) } catch { /* continue */ }
-  const i = s.indexOf('[')
-  const j = s.lastIndexOf(']')
-  if (i >= 0 && j > i) { try { return JSON.parse(s.slice(i, j + 1)) } catch { /* non */ } }
-  return null
-}
-
 function runModele({ prompt, model, json, label }) {
-  const cwd = attacheDir('workdir')
-  ensureDir(cwd)
-  const args = [
-    '-p', prompt,
-    '--output-format', 'json',
-    '--append-system-prompt', systemPrompt(),
-    '--disallowedTools', DISALLOWED_TOOLS,
-    '--max-turns', '1',
-    ...(model ? ['--model', model] : []),
-  ]
-  return new Promise((resolve) => {
-    let child
-    try {
-      child = spawn(CLAUDE_BIN, args, { cwd, env: { ...process.env, SIRAL_ATTACHE_RUN: label || 'interrogation' }, stdio: ['ignore', 'pipe', 'pipe'] })
-    } catch (e) {
-      return resolve({ ok: false, error: `CLI claude non lançable : ${e.message}` })
-    }
-    let stdout = ''
-    let stderrTail = ''
-    let settled = false
-    const done = (v) => { if (settled) return; settled = true; clearTimeout(timer); resolve(v) }
-    const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch { /* déjà mort */ }; done({ ok: false, error: 'délai dépassé' }) }, RUN_TIMEOUT_MS)
-    child.stdout.on('data', (c) => { stdout += c.toString('utf8') })
-    child.stderr.on('data', (c) => { stderrTail = (stderrTail + c.toString('utf8')).slice(-2000) })
-    child.on('error', (e) => done({ ok: false, error: `CLI claude introuvable : ${e.message}` }))
-    child.on('close', (code) => {
-      if (code !== 0) return done({ ok: false, error: `claude a échoué (code ${code}) — ${stderrTail.split('\n').slice(-2).join(' ').slice(0, 300)}` })
-      let envelope = null
-      try { envelope = JSON.parse(stdout.trim()) } catch { /* stdout brut */ }
-      if (envelope && envelope.is_error) return done({ ok: false, error: String(envelope.result || 'échec du run').slice(0, 300) })
-      const texte = envelope && typeof envelope.result === 'string' ? envelope.result : stdout
-      if (!json) return done({ ok: true, texte, envelope })
-      const data = parseJsonLoose(texte)
-      if (!Array.isArray(data)) return done({ ok: false, error: 'réponse du modèle non exploitable (tableau JSON absent)' })
-      done({ ok: true, data, envelope })
-    })
-  })
+  return runUnTour({ prompt, systeme: systemPrompt(), model, json, label: label || 'interrogation', timeoutMs: RUN_TIMEOUT_MS })
 }
 
 // ── Verdicts ─────────────────────────────────────────────────────────────
@@ -219,22 +187,29 @@ function runModele({ prompt, model, json, label }) {
 function promptVerdicts(keys, it, lot) {
   const donnees = lot.map(({ id, texte }) => `\n\n═══ PIÈCE ${id} ═══\n${texte}`).join('')
   const parties = lot.some((x) => x.parties > 1)
+  const unite = it.niveau === 'fiches' ? 'fiches' : it.niveau === 'rapports' ? 'rapports de dossier' : 'pièces'
   return [
-    `INTERROGATION DU FONDS — ${lot.length} ${it.niveau === 'fiches' ? 'fiches' : 'pièces'} à juger au regard de la QUESTION.`,
+    `INTERROGATION DU FONDS — ${lot.length} ${unite} à juger au regard de la QUESTION.`,
     '',
     `───── QUESTION DU MAGISTRAT ─────`,
     it.question,
     '',
     blocConsigne(keys, 'interrogation_verdict', { question: it.question }),
+    ...(it.niveau === 'rapports' ? [
+      '',
+      'RAPPORTS DE DOSSIER : chaque élément est le rapport de synthèse d\'un DOSSIER ENTIER (écrit depuis le sommaire de toutes ses pièces). Il est PERTINENT si le dossier paraît contenir des pièces qui répondent à la question ; les extraits sont des passages du rapport, cotes comprises quand il en cite. Le dossier retenu sera ensuite relu pièce par pièce : en cas de doute, retiens.',
+    ] : []),
     ...(parties ? [
       '',
       'PIÈCES LONGUES : une pièce longue arrive par PARTIES (« [partie k/n] » dans son entête). Juge chaque partie comme une pièce à part : "chemin" = l\'entête EXACT, mention de partie comprise (les verdicts des parties sont fusionnés ensuite).',
     ] : []),
     '',
-    `───── ${it.niveau === 'fiches' ? 'FICHES' : 'PIÈCES'} ─────`,
+    `───── ${unite.toUpperCase()} ─────`,
     donnees,
   ].join('\n')
 }
+
+const RAPPORT_CHEMIN = '§ rapport du dossier'
 
 function nettoieVerdict(v) {
   if (!v || typeof v !== 'object') return null
@@ -295,7 +270,9 @@ function sourceDe(keys, pas, cache) {
 async function prochainLot(keys, it, cache, { rels: liste = null } = {}) {
   const lot = []
   let total = 0
-  const plein = () => (it.niveau === 'fiches' ? lot.length >= FICHES_PAR_LOT : lot.length >= LOT_PIECES || total >= CHARS_TOTAL)
+  const plein = () => (it.niveau === 'fiches' ? lot.length >= FICHES_PAR_LOT
+    : it.niveau === 'rapports' ? lot.length >= RAPPORTS_PAR_LOT || total >= CHARS_TOTAL
+      : lot.length >= LOT_PIECES || total >= CHARS_TOTAL)
   const pousserTranches = (dossier, chemin, texte, depuis) => {
     const parties = Math.max(1, Math.ceil(texte.length / TRANCHE))
     let k = depuis
@@ -326,6 +303,13 @@ async function prochainLot(keys, it, cache, { rels: liste = null } = {}) {
   // liste explicite (contrôle d'élusion) ou parcours du plan au curseur
   const suivant = () => {
     if (liste) return liste.length ? liste.shift() : null
+    if (it.niveau === 'rapports') {
+      // un élément par DOSSIER : son rapport
+      if (it.curseur.source >= it.plan.length) return null
+      const pas = it.plan[it.curseur.source++]
+      it.curseur.piece = 0
+      return { dossier: pas.dossier, chemin: RAPPORT_CHEMIN, pieces: pas.rels.length }
+    }
     while (it.curseur.source < it.plan.length) {
       const pas = it.plan[it.curseur.source]
       if (it.curseur.piece < pas.rels.length) {
@@ -343,6 +327,14 @@ async function prochainLot(keys, it, cache, { rels: liste = null } = {}) {
     if (!p) break
     const pas = it.plan.find((x) => x.dossier === p.dossier)
     const src = sourceDe(keys, pas, cache)
+    if (it.niveau === 'rapports') {
+      if (src.carte) { it.nonLues.push({ ...p, raison: 'dossier de la carte : pas de rapport (documents à lire avec carto_lire_document)' }); continue }
+      const r = lireRapport(keys, pas.cle)
+      if (!r?.texte) { it.nonLues.push({ ...p, raison: 'rapport non rédigé' }); continue }
+      lot.push({ dossier: p.dossier, chemin: RAPPORT_CHEMIN, id: idPiece(p.dossier, RAPPORT_CHEMIN), texte: r.texte, partie: 0, parties: 1 })
+      total += r.texte.length
+      continue
+    }
     if (it.niveau === 'fiches') {
       if (src.carte) {
         const doc = (src.carte.documents || []).find((x) => String(x.nom) === p.chemin)
@@ -446,6 +438,39 @@ async function jugerProchainLot(keys, it, cache, { rels = null, controle = false
   return { ok: true, vide: false }
 }
 
+// ── Niveau « rapports » : chaque dossier du plan a besoin d'un rapport à jour ──
+
+/**
+ * Assure les rapports des dossiers du plan, dans l'ordre, bornés par passage
+ * (rédactions). Rend { pret:true } quand tous sont là ; sinon { pret:false,
+ * differe? } — le passage suivant reprend. Un rapport impossible (modèle en
+ * échec) compte comme un échec de l'interrogation ; un registre incomplet
+ * attend simplement que les fiches avancent.
+ */
+async function preparerRapports(keys, it, onHold) {
+  it.rapportsPrets = it.rapportsPrets || {}
+  let redactions = 0
+  for (const pas of it.plan) {
+    if (it.rapportsPrets[pas.dossier]) continue
+    if (pas.cle.startsWith('carte:')) { it.rapportsPrets[pas.dossier] = 'carte'; continue }
+    const avant = lireRapport(keys, pas.cle)
+    const r = await assurerRapport(keys, pas.dossier, { onHold })
+    if (!r.pret) {
+      it.rapportsAttente = { dossier: pas.dossier, raison: r.raison, fichees: r.fichees, pieces: r.pieces }
+      if (String(r.raison).startsWith('différé')) return { pret: false, differe: true }
+      if (r.raison !== 'registre incomplet') { it.echecs = (it.echecs || 0) + 1; it.erreur = `rapport « ${pas.dossier} » : ${r.raison}` }
+      return { pret: false }
+    }
+    it.rapportsPrets[pas.dossier] = true
+    it.echecs = 0
+    delete it.erreur
+    if (!avant || avant.majLe !== r.rapport.majLe) redactions++
+    if (redactions >= RAPPORTS_REDIGES_PAR_PASSAGE) { delete it.rapportsAttente; return { pret: false } }
+  }
+  delete it.rapportsAttente
+  return { pret: true }
+}
+
 // ── Contrôle d'élusion et synthèse ───────────────────────────────────────
 
 function echantillonElusion(it) {
@@ -514,6 +539,8 @@ function corpsLivrable(it) {
     '───── COUVERTURE ─────',
     `Lues : ${it.total - it.nonLues.length} / ${it.total} · écartées : ${it.ecartees.length} · non lues : ${it.nonLues.length}${it.doublonsExactsSautes ? ` · copies exactes sautées : ${it.doublonsExactsSautes}` : ''}`,
     el ? `Contrôle d'élusion : ${el.echantillon} relue(s), ${el.trouvees} retrouvée(s) · taux d'élusion ${(el.taux * 100).toFixed(0)} % · manquées estimées ${el.manqueesEstimees} · rappel estimé ${(el.rappelEstime * 100).toFixed(0)} %` : 'Contrôle d\'élusion : sans objet',
+    ...(it.suiteId ? ['', `Approfondissement lancé : les ${it.suiteDossiers} dossier(s) retenu(s) sont relus pièce par pièce — interrogation ${it.suiteId} (interrogation_lire), résultat à venir en livrable.`] : []),
+    ...(it.suiteDe ? ['', `Approfondissement de l'interrogation ${it.suiteDe} (niveau rapports).`] : []),
     ...(it.nonLues.length ? ['', `───── NON LUES (${it.nonLues.length}) ─────`, ...it.nonLues.slice(0, 100).map((x) => `- [${x.dossier}] ${x.chemin} — ${x.raison}`)] : []),
   ].join('\n')
 }
@@ -545,6 +572,16 @@ async function terminer(keys, it) {
   }
   await recordUsage({ run: 'interrogation', model: SYNTHESE_MODEL, usage: extractUsage(run.envelope) })
   it.synthese = texte
+  // Niveau « rapports » : les dossiers retenus sont relus PIÈCE PAR PIÈCE,
+  // par une interrogation enchaînée (même question, périmètre réduit).
+  if (it.niveau === 'rapports' && it.approfondir && it.pertinentes.length && !it.suiteId) {
+    const dossiers = [...new Set(it.pertinentes.map((p) => p.dossier))]
+    try {
+      const suite = creerInterrogation(keys, { question: it.question, niveau: 'pieces', dossiers, suiteDe: it.id })
+      it.suiteId = suite.id
+      it.suiteDossiers = dossiers.length
+    } catch (e) { it.suiteErreur = String(e?.message || e) }
+  }
   const { id: prodId, numero } = await saveProduction(keys, { numero: it.numero || HORS_DOSSIER, type: 'livrable', titre: titreDe(it), contenu: corpsLivrable(it), source: 'interrogation' })
   it.prodId = prodId
   it.etat = 'fait'
@@ -569,7 +606,13 @@ export async function interrogationsStep(keys, { onHold = async () => false, max
   if (await onHold('interrogation du fonds')) return { id: it.id, etape: 'differe' }
   it.etat = 'en_cours'
   const cache = { registres: new Map() }
-  const bilan = () => ({ id: it.id, lues: it.total - restantes(it) - it.nonLues.length, total: it.total, pertinentes: it.pertinentes.length, nonLues: it.nonLues.length })
+  const bilan = () => ({ id: it.id, lues: lues(it), total: it.total, pertinentes: it.pertinentes.length, nonLues: it.nonLues.length })
+  if (it.niveau === 'rapports' && restantes(it) > 0) {
+    const p = await preparerRapports(keys, it, onHold)
+    if (it.echecs >= ECHECS_MAX) it.etat = 'echec'
+    ecrire(keys, it)
+    if (!p.pret) return { ...bilan(), etape: p.differe ? 'differe' : it.etat === 'echec' ? 'echec' : 'rapports', ...(it.rapportsAttente ? { attente: it.rapportsAttente } : {}), ...(it.erreur ? { erreur: it.erreur } : {}) }
+  }
   for (let i = 0; i < maxLots; i++) {
     const r = await jugerProchainLot(keys, it, cache)
     ecrire(keys, it)
@@ -595,6 +638,9 @@ function restantes(it) {
   }
   return n
 }
+/** Pièces couvertes par les non-lues (au niveau rapports, une non-lue vaut tout un dossier). */
+const piecesNonLues = (it) => it.nonLues.reduce((n, x) => n + (x.pieces || 1), 0)
+const lues = (it) => Math.max(0, it.total - restantes(it) - piecesNonLues(it))
 
 // ── Lecture (outils) ─────────────────────────────────────────────────────
 
@@ -607,9 +653,12 @@ const resume = (it) => ({
   etat: it.etat,
   creeLe: it.creeLe,
   ...(it.faitLe ? { faitLe: it.faitLe } : {}),
-  avancement: { dossiers: it.plan.length, pieces: it.total, lues: it.total - restantes(it) - it.nonLues.length, restantes: restantes(it), nonLues: it.nonLues.length, lots: it.lots },
+  avancement: { dossiers: it.plan.length, pieces: it.total, lues: lues(it), restantes: restantes(it), nonLues: it.nonLues.length, lots: it.lots, ...(it.niveau === 'rapports' ? { rapportsPrets: Object.keys(it.rapportsPrets || {}).length } : {}) },
   pertinentes: it.pertinentes.length,
   ...(it.elusion ? { elusion: it.elusion } : {}),
+  ...(it.rapportsAttente ? { attente: it.rapportsAttente } : {}),
+  ...(it.suiteId ? { suiteId: it.suiteId, suiteDossiers: it.suiteDossiers } : {}),
+  ...(it.suiteDe ? { suiteDe: it.suiteDe } : {}),
   ...(it.prodId ? { prodId: it.prodId } : {}),
   ...(it.erreur ? { erreur: it.erreur } : {}),
 })
@@ -632,9 +681,10 @@ export function detailInterrogation(keys, id, { offset = 0, limite = 50 } = {}) 
     ...(debut + page.length < tri.length ? { offsetSuivant: debut + page.length } : {}),
     ...(it.nonLues.length ? { piecesNonLues: it.nonLues.slice(0, 100) } : {}),
     note: it.etat === 'fait'
-      ? 'Les verdicts sont des SIGNALEMENTS motivés : lire la pièce (lire_document) avant d\'en faire état. Le rappel estimé vient du contrôle d\'élusion ; les pièces non lues sont nommées.'
+      ? `Les verdicts sont des SIGNALEMENTS motivés : lire la pièce (lire_document) avant d'en faire état. Le rappel estimé vient du contrôle d'élusion ; les pièces non lues sont nommées.${it.suiteId ? ` Approfondissement pièce par pièce en cours : interrogation_lire id:"${it.suiteId}".` : ''}`
       : it.etat === 'arretee' ? 'Interrogation arrêtée : résultats partiels.'
         : it.etat === 'echec' ? 'Interrogation en échec (voir erreur) : résultats partiels ; redéposer avec fonds_interroger si besoin.'
-          : 'Interrogation en cours : le service la fait avancer par lots, selon le forfait. Le résultat sera remis en livrable ; rappeler interrogation_lire pour suivre.',
+          : it.niveau === 'rapports' && restantes(it) > 0 ? 'Interrogation en cours : les rapports de dossier du périmètre sont d\'abord mis à jour (mini-fiches puis rédaction, selon le forfait), puis interrogés. Le résultat sera remis en livrable ; rappeler interrogation_lire pour suivre.'
+            : 'Interrogation en cours : le service la fait avancer par lots, selon le forfait. Le résultat sera remis en livrable ; rappeler interrogation_lire pour suivre.',
   }
 }

@@ -77,7 +77,16 @@ connaissances, statistiques et graphiques, écritures réversibles (actes, CR,
   « pendant votre absence », « Actes rédigés » du dossier ou hors dossier)
   et se relit par `interrogation_lire` (pièces retenues paginées, non lues
   nommées, couverture) ; `interrogations_lister`, `interrogation_arreter`.
-  `niveau:"fiches"` pour une passe rapide sur les mini-fiches du registre ;
+  Sur **tout le fonds**, `niveau:"rapports"` : une lecture par **dossier**,
+  celle de son **rapport de synthèse** (écrit une fois par l'attaché depuis
+  le registre de toutes ses pièces, tenu à jour), une fraction du coût ;
+  les dossiers retenus sont ensuite **relus pièce par pièce** par une
+  interrogation enchaînée. `niveau:"fiches"` pour une passe rapide sur les
+  mini-fiches du registre ;
+- « Que contient le dossier 2026/000123 ? » → `rapport_lire` : le rapport de
+  synthèse du dossier (objet, personnes et rôles, modus operandi, données
+  matérielles, chronologie, liens et manques, cotes à l'appui), avec sa
+  fraîcheur et sa couverture, sans ouvrir une pièce ;
 - « Prépare le réquisitoire définitif du dossier 2026/000123 » →
   `instructions_projet_lire`, `dossier_global` (fiche, chronologie, registre,
   puis les pièces en texte — thème par thème : auditions, téléphonie,

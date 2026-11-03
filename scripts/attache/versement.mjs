@@ -90,7 +90,7 @@ const cotes = (liste) => {
  * personnes (rôles distincts, cotes), véhicules, lignes, adresses, comptes,
  * puis la chronologie pièce par pièce dans la limite du budget.
  */
-export function donneesVersement(keys, v, reg) {
+export function donneesVersement(keys, v, reg, { titre } = {}) {
   const { data } = loadContentieux(keys)
   const canon = numeroCanonique(keys, v.numero)
   const e = (data.enquetes || []).find((x) => String(x.numero) === String(canon))
@@ -142,7 +142,7 @@ export function donneesVersement(keys, v, reg) {
   const parPoids = (a, b) => b.cotes.length - a.cotes.length
   const out = [
     '',
-    `───── VERSEMENT : ${v.rels.length} pièces, versées le ${v.enregistreLe.slice(0, 10)} ─────`,
+    `───── ${titre || `VERSEMENT : ${v.rels.length} pièces, versées le ${v.enregistreLe.slice(0, 10)}`} ─────`,
     e?.description ? `Description actuelle du dossier : ${String(e.description).replace(/<[^>]+>/g, ' ').slice(0, 2000)}` : null,
     `Mis en cause déjà déclarés : ${(e?.misEnCause || []).map((m) => m.nom).join(', ') || 'aucun'}`,
     '',

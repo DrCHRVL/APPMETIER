@@ -658,6 +658,27 @@ actes corrigés ou refusés (voir « Instructions du projet Claude web »).
   « Interrogation du fonds — verdict / synthèse » (Paramètres → Attaché
   IA). Consommation sous le poste **« interrogation »** ; audit
   `interrogation_deposee` / `interrogation_fait` / `interrogation_arretee`.
+- **Rapports de dossier** (`scripts/attache/rapport.mjs`) : l'étage
+  au-dessus du registre — **un rapport de synthèse par dossier** (objet,
+  personnes et rôles, modus operandi et logistique, lieux / véhicules /
+  lignes / comptes, chronologie, liens et manques, cotes à l'appui), rédigé
+  **une fois** depuis le registre agrégé de toutes ses pièces, par le
+  modèle de synthèse. Un gros dossier (> 150 pièces, plusieurs pochettes,
+  `SIRAL_ATTACHE_RAPPORT_POCHETTE_SEUIL`) a d'abord **un rapport par
+  pochette**, puis le rapport du dossier depuis ceux-ci ; seule une pochette
+  qui a bougé est réécrite. Chaque rapport porte la **signature** du
+  registre dont il vient : réécrit seulement si elle a bougé, et seulement
+  quand toutes les pièces sont fichées ou abandonnées. Entretien de **nuit**
+  (quelques dossiers par passage, gouverneur de forfait) et **à la demande**
+  d'une interrogation du fonds au niveau **« rapports »** : une lecture par
+  dossier au lieu d'une par pièce, puis **approfondissement** automatique
+  pièce par pièce des seuls dossiers retenus (interrogation enchaînée,
+  `suiteDe` / `suiteId`). Lecture par `rapport_lire` (texte, fraîcheur,
+  couverture, pochettes). C'est le patron des « community reports » de
+  GraphRAG, ramené à l'unité naturelle du parquet. Consigne « Rapport de
+  dossier » ; consommation sous le poste **« rapport »** ; stockage chiffré
+  `attache/rapports/`. Modèle : `SIRAL_ATTACHE_RAPPORT_MODEL` (défaut
+  `sonnet`, alias suivi par le CLI).
 - **Relance les dossiers dormants** : `lister_dossiers` marque `dormant:true`
   tout dossier sans mouvement depuis plus de 2 mois — une routine de veille en
   tire un projet de mail de relance au directeur d'enquête, prêt à coller.
