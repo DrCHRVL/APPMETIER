@@ -10,6 +10,7 @@ import { findCrossMatches, groupMatches, CrossMatch } from '@/utils/crossContent
 import { OPTimeline } from '../OPTimeline';
 import { UserManager } from '@/utils/userManager';
 import { Badge } from '../ui/badge';
+import { toPlainText } from '@/lib/formatCR';
 
 // ──────────────────────────────────────────────
 // TYPES
@@ -248,7 +249,7 @@ export const OverboardPage = ({
         </div>
         {enquete.description && (
           <p className="text-[10px] text-gray-400 leading-tight line-clamp-1 mt-0.5">
-            {enquete.description}
+            {toPlainText(enquete.description)}
           </p>
         )}
         {uniqueNames.length > 0 && (
@@ -404,7 +405,7 @@ export const OverboardPage = ({
                                   <span className="font-medium text-sm text-gray-800">{enquete.numero}</span>
                                 </div>
                                 {enquete.description && (
-                                  <p className="text-xs text-gray-500 mt-1 line-clamp-2">{enquete.description}</p>
+                                  <p className="text-xs text-gray-500 mt-1 line-clamp-2">{toPlainText(enquete.description)}</p>
                                 )}
                                 <div className="flex flex-wrap gap-1 mt-2">
                                   {enquete.overboardPins?.map(pin => (
