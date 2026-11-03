@@ -1,8 +1,9 @@
 /**
  * SIRAL — export du dossier en markdown.
- * Convertit l'enquête (CR, actes, mis en cause, documents PDF) en markdown
- * compact, à déposer dans une IA externe (Claude…) ou à archiver. Pas de HTML
- * ni de bruit.
+ * Convertit l'enquête (CR, actes, mis en cause, documents PDF) en markdown,
+ * à déposer dans une IA externe (Claude…) ou à archiver. Pas de HTML ni de
+ * bruit — mais AUCUNE troncature : l'export est la donnée à exploiter, il est
+ * intégral (motivations des actes, CR, texte des PDF).
  */
 import type { Enquete } from '@/types/interfaces'
 
@@ -11,7 +12,13 @@ function stripHtml(s: string): string {
     .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim()
 }
 
-/** Markdown compact du dossier. `docTexts` : textes déjà extraits des PDF (optionnel). */
+/** Motivation d'un acte, en entier, sur sa propre ligne. */
+function motivation(description?: string): string {
+  const t = stripHtml(String(description || ''))
+  return t ? `\n  Motivation : ${t}` : ''
+}
+
+/** Markdown intégral du dossier. `docTexts` : textes déjà extraits des PDF (optionnel). */
 export function buildDossierMarkdown(enquete: Enquete, docTexts?: Array<{ name: string, text: string }>): string {
   const parts: string[] = []
   parts.push(`# Dossier ${enquete.numero}`)
@@ -28,17 +35,17 @@ export function buildDossierMarkdown(enquete: Enquete, docTexts?: Array<{ name: 
   const ecoutes = enquete.ecoutes || []
   if (ecoutes.length) {
     parts.push('\n## Interceptions')
-    for (const e of ecoutes) parts.push(`- ${e.numero}${e.cible ? ` (${e.cible})` : ''} : du ${e.dateDebut} au ${e.dateFin} — ${e.statut}`)
+    for (const e of ecoutes) parts.push(`- ${e.numero}${e.cible ? ` (${e.cible})` : ''} : du ${e.dateDebut} au ${e.dateFin} — ${e.statut}${motivation(e.description)}`)
   }
   const geolocs = enquete.geolocalisations || []
   if (geolocs.length) {
     parts.push('\n## Géolocalisations')
-    for (const g of geolocs) parts.push(`- ${g.objet} : du ${g.dateDebut} au ${g.dateFin}`)
+    for (const g of geolocs) parts.push(`- ${g.objet} : du ${g.dateDebut} au ${g.dateFin} — ${g.statut}${motivation(g.description)}`)
   }
   const actes = enquete.actes || []
   if (actes.length) {
     parts.push('\n## Autres actes')
-    for (const a of actes) parts.push(`- ${(a as { type?: string }).type || 'acte'} : ${stripHtml(String((a as { description?: string }).description || ''))}`.slice(0, 300))
+    for (const a of actes) parts.push(`- ${a.type || 'acte'} : du ${a.dateDebut} au ${a.dateFin} — ${a.statut}${motivation(a.description)}`)
   }
 
   const crs = [...(enquete.comptesRendus || [])].sort((a, b) => String(a.date).localeCompare(String(b.date)))
@@ -54,11 +61,11 @@ export function buildDossierMarkdown(enquete: Enquete, docTexts?: Array<{ name: 
     parts.push('\n## Documents (texte extrait)')
     for (const d of docTexts) {
       parts.push(`\n### ${d.name}`)
-      parts.push(d.text.slice(0, 12_000))
+      parts.push(d.text)
     }
   }
 
-  return parts.join('\n').slice(0, 380_000)
+  return parts.join('\n')
 }
 
 /**
