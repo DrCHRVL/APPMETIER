@@ -2,12 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Enquete, GeolocData, DateManagerData, ProlongationHistoryEntry } from '@/types/interfaces';
 import ProgressBar from '../ProgressBar';
-import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp, Ban } from 'lucide-react';
+import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp, Ban, Bell, BellOff } from 'lucide-react';
 import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
 import { AutorisationValidationModal } from '../modals/AutorisationValidationModal';
-import { ActeUtils, getStatutBadgeProps, trackDeletedActeId, isActeEnAttenteDePose } from '@/utils/acteUtils';
+import { ActeUtils, getStatutBadgeProps, trackDeletedActeId, isActeEnAttenteDePose, isAlerteCoupee, toggleAlertesCoupees } from '@/utils/acteUtils';
 import { useToast } from '@/contexts/ToastContext';
 import { DateUtils } from '@/utils/dateUtils';
 import { Badge } from '@/components/ui/badge';
@@ -283,6 +283,12 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
     showToast('Géolocalisation supprimée', 'success');
   };
 
+  // Coupe / rétablit les alertes d'échéance d'une mesure qu'on sait ne pas prolonger.
+  const handleToggleAlertes = (id: number) => {
+    if (!onUpdate || !enquete.geolocalisations) return;
+    onUpdate(enquete.id, { geolocalisations: toggleAlertesCoupees(enquete.geolocalisations, id) });
+  };
+
   const handleRefuseJLD = (id: number) => {
     if (!onUpdate || !enquete || !enquete.geolocalisations) return;
     const updatedGeolocs = enquete.geolocalisations.map(geoloc =>
@@ -324,7 +330,7 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
   const nbPosePending         = activeGeolocs.filter(g => g.statut === 'pose_pending').length;
   const nbProlongationPending = activeGeolocs.filter(g => g.statut === 'prolongation_pending').length;
   const nbExpireSoon          = activeGeolocs.filter(g =>
-    g.statut === 'en_cours' && g.dateFin &&
+    g.statut === 'en_cours' && g.dateFin && !isAlerteCoupee(g) &&
     new Date(g.dateFin) <= sevenDaysFromNow && new Date(g.dateFin) >= now
   ).length;
   const hasUrgences = nbAutorisationPending + nbPosePending + nbProlongationPending + nbExpireSoon > 0;
@@ -370,6 +376,9 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="font-medium">{geoloc.objet}</span>
                   <Badge className={`text-xs px-1.5 py-0 border ${statutBadge.className}`}>{statutBadge.label}</Badge>
+                  {geoloc.statut === 'en_cours' && isAlerteCoupee(geoloc) && (
+                    <Badge className="text-xs px-1.5 py-0 border bg-gray-100 text-gray-500 border-gray-200">Alertes coupées</Badge>
+                  )}
                 </div>
                 {geoloc.description && (
                   <p className="text-sm text-gray-600 mt-1">{geoloc.description}</p>
@@ -423,6 +432,16 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
                     onClick={() => setProlongationGeolocId(geoloc.id)}
                   >
                     <Clock className="h-4 w-4" />
+                  </Button>
+                )}
+                {onUpdate && geoloc.statut === 'en_cours' && geoloc.dateFin && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleToggleAlertes(geoloc.id)}
+                    title={isAlerteCoupee(geoloc) ? "Rétablir les alertes d'échéance" : "Couper les alertes d'échéance (mesure qui ne sera pas prolongée)"}
+                  >
+                    {isAlerteCoupee(geoloc) ? <BellOff className="h-4 w-4 text-gray-400" /> : <Bell className="h-4 w-4" />}
                   </Button>
                 )}
                 {geoloc.statut === 'prolongation_pending' && (
