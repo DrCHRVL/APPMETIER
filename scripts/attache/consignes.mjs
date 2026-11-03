@@ -122,14 +122,6 @@ export const SOCLES = {
     'Ne signale rien, ne publie rien, ne pose aucune question.',
   ].join('\n'),
 
-  carto_chat: [
-    'S\'il te colle un PV / un résumé / une synthèse pour en cartographier l\'affaire : RECOUPE d\'abord les noms (recouper_personnes), puis dépose une proposition de dossier EX NIHILO (proposer_dossier_carto — label, misEnCause, source). Les personnes connues seront rattachées, les inconnues créées en « MEC lié ex nihilo ». Le dossier n\'est créé qu\'à la validation ✓.',
-    'Sinon, commence par carto_analyser (figures centrales, ponts entre affaires, co-occurrences, liens de renseignement tracés). Objectif : l\'aider à VOIR LES CONNEXIONS et améliorer la visibilité.',
-    'S\'il te demande une ANALYSE TRANSVERSALE (« analyse TOUS les dossiers », « trouve les liens cachés », « quelle architecture derrière ces affaires ») : suis la MÉTHODE DE RECHERCHE PROFONDE — carto_corpus (enquêtes archivées + instruction, avec pièces), registre_recouper pour les entités déjà partagées (zéro jeton), pieces_chercher SANS numero pour localiser dans TOUT le fonds (enquêtes archivées, instructions, documents de la carte — alternatives en OU, expressions exactes), puis LIS les pièces trouvées en entier pour remonter surnoms, personnes au 2nd plan, adresses, plaques, téléphones, puis proposer_lien / proposer_mec_carto / proposer_dossier_carto. Les signaux faibles sont dans les PV, pas dans les listes de mis en cause. L\'exhaustivité se gagne en allant au bout du parcours (curseur jusqu\'à « fin »), pas en concluant sur un échantillon.',
-    'S\'il te demande L\'HISTOIRE d\'un clan, le CONFLIT entre deux clans, ou QUI EST une personne (« raconte-moi le clan X », « le conflit X/Y », « que sait-on de X ? ») : pars de carto_histoire (dossier de renseignement en un appel : membres, fiches, rôles, liens, dossiers réels/instruction/ex nihilo et documents versés), puis SUIS SA MÉTHODE — lecture des CR et descriptions (lire_dossier), des documents versés (carto_lire_document), du module instruction ; récit CHRONOLOGIQUE et SOURCÉ ; attention aux SUCCESSIONS et SCISSIONS (un réseau démantelé dont un lieutenant remonte sa structure). Au fil de la lecture, PROPOSE ce que tu découvres : proposer_lien (motivé et sourcé, personne↔personne ou personne↔dossier ex nihilo), proposer_note_mec, proposer_camp_carto. Si la matière déborde, localise d\'abord (pieces_chercher sans numero sur les noms et surnoms du sujet), puis lis les pièces utiles en entier.',
-    'Tu peux aussi : identifier les figures pivots et les ponts entre affaires, repérer les cloisonnements, et SUGGÉRER les liens de renseignement manquants — que tu déposes en propositions (proposer_lien, avec la pièce source), jamais tracés d\'office. Réponses concises et structurées.',
-  ].join('\n'),
-
   carto_profonde: [
     'Corpus COMPLET pour une recherche profonde de renseignement : toutes les enquêtes (archivées comprises) et tous les dossiers d\'instruction, avec leurs mis en cause DÉCLARÉS et le nombre de pièces. Les signaux faibles (surnoms, personnes au 2nd plan jamais mises en cause, adresses, plaques, téléphones, comptes) sont dans les PIÈCES — pas dans la liste des mis en cause.',
     'COMMENCE PAR LE REGISTRE : registre_recouper rend d\'un coup, à coût nul, les téléphones, plaques, IBAN, adresses et personnes présents dans AU MOINS DEUX dossiers — extraits automatiquement du texte de TOUTES les pièces versées — avec les pièces exactes de chaque côté. C\'est la carte des liens cachés dans la masse ; registre_lire(numero) donne le sommaire pièce par pièce d\'un dossier. VÉRIFIE ensuite chaque recoupement dans les pièces citées (lire_document) : une entité partagée peut être anodine (taxi, avocat, service public).',
@@ -268,12 +260,6 @@ export const CATALOGUE = [
     id: 'carto_profonde', groupe: 'Cartographie', label: 'Recherche profonde (corpus transversal)',
     resume: 'La MÉTHODE servie avec le corpus complet : comment fouiller et lire les pièces de tous les dossiers, recouper et proposer.',
     quand: 'Dès que l\'attaché appelle carto_corpus — le cœur d\'une analyse transversale de renseignement.',
-    variables: [],
-  },
-  {
-    id: 'carto_chat', groupe: 'Cartographie', label: 'Cadrage du chat cartographie',
-    resume: 'Le contexte injecté au premier message d\'une conversation ouverte depuis le module Cartographie.',
-    quand: 'Premier message de chaque conversation lancée depuis la carte.',
     variables: [],
   },
 ]

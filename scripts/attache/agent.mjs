@@ -278,21 +278,11 @@ export function systemPrompt(keys) {
 
 // ── Transcripts chiffrés des conversations ──
 
-export function listConversations() {
-  return listFiles('conversations')
-    .map((f) => ({ id: f.name.replace(/\.json$/, ''), mtime: f.mtime, size: f.size }))
-}
-
 export function readConversation(keys, id) {
   if (!/^[\w-]+$/.test(id)) return null
   const env = readEnvelopeFile(path.join('conversations', id + '.json'))
   if (!env) return null
   try { return decryptJson(keys.global, env) } catch { return null }
-}
-
-export function readConversationEnvelope(id) {
-  if (!/^[\w-]+$/.test(id)) return null
-  return readEnvelopeFile(path.join('conversations', id + '.json'))
 }
 
 async function saveConversation(keys, conv) {
@@ -673,11 +663,4 @@ export function testClaudeAuth() {
       resolve({ ok: false, error: `claude s'est arrêté (code ${code})${texte ? ' — ' + texte : ''}` })
     })
   })
-}
-
-export function deleteConversation(id) {
-  if (!/^[\w-]+$/.test(id)) return false
-  const p = attacheDir('conversations', id + '.json')
-  if (fs.existsSync(p)) { fs.unlinkSync(p); return true }
-  return false
 }

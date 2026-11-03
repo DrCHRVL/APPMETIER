@@ -492,8 +492,8 @@ export function AdminAttachePanel() {
       const data = await res.json().catch(() => ({} as { ok?: boolean; error?: string }));
       setApprMsg(res.ok && data.ok
         ? (action === 'etude'
-          ? 'Étude du corpus lancée — l\'attaché dépouille vos actes validés (sous-agents) ; les modèles extraits (trames « modele-… ») et le livrable arriveront dans le fil « pendant votre absence ».'
-          : 'Consolidation lancée (run court, modèle économe) — la carte « Apprentissage » arrivera dans le fil « pendant votre absence », et la mémoire distillée sera visible dans le panneau de l\'attaché.')
+          ? 'Étude du corpus lancée — l\'attaché dépouille vos actes validés (sous-agents) ; les modèles extraits (trames « modele-… ») et le livrable arriveront dans « Actes rédigés — hors dossier » (page Assistant de justice).'
+          : 'Consolidation lancée (run court, modèle économe) — la mémoire de l\'attaché sera mise à jour.')
         : `Lancement refusé : ${data.error || res.status}`);
       setTimeout(loadAppr, 1500);
     } catch (e) {
@@ -684,7 +684,7 @@ export function AdminAttachePanel() {
       }).catch(() => null);
       setNotice(
         `${savedNoms.length} trame(s) enregistrée(s)${failed.length ? ` — échec : ${failed.join(', ')}` : ''}. ` +
-        (res?.ok ? 'Classement lancé : une description par trame arrivera dans le fil « pendant votre absence » (quelques secondes).'
+        (res?.ok ? 'Classement lancé : une description par trame apparaîtra dans la bibliothèque (quelques secondes).'
           : 'Classement non lancé (service occupé ou injoignable) — relancez depuis ce panneau.')
       );
     } else {
@@ -779,7 +779,7 @@ export function AdminAttachePanel() {
     }).catch(() => null);
     const data = res ? await res.json().catch(() => ({} as { error?: string })) : { error: 'service injoignable' };
     setNotice(res?.ok
-      ? 'Classement des skills lancé — seules celles sans description sont décrites (le résultat arrive dans le fil « pendant votre absence »).'
+      ? 'Classement des skills lancé — seules celles sans description sont décrites.'
       : `Classement impossible : ${data.error || 'erreur'}`);
     setSkillAnalyseBusy(false);
   }, [status]);
@@ -805,7 +805,7 @@ export function AdminAttachePanel() {
     }).catch(() => null);
     const data = res ? await res.json().catch(() => ({} as { error?: string })) : { error: 'service injoignable' };
     const msg = res?.ok
-      ? `Classement de ${noms.length} trame(s) lancé — une description par trame ; le résultat arrive dans le fil « pendant votre absence » (quelques secondes).`
+      ? `Classement de ${noms.length} trame(s) lancé — une description par trame apparaîtra dans la bibliothèque (quelques secondes).`
       : `Classement impossible : ${data.error || 'erreur'}`;
     setTrameAnalyseMsg(msg);
     setNotice(msg);
@@ -950,7 +950,7 @@ export function AdminAttachePanel() {
 
   const runRoutineNow = useCallback(async (id: string) => {
     await fetch('/api/attache/routines?run=' + encodeURIComponent(id), { method: 'POST' }).catch(() => {});
-    setNotice('Routine lancée — le résultat arrivera dans le fil « pendant votre absence ».');
+    setNotice('Routine lancée.');
   }, []);
 
   const grantKeys = useCallback(async () => {
@@ -1225,9 +1225,8 @@ export function AdminAttachePanel() {
             <span className="font-semibold text-gray-900">Masquer toutes les fonctionnalités</span>
             <span className="mt-0.5 block text-xs leading-relaxed text-gray-500">
               Retire de l&apos;application l&apos;entrée « Assistant de justice », sa page, le raccourci de la
-              barre du haut, les actes rédigés des fiches dossier, le chat de dossier, les propositions
-              de renseignement et les boutons attaché de la cartographie (« Détecter les camps »,
-              « Enrichir »). Rien n&apos;est supprimé et le service continue son travail de fond :
+              barre du haut, les actes rédigés des fiches dossier et les propositions de renseignement
+              de la cartographie. Rien n&apos;est supprimé et le service continue son travail de fond :
               seule la présence à l&apos;écran change. Cet onglet, lui, reste accessible — sans quoi
               vous ne pourriez plus revenir en arrière.
             </span>
@@ -1283,7 +1282,7 @@ export function AdminAttachePanel() {
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
           Le service attaché n'est pas joignable
           {status?.code ? <> — réponse <code>{status.code}</code>{status?.motif ? <> : {status.motif}</> : null}</> : null}.
-          Rien n'est perdu : actes rédigés, propositions et conversations restent sur le serveur.
+          Rien n'est perdu : actes rédigés et propositions restent sur le serveur.
           Vérifiez sur le serveur :
           <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-gray-500">
             <li><code>SIRAL_ATTACHE_URL</code> défini pour l'app (ex. <code>http://attache:8787</code>)</li>
@@ -1325,7 +1324,7 @@ export function AdminAttachePanel() {
       <p className="text-xs leading-relaxed text-gray-500">
         Assistant réservé à l'administrateur — invisible des autres utilisateurs. TJ : <b>{status?.tj}</b> ·
         contentieux confié : <b>{status?.contentieux}</b>. Il prépare et agit dans SIRAL (réversible, journalisé) ;
-        ses livrables et réponses s'affichent <b>dans l'application</b> (fil « pendant votre absence », actes rédigés) —
+        ses livrables et réponses s'affichent <b>dans l'application</b> (actes rédigés) —
         aucun mail sortant.
       </p>
 
@@ -1393,7 +1392,7 @@ export function AdminAttachePanel() {
 
       {/* Connexion Claude Code — le « cerveau » de l'attaché tient à cette
           session d'abonnement, qui expire. Sans ce bloc, la panne se lisait
-          seulement comme un « Not logged in » dans le fil de conversation. */}
+          seulement comme un « Not logged in » dans les résultats des runs. */}
       <div className={`rounded-xl border ${status?.claude?.ok === false ? 'border-amber-300' : 'border-gray-200'}`}>
         <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
           <Sparkles className="h-4 w-4 text-[#2B5746]" />
@@ -1646,7 +1645,7 @@ export function AdminAttachePanel() {
 
           <p className="text-[10.5px] leading-relaxed text-gray-400">
             Une boîte <b>vide</b> n'est pas forcément un problème : elle le reste tant qu'aucun mail n'y est transféré,
-            et les messages déjà relevés n'y réapparaissent pas (ils passent dans le fil « pendant votre absence »).
+            et les messages déjà relevés n'y réapparaissent pas.
             Le test ci-dessus se connecte en <b>lecture seule</b> et ne relève rien — il sert à distinguer « boîte vide »
             d'un vrai problème de connexion. Les identifiants de la boîte se règlent sur le serveur (<code>docs/ATTACHE.md</code>) ;
             l'envoi de mails est désactivé (les réponses restent dans l'application).
@@ -1907,7 +1906,7 @@ export function AdminAttachePanel() {
                   <p className="rounded-lg border border-red-200 bg-red-50/70 px-3 py-2 text-[11px] leading-relaxed text-red-700">
                     <b>Runs automatiques en pause</b> — forfait saturé ({governor.raison}). Vos routines, l'étude et les
                     routines de fond sont suspendus et repartiront seuls dès que la fenêtre de 5 h sera redescendue.
-                    Vos conversations et le traitement des mails continuent (les sous-agents sont automatiquement bridés).
+                    Le traitement des mails continue (les sous-agents sont automatiquement bridés).
                     {governor.cause === '7j' && (
                       <> Les <b>analyses profondes</b>, elles, ne s'arrêtent pas sur le repère hebdomadaire — un plafond
                       estimé n'annule pas un dépouillement que vous avez validé : elles avancent seulement un lot à la fois.</>
@@ -1918,7 +1917,7 @@ export function AdminAttachePanel() {
                   <p className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-[11px] leading-relaxed text-amber-700">
                     <b>Bridage automatique actif</b> — vous approchez du plafond ({governor.raison}). Les sous-agents
                     passent d'office en régime économe (modèle rapide, moins de tours, moins de parallélisme), sans
-                    toucher à vos conversations.
+                    toucher au traitement des mails.
                   </p>
                 )}
 
@@ -2082,8 +2081,7 @@ export function AdminAttachePanel() {
             <span className="text-[11.5px] leading-relaxed text-gray-700">
               <span className="inline-flex items-center gap-1 font-semibold text-emerald-800"><Leaf className="h-3.5 w-3.5" /> Mode économe</span>
               {' '}— pour freiner la consommation, surtout des sous-agents : ils basculent sur un modèle rapide
-              (Haiku), avec moins de tours et un effort réduit ; le run principal est aussi resserré. Vos conversations
-              gardent le modèle choisi. À activer quand les jetons filent vite ; à couper pour les dépouillements lourds.
+              (Haiku), avec moins de tours et un effort réduit ; le run principal est aussi resserré. À activer quand les jetons filent vite ; à couper pour les dépouillements lourds.
             </span>
           </label>
 
@@ -2570,7 +2568,7 @@ export function AdminAttachePanel() {
             <div className="flex flex-wrap items-center gap-2">
               <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-gray-600">
                 <input type="checkbox" checked={analyseAfter} onChange={(e) => setAnalyseAfter(e.target.checked)} />
-                Faire classer par l'attaché après l'enregistrement : une description par trame (rapide, fil « pendant votre absence »)
+                Faire classer par l'attaché après l'enregistrement : une description par trame (rapide)
               </label>
               <button onClick={() => setStaged([])} disabled={uploadBusy !== null}
                 className="ml-auto rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">Annuler</button>
@@ -2637,7 +2635,7 @@ export function AdminAttachePanel() {
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => analyseTrames(trames.map((t) => t.nom))} disabled={trameAnalyseBusy}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-                title="L'attaché parcourt la bibliothèque et donne à chaque trame une description (type d'acte, cadre juridique, articles visés, régime 706-80). Passe rapide et économe — quelques secondes. Pour une analyse juridique en profondeur d'une trame (nullités, contrôle de légalité), demandez-la dans le chat de l'attaché.">
+                title="L'attaché parcourt la bibliothèque et donne à chaque trame une description (type d'acte, cadre juridique, articles visés, régime 706-80). Passe rapide et économe — quelques secondes. Pour une analyse juridique en profondeur d'une trame (nullités, contrôle de légalité), demandez-la dans Claude web (connecteur SIRAL).">
                 {trameAnalyseBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                 Classer la bibliothèque
               </button>

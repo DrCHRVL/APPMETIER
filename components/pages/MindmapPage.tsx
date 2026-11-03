@@ -8,7 +8,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, FileDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pencil, Pin, PinOff, Plus, RefreshCw, Save, Shrink, Sparkles, Trophy, User, X } from 'lucide-react';
+import { Check, ChevronDown, FileDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pencil, Pin, PinOff, Plus, RefreshCw, Save, Shrink, Trophy, User, X } from 'lucide-react';
 import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
 import type { Enquete } from '@/types/interfaces';
 import {
@@ -40,9 +40,7 @@ import { useTags } from '@/hooks/useTags';
 import { useNatinf } from '@/hooks/useNatinf';
 import { categoryForEntry } from '@/lib/natinf/nataff';
 import { useUser } from '@/contexts/UserContext';
-import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { NouveauxDossiersPropositions } from '../attache/NouveauxDossiersPropositions';
-import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 import { useToast } from '@/contexts/ToastContext';
 import type { InfluenceCluster } from '../mindmap/influenceHull';
 import type { RenameMecReport } from '@/utils/renameMec';
@@ -131,10 +129,6 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   knownNameHints,
   onRenameMec,
 }) => {
-  // Interrupteur « fonctionnalités IA » : coché, la carte ne montre plus
-  // « Détecter les camps (attaché) », « Enrichir (attaché) », le chat carto ni
-  // les propositions de renseignement.
-  const iaMasquee = useIaMasquee();
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [sidePanelMecId, setSidePanelMecId] = useState<string | undefined>();
   // Mode ego-network : id du nœud focus, ou undefined pour vue globale.
@@ -472,111 +466,6 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     },
     [mecsExNihilo, updateMec, addMec],
   );
-
-  // Le service attaché est un PROCESSUS SÉPARÉ de l'app : après une mise à
-  // jour, l'interface peut être neuve pendant que lui tourne encore sur
-  // l'ancienne version — il recevrait alors une consigne citant des outils
-  // qu'il n'a pas (ex. proposer_camp_carto) et rendrait une analyse sans
-  // aucune proposition. On vérifie donc SES capacités avant d'envoyer.
-  const verifierCapaciteAttache = React.useCallback(async (capacite: string): Promise<boolean> => {
-    try {
-      const res = await fetch('/api/attache/status');
-      if (!res.ok) {
-        showToast('Service attaché injoignable — vérifie qu\'il est démarré', 'error');
-        return false;
-      }
-      const data = await res.json().catch(() => ({} as { capacitesCarto?: string[] }));
-      if (!Array.isArray(data.capacitesCarto) || !data.capacitesCarto.includes(capacite)) {
-        showToast(
-          'Le service attaché tourne sur une ANCIENNE version (il n\'a pas encore les outils cartographie récents) — mets-le à jour / redémarre-le, puis relance.',
-          'error',
-        );
-        return false;
-      }
-      return true;
-    } catch {
-      showToast('Service attaché injoignable — vérifie qu\'il est démarré', 'error');
-      return false;
-    }
-  }, [showToast]);
-
-  // Enrichissement d'une fiche par l'attaché : PRÉ-REMPLIT le chat carto
-  // (admin) avec la consigne de recherche — rien d'automatique, l'attaché
-  // dépose ensuite une PROPOSITION ✓/✗ qui n'écrase jamais les notes.
-  const [enrichPrefill, setEnrichPrefill] = useState<{ text: string; seq: number } | undefined>();
-  const handleEnrichMec = React.useCallback(async (mec: MecNode) => {
-    if (!(await verifierCapaciteAttache('proposer_note_mec'))) return;
-    const alias = [...(mec.manualAlias || []), ...mec.variants].slice(0, 4);
-    const text = `Recherche tout ce que nos dossiers (enquêtes, instruction, pièces, CR) disent de ${mec.displayName}`
-      + (alias.length ? ` (alias/orthographes : ${alias.join(', ')})` : '')
-      + `. Rôle supposé, entourage, dossiers où il apparaît, adresses/téléphones/véhicules, éléments de contexte — cite tes sources (pièce et dossier). `
-      + `Consulte AUSSI les fiches de la carte (carto_lire_fiches) : les notes des personnes, les descriptions des dossiers ex nihilo `
-      + `que j'ai créés, et les documents que j'y ai versés (carto_lire_document) sont riches en renseignement. `
-      + `Quand tu as fini, dépose UNE proposition d'enrichissement de sa fiche avec proposer_note_mec `
-      + `(l'ajout sera fait à la suite de mes notes, sans jamais les modifier ni les contredire). N'écris rien d'office.`;
-    setEnrichPrefill(prev => ({ text, seq: (prev?.seq ?? 0) + 1 }));
-  }, [verifierCapaciteAttache]);
-
-  // Détection automatique des camps par l'attaché : réservée aux GROS amas
-  // (c'est là que les groupes rivaux s'enchevêtrent — inutile sur un petit
-  // réseau). On calcule les composantes connexes côté client, on donne à
-  // l'attaché les membres des plus grosses, et il PROPOSE des camps ✓/✗ —
-  // sans jamais écraser une assignation ou un retrait manuels.
-  const DETECT_MIN_MEC = 15;
-  const handleDetectCamps = React.useCallback(async () => {
-    if (!(await verifierCapaciteAttache('proposer_camp_carto'))) return;
-    // Composantes connexes sur les arêtes de données (les liens de
-    // renseignement ne fusionnent pas les réseaux — même règle que les
-    // couleurs et les bulles).
-    const adj = new Map<string, string[]>();
-    for (const e of graph.edges) {
-      if (e.kind === 'renseignement') continue;
-      if (!adj.has(e.source)) adj.set(e.source, []);
-      if (!adj.has(e.target)) adj.set(e.target, []);
-      adj.get(e.source)!.push(e.target);
-      adj.get(e.target)!.push(e.source);
-    }
-    const visited = new Set<string>();
-    const bigComponents: string[][] = [];
-    for (const mec of graph.mecById.values()) {
-      if (visited.has(mec.id)) continue;
-      const compMecs: string[] = [];
-      const queue = [mec.id];
-      visited.add(mec.id);
-      while (queue.length) {
-        const id = queue.shift()!;
-        const node = graph.mecById.get(id);
-        if (node) compMecs.push(node.displayName);
-        for (const nb of adj.get(id) || []) {
-          if (!visited.has(nb)) { visited.add(nb); queue.push(nb); }
-        }
-      }
-      if (compMecs.length >= DETECT_MIN_MEC) bigComponents.push(compMecs);
-    }
-    if (bigComponents.length === 0) {
-      showToast(`Aucun amas assez gros (≥ ${DETECT_MIN_MEC} personnes) pour une détection de camps`, 'info');
-      return;
-    }
-    bigComponents.sort((a, b) => b.length - a.length);
-    const retained = bigComponents.slice(0, 2);
-    const blocs = retained.map((names, i) =>
-      `Amas ${i + 1} (${names.length} personnes) : ${names.slice(0, 100).join(', ')}${names.length > 100 ? '…' : ''}`,
-    ).join('\n');
-    const text = `Détection de camps sur ${retained.length > 1 ? 'les plus gros amas' : 'le plus gros amas'} de la carte.\n${blocs}\n`
-      + `Analyse ce qui structure ${retained.length > 1 ? 'chaque amas' : 'cet amas'} : lis les descriptions et CR des dossiers communs (lire_dossier), `
-      + `mes fiches et dossiers ex nihilo (carto_lire_fiches — leurs notes sont riches) et les DOCUMENTS que j'y ai versés (carto_lire_document : synthèses, dossiers complets), `
-      + `les liens tracés (carto_lister_liens) et les co-occurrences (carto_analyser). `
-      + `Identifie les CAMPS/CLANS rivaux (2 à 4 par amas maximum) et propose CHAQUE camp avec proposer_camp_carto — membres SÛRS uniquement `
-      + `(dans le doute, laisse la personne hors camp), motif sourcé. `
-      + `Cherche aussi les SUCCESSIONS et SCISSIONS : un clan démantelé dont un lieutenant a remonté son propre réseau avec les mêmes hommes `
-      + `— nomme alors le camp successeur explicitement (ex. « Réseau Zouaoui (ex-Krasniqi) ») et dis la filiation dans le motif. `
-      + `Au passage, propose les LIENS que ta lecture révèle (proposer_lien — nature du lien et source à l'appui, personne↔personne ou personne↔dossier ex nihilo). `
-      + `Les camps déjà assignés sont dans carto_lire_fiches : ne les contredis pas. N'écris rien d'office — je validerai ✓/✗ chaque proposition. `
-      + `Et propose TOUJOURS quelque chose : les camps dont tu es sûr partent en proposer_camp_carto MAINTENANT, même si l'analyse est incomplète ; `
-      + `si le reste demande de vraies lectures (pièces, documents volumineux), fais-les : pieces_chercher sans numéro pour localiser dans tout le fonds, `
-      + `puis lire_document / carto_lire_document pour lire en entier. Ne me renvoie jamais faire la démarche moi-même.`;
-    setEnrichPrefill(prev => ({ text, seq: (prev?.seq ?? 0) + 1 }));
-  }, [graph, showToast, verifierCapaciteAttache]);
 
   // ────────────────────────────────────────────
   // ACTIONS
@@ -1264,7 +1153,6 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             onRename={onRenameMec ? handleRenameMec : undefined}
             renamePending={renamePending}
             onSaveFiche={handleSaveMecFiche}
-            onEnrichRequest={isAdmin() && !iaMasquee ? handleEnrichMec : undefined}
             onDeleteLien={removeLien}
           />
         )}
@@ -1273,14 +1161,13 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             de la carte s'estompe), un second clic annule. Le crayon ouvre
             l'édition du camp entier (nom, couleur). Pour l'admin, la légende
             porte aussi la détection automatique par l'attaché (gros amas). */}
-        {(campsSummary.length > 0 || (isAdmin() && !iaMasquee)) && (
+        {campsSummary.length > 0 && (
           <CampsLegend
             camps={campsSummary}
             highlight={campHighlight}
             onToggleHighlight={(label) =>
               setCampHighlight(prev => (prev === label ? undefined : label))}
             onUpdateCamp={handleUpdateCamp}
-            onDetect={isAdmin() && !iaMasquee ? handleDetectCamps : undefined}
           />
         )}
 
@@ -1388,10 +1275,6 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         <span><kbd className="px-1 bg-slate-100 rounded border border-slate-200">Molette</kbd> zoom</span>
       </div>
 
-      {/* Chat carto de l'attaché — admin only : analyse du réseau, propose
-          les liens de renseignement manquants (auto-masqué si inactif). */}
-      {isAdmin() && <FloatingDossierChat numero="carto" carto label="Cartographie" prefill={enrichPrefill} />}
-
       {/* Revue des propositions de renseignement de l'attaché : liens
           personne↔personne, personnes ex nihilo (surnoms/2nd plan) et
           dossiers ex nihilo issus de l'analyse transversale — validés ✓ ou
@@ -1429,9 +1312,7 @@ const CampsLegend: React.FC<{
   highlight?: string;
   onToggleHighlight: (label: string) => void;
   onUpdateCamp: (label: string, patch: { label?: string; color?: string }) => void;
-  /** Détection par l'attaché : réservée à l'admin (absent = bouton masqué). */
-  onDetect?: () => void;
-}> = ({ camps, highlight, onToggleHighlight, onUpdateCamp, onDetect }) => {
+}> = ({ camps, highlight, onToggleHighlight, onUpdateCamp }) => {
   // Libellé du camp en cours d'édition (undefined = aucune édition ouverte).
   const [editing, setEditing] = useState<string | undefined>();
   const [labelDraft, setLabelDraft] = useState('');
@@ -1459,16 +1340,6 @@ const CampsLegend: React.FC<{
     <div className="absolute bottom-3 left-3 z-20 bg-white/95 border border-slate-200 rounded-lg shadow-md px-3 py-2 w-[260px]">
       <div className="flex items-center justify-between mb-1.5">
         <div className="text-[10px] uppercase tracking-wide text-slate-500">Camps</div>
-        {onDetect && (
-          <button
-            onClick={onDetect}
-            title="Détecter les camps (attaché) — lit les descriptions de dossiers, les CR, les fiches et les liens du plus gros amas, puis propose des camps à valider ✓/✗ — vos assignations et retraits manuels ne sont jamais écrasés"
-            aria-label="Détecter les camps"
-            className="flex-shrink-0 p-1 rounded text-slate-300 hover:text-emerald-700 hover:bg-emerald-50"
-          >
-            <Sparkles className="h-3 w-3" />
-          </button>
-        )}
       </div>
       <div className="flex flex-col gap-1">
         {camps.map(c => {

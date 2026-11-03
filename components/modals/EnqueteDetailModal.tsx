@@ -29,7 +29,6 @@ import { TransfertContentieuxSection } from '../sections/TransfertContentieuxSec
 import { ChronologieSection } from '../attache/ChronologieSection';
 import { PropositionsBar } from '../attache/PropositionsBar';
 import { FluxBandeau } from '../attache/FluxBandeau';
-import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { Label } from '../ui/label';
 import { useToast } from '@/contexts/ToastContext';
 import { RefreshStatus } from '../ui/RefreshIconButton';
@@ -70,9 +69,6 @@ interface EnqueteDetailModalProps {
   onTransferEnquete?: (enqueteId: number, targetContentieuxId: string) => Promise<boolean>;
   /** Si true, cette enquête provient d'un autre contentieux */
   isSharedEnquete?: boolean;
-  /** Si true, le panneau « Attaché de justice » (chat) est ouvert à droite :
-   *  on décale le modal vers la zone libre à gauche pour éviter la superposition. */
-  attacheOpen?: boolean;
   /** Attaché IA disponible (sidecar configuré) : conditionne l'icône
    *  « Actualiser » de la description (admin uniquement). */
   attacheAvailable?: boolean;
@@ -117,7 +113,6 @@ const EnqueteDetailModalImpl = ({
   onUnshareEnquete,
   onTransferEnquete,
   isSharedEnquete = false,
-  attacheOpen = false,
   attacheAvailable = false,
   recoupements,
 }: EnqueteDetailModalProps) => {
@@ -351,15 +346,7 @@ const EnqueteDetailModalImpl = ({
     <>
       <Dialog open={!!enquete} onOpenChange={handleClose}>
         <DialogContent
-          className={`max-w-6xl max-h-[90vh] bg-white overflow-hidden flex flex-col max-sm:left-0 max-sm:right-0 max-sm:top-[env(safe-area-inset-top)] max-sm:bottom-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:max-w-full max-sm:max-h-none max-sm:rounded-none max-sm:border-0 max-sm:p-0 lg:transition-[left,max-width] lg:duration-200 ${
-            // Chat « Attaché » ouvert : le drawer (440px) est fixé à droite. Sur
-            // écran large, on recentre le modal dans l'espace restant à gauche
-            // (décalage du centre de 220px + largeur plafonnée) au lieu de le
-            // laisser centré sous le panneau.
-            attacheOpen
-              ? 'lg:left-[calc(50%-13.75rem)] lg:max-w-[min(72rem,calc(100vw-29.5rem))]'
-              : ''
-          }`}
+          className="max-w-6xl max-h-[90vh] bg-white overflow-hidden flex flex-col max-sm:left-0 max-sm:right-0 max-sm:top-[env(safe-area-inset-top)] max-sm:bottom-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:max-w-full max-sm:max-h-none max-sm:rounded-none max-sm:border-0 max-sm:p-0"
         >
           <DialogHeader className="flex-shrink-0 max-sm:px-4 max-sm:pt-2">
             <div className="flex justify-between items-center">
@@ -663,18 +650,6 @@ const EnqueteDetailModalImpl = ({
             </button>
           )}
 
-          {/* Chat flottant de l'attaché sur ce dossier — admin uniquement, déplaçable,
-              toujours accessible (même pendant la rédaction d'un CR). DANS le contenu
-              de la Dialog : Radix (modale) rend inerte tout ce qui vit dehors —
-              une bulle montée à l'extérieur serait visible mais insensible au clic. */}
-          {isAdmin() && (
-            <FloatingDossierChat
-              numero={enquete.numero}
-              cadre={enquete.statut === 'instruction' ? 'instruction' : 'preliminaire'}
-              label={enquete.numero}
-              inDialog
-            />
-          )}
         </DialogContent>
       </Dialog>
 
@@ -724,7 +699,6 @@ export const EnqueteDetailModal = React.memo(EnqueteDetailModalImpl, (a, b) =>
   a.contentieuxId === b.contentieuxId &&
   a.readOnly === b.readOnly &&
   a.isSharedEnquete === b.isSharedEnquete &&
-  a.attacheOpen === b.attacheOpen &&
   a.attacheAvailable === b.attacheAvailable &&
   a.recoupements === b.recoupements &&
   a.allKnownMec === b.allKnownMec &&

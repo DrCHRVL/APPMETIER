@@ -1,4 +1,4 @@
-import { Bell, Search, Save, RefreshCw, Download, Scale, Link2 } from 'lucide-react';
+import { Bell, Search, Save, RefreshCw, Download, Link2 } from 'lucide-react';
 import { useMultiSyncStatus } from '@/hooks/useMultiSyncStatus';
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
@@ -45,8 +45,6 @@ interface HeaderProps {
   isUpdating?: boolean;
   /** Mode épuré (profil JLD) : masque la recherche et les actions (sauvegarde, sync, alertes). */
   minimal?: boolean;
-  /** Attaché de justice IA — fourni UNIQUEMENT en session admin quand la fonctionnalité est active. */
-  onShowAttache?: () => void;
   /** Recherche globale : si fournie, la barre devient une omnibox (résultats
    *  de toute l'application). À défaut, simple filtre de la page courante. */
   globalSearch?: HeaderGlobalSearch;
@@ -81,7 +79,6 @@ export const Header = ({
   onShowUpdate,
   isUpdating = false,
   minimal = false,
-  onShowAttache,
   globalSearch,
   recoupements,
 }: HeaderProps) => {
@@ -242,26 +239,6 @@ export const Header = ({
               « gestionnaire des tâches » de SIRAL) */}
           <MoniteurActivite isAdmin={isAdmin} />
 
-          {/* Attaché de justice IA — admin uniquement, fonctionnalité activée */}
-          {onShowAttache && (
-            <TooltipProvider>
-              <TooltipRoot>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="relative h-8 w-8 p-0 rounded-lg text-gray-500 hover:text-[#2B5746] hover:bg-emerald-50"
-                    onClick={onShowAttache}
-                  >
-                    <Scale className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>Attaché de justice</p>
-                </TooltipContent>
-              </TooltipRoot>
-            </TooltipProvider>
-          )}
 
           {/* Sauvegarde locale */}
           <TooltipProvider>

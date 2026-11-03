@@ -109,27 +109,14 @@ export async function writeCollectionEnvelopeRaw(collection, id, envelope) {
   })
 }
 
-// Fichiers-enveloppes uniques (mémoire, consignes) et cartes de statut en
-// clair (questions-status, journal-status) : mêmes relais
+// Fichiers-enveloppes uniques (mémoire, consignes) : mêmes relais
 // que les collections — l'app web délègue quand son accès disque est refusé.
 
 const SINGLE_ENVELOPE_RE = /^(memory|instructions|consignes|instructions-projet)$/
-const STATUS_MAP_RE = /^(questions-status|journal-status)$/
 
 export async function writeSingleEnvelopeRaw(name, envelope) {
   if (!SINGLE_ENVELOPE_RE.test(name)) throw new Error('Fichier inconnu')
   await writeEnvelopeFile(name + '.json', envelope)
-}
-
-export async function setStatusMapEntryRaw(file, id, entry) {
-  if (!STATUS_MAP_RE.test(file)) throw new Error('Fichier de statut inconnu')
-  if (!/^[a-f0-9]{6,32}$/.test(String(id || ''))) throw new Error('Identifiant invalide')
-  const p = attacheDir(file + '.json')
-  await withFileLock('status:' + file, async () => {
-    const all = readJson(p, {})
-    all[id] = entry
-    atomicWrite(p, JSON.stringify(all, null, 2))
-  })
 }
 
 export async function deleteCollectionEnvelopeRaw(collection, id) {

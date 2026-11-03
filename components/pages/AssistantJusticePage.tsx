@@ -5,9 +5,9 @@
  *
  * Regroupe, HORS du tableau de bord, tout ce que l'attaché IA prépare pour le
  * magistrat : les propositions à trancher, le FICHIER GLOBAL d'un dossier
- * (toutes ses pièces en texte, pour rédiger dans Claude web), le journal
- * (« Pendant votre absence »), les actes rangés depuis Claude web — par
- * dossier (la fiche enquête n'en a plus) et hors dossier — et la boîte dédiée.
+ * (toutes ses pièces en texte, pour rédiger dans Claude web), les actes rangés
+ * depuis Claude web — par dossier (la fiche enquête n'en a plus) et hors
+ * dossier — et la boîte dédiée.
  * Le tableau de bord retrouve ainsi sa lisibilité (indicateurs, OP, échéances,
  * agenda) ; l'assistant vit sur sa propre page.
  *
@@ -19,16 +19,18 @@
  *
  * Le « brief du majordome » (balayage matinal de tous les dossiers, un
  * sous-agent par dossier) a été RETIRÉ : premier poste de dépense du forfait
- * pour un rendu redondant avec les widgets du tableau de bord. Ce que l'attaché
- * a à dire arrive désormais par le fil « pendant votre absence » ; un balayage
+ * pour un rendu redondant avec les widgets du tableau de bord. Un balayage
  * régulier se planifie en routine (Paramètres → Attaché IA), de nuit.
+ *
+ * Le journal « pendant votre absence » et les chats de l'attaché (panneau
+ * global, bulle par dossier, chat carto) ont été RETIRÉS : discussion et
+ * rédaction passent par Claude web, branché sur SIRAL par le connecteur.
  *
  * Visible du SEUL administrateur : l'entrée de menu est masquée pour les autres
  * comptes (voir MultiSideBar) et la vue est gardée dans app/page.tsx. Défense en
  * profondeur : chaque widget se masque déjà de lui-même si /api/attache/* ≠ 200.
  */
 import { Scale, AlertTriangle } from 'lucide-react';
-import { AbsenceJournal } from '@/components/attache/AbsenceJournal';
 import { InboxWidget } from '@/components/attache/InboxWidget';
 import { ProductionsSection } from '@/components/attache/ProductionsSection';
 import { ActesRedigesDossiers } from '@/components/attache/ActesRedigesDossiers';
@@ -39,8 +41,7 @@ import { FichierGlobalSection } from '@/components/attache/FichierGlobalSection'
  * rechargement en boucle du bandeau, qui compare `kinds` par valeur). */
 const A_VALIDER_KINDS = ['dossier', 'dossier_carto', 'mec_carto', 'lien'] as const;
 
-export const AssistantJusticePage = ({ onOpenDossier, serviceDuDossier, serviceInjoignable }: {
-  onOpenDossier?: (numero: string) => void;
+export const AssistantJusticePage = ({ serviceDuDossier, serviceInjoignable }: {
   /** Service d'enquête d'un dossier — 2ᵉ segment du nom de fichier des actes exportés. */
   serviceDuDossier?: (numero: string) => string | undefined;
   /** Le service attaché ne répond plus : la page reste, mais dit pourquoi elle est vide. */
@@ -72,7 +73,7 @@ export const AssistantJusticePage = ({ onOpenDossier, serviceDuDossier, serviceI
           <div className="text-sm text-amber-900">
             <p className="font-semibold">Service attaché injoignable — rien ne peut être affiché.</p>
             <p className="mt-1 text-amber-800">
-              Vos actes rédigés, propositions et conversations sont intacts sur le serveur : c'est le
+              Vos actes rédigés et propositions sont intacts sur le serveur : c'est le
               service qui ne répond pas (conteneur arrêté, redémarrage en cours, ou machine saturée).
               L'application se raccroche toute seule dès qu'il répond de nouveau.
               Le détail du diagnostic est dans <b>Paramètres → Attaché</b>.
@@ -93,9 +94,6 @@ export const AssistantJusticePage = ({ onOpenDossier, serviceDuDossier, serviceI
       {/* Fichier global : toutes les pièces d'un dossier en un seul .txt — la
           voie par défaut pour un travail de fond (RD, synthèse) dans Claude web. */}
       <FichierGlobalSection />
-
-      {/* Journal « pendant votre absence » — actualisations, analyses, livrables */}
-      <AbsenceJournal onOpenDossier={onOpenDossier} serviceDuDossier={serviceDuDossier} />
 
       {/* Actes rangés depuis Claude web (connecteur) et livrables, par dossier —
           la fiche enquête n'en a plus. */}

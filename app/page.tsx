@@ -172,7 +172,6 @@ const AdminCartographyPanel = dynamic(() => import('@/components/admin/AdminCart
 const OfflineModePanel = dynamic(() => import('@/components/admin/OfflineModePanel').then(m => ({ default: m.OfflineModePanel })), { ssr: false });
 const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashboardPanel').then(m => ({ default: m.AdminDashboardPanel })), { ssr: false });
 // Attaché de justice IA — chargé uniquement en session admin quand le serveur l'active
-const AttachePanel = dynamic(() => import('@/components/attache/AttachePanel').then(m => ({ default: m.AttachePanel })), { ssr: false });
 const AdminAttachePanel = dynamic(() => import('@/components/admin/AdminAttachePanel').then(m => ({ default: m.AdminAttachePanel })), { ssr: false });
 const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHistoryPanel').then(m => ({ default: m.AdminTagHistoryPanel })), { ssr: false });
 const AdminNatinfPanel = dynamic(() => import('@/components/admin/AdminNatinfPanel').then(m => ({ default: m.AdminNatinfPanel })), { ssr: false });
@@ -222,14 +221,6 @@ function AppContent() {
   // paramètres qui le porte.
   const iaMasquee = useIaVisibiliteStore((s) => s.masque);
   const chargerIaVisibilite = useIaVisibiliteStore((s) => s.charger);
-  const [showAttache, setShowAttache] = useState(false);
-  // Le journal « pendant votre absence » peut demander l'ouverture du panneau
-  // attaché pour répondre aux décisions à trancher.
-  useEffect(() => {
-    const open = () => setShowAttache(true);
-    window.addEventListener('siral:open-attache', open);
-    return () => window.removeEventListener('siral:open-attache', open);
-  }, []);
   const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
   // Profil JLD : accès restreint au seul tableau de bord (aperçu d'acte dédié,
   // aucune autre vue, aucune alerte, aucun paramètre).
@@ -2096,7 +2087,6 @@ return (
             onShowUpdate={() => setShowUpdateModal(true)}
             isUpdating={isUpdating}
             minimal={isJLDUser}
-            onShowAttache={iaVisible ? () => setShowAttache(true) : undefined}
             globalSearch={!isJLDUser ? {
               api: globalSearchApi,
               contentieuxDefs: accessibleContentieux,
@@ -2183,7 +2173,7 @@ return (
 
           {/* Assistant de justice (attaché IA) — page dédiée, admin uniquement */}
           {baseView === 'assistant' && iaVisible && (
-            <AssistantJusticePage onOpenDossier={handleOpenDossierByNumero} serviceDuDossier={serviceDuDossier} serviceInjoignable={attacheInjoignable} />
+            <AssistantJusticePage serviceDuDossier={serviceDuDossier} serviceInjoignable={attacheInjoignable} />
           )}
 
           {baseView === 'enquetes' && (
@@ -2337,7 +2327,6 @@ return (
               onAjoutCR={handleAjoutCR}
               onUpdateCR={handleUpdateCR}
               onDeleteCR={handleDeleteCR}
-              attacheOpen={showAttache}
             />
           )}
 
@@ -2477,7 +2466,6 @@ return (
           onUnshareEnquete={handleUnshareEnquete}
           onTransferEnquete={handleTransferEnquete}
           isSharedEnquete={isSharedEnquete(selectedEnquete.id)}
-          attacheOpen={showAttache}
           attacheAvailable={iaVisible}
           recoupements={recoupementsDuDossier}
         />
@@ -2825,11 +2813,6 @@ return (
 
       {/* Invitations de partage entrantes (AIR / instruction) — pop-up un clic */}
       <ShareInvitationModal />
-
-      {/* Attaché de justice IA — panneau latéral (admin uniquement) */}
-      {iaVisible && (
-        <AttachePanel open={showAttache} onClose={() => setShowAttache(false)} />
-      )}
 
       {/* 🆕 Modal Paramètres multi-onglets.
           L'onglet « Attaché IA » y est TOUJOURS offert à l'administrateur —

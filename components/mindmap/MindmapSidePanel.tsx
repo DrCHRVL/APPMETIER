@@ -8,7 +8,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   X, ChevronDown, ChevronRight, FileText, Loader2, Minus, Pencil, Plus, Star, Users,
-  Link as LinkIcon, StickyNote, Sparkles, Flag, Crown,
+  Link as LinkIcon, StickyNote, Flag, Crown,
 } from 'lucide-react';
 import type { ContentieuxDefinition } from '@/types/userTypes';
 import type { MecRole } from '@/stores/useCartographieOverlayStore';
@@ -44,8 +44,6 @@ interface MindmapSidePanelProps {
   renamePending?: boolean;
   /** Enregistre notes + surnoms de la fiche manuelle (créée au besoin). */
   onSaveFiche?: (mec: MecNode, data: { notes?: string; alias: string[] }) => void;
-  /** Demande à l'attaché IA d'enrichir la fiche (action explicite, admin). */
-  onEnrichRequest?: (mec: MecNode) => void;
   /** Supprime un lien de renseignement (croix rouge, avec confirmation). */
   onDeleteLien?: (lienId: string) => void;
 }
@@ -71,7 +69,6 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
   onRename,
   renamePending = false,
   onSaveFiche,
-  onEnrichRequest,
   onDeleteLien,
 }) => {
   const ctxColorById = new Map<string, { color: string; label: string }>(
@@ -691,16 +688,6 @@ export const MindmapSidePanel: React.FC<MindmapSidePanelProps> = ({
             <div className="flex items-center gap-1.5 mb-2">
               <StickyNote className="h-3.5 w-3.5 text-slate-400" />
               <span className="text-xs uppercase tracking-wide text-slate-500 flex-1">Notes &amp; surnoms</span>
-              {onEnrichRequest && (
-                <button
-                  onClick={() => onEnrichRequest(mec)}
-                  title="Enrichir avec l'attaché — recherche cette personne dans les dossiers et pièces, puis PROPOSE un enrichissement de la fiche (✓/✗ — vos notes ne sont jamais modifiées ni effacées)"
-                  aria-label="Enrichir la fiche avec l'attaché"
-                  className="flex-shrink-0 p-1 rounded text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50"
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                </button>
-              )}
             </div>
             <div className="flex gap-1.5">
               <input

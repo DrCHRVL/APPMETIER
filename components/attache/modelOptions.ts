@@ -100,15 +100,3 @@ export async function saveAttacheConfig(patch: AttacheConfig): Promise<boolean> 
     return false
   }
 }
-
-/** Lit la configuration courante (modèle, effort, accès web). */
-export async function loadAttacheConfig(): Promise<AttacheConfig> {
-  try {
-    const res = await fetch('/api/attache/config')
-    if (!res.ok) return {}
-    const { config } = await res.json()
-    return config || {}
-  } catch {
-    return {}
-  }
-}

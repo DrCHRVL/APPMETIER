@@ -242,7 +242,7 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
         body: JSON.stringify({ analyse: savedIds }),
       }).catch(() => null);
       msg += res?.ok
-        ? ' Classement lancé : l\'attaché décrit et range chaque entrée — résultat dans le fil « pendant votre absence » (rapide).'
+        ? ' Classement lancé : l\'attaché décrit et range chaque entrée (rapide).'
         : ' Classement non lancé (service occupé ou injoignable) — relancez depuis ce panneau.';
     }
     onNotice(msg);
@@ -317,7 +317,7 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
     }).catch(() => null);
     const data = res ? await res.json().catch(() => ({} as { error?: string })) : { error: 'service injoignable' };
     const msg = res?.ok
-      ? `Rangement de ${ids.length} entrée(s) lancé — l'attaché lit chaque document, le décrit, le classe et signale doublons/contenu périmé (fil « pendant votre absence »).`
+      ? `Rangement de ${ids.length} entrée(s) lancé — l'attaché lit chaque document, le décrit, le classe et signale doublons/contenu périmé.`
       : `Rangement impossible : ${data.error || 'erreur'}`;
     setAnalyseMsg(msg);
     onNotice(msg);
@@ -495,7 +495,7 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
           <div className="flex flex-wrap items-center gap-2">
             <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-gray-600">
               <input type="checkbox" checked={analyseAfter} onChange={(e) => setAnalyseAfter(e.target.checked)} />
-              Faire analyser et classer par l&apos;attaché (description + catégorie mises à jour, fil « pendant votre absence »)
+              Faire analyser et classer par l&apos;attaché (description + catégorie mises à jour)
             </label>
             <button onClick={() => setStaged([])} disabled={uploadBusy !== null}
               className="ml-auto rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">Annuler</button>

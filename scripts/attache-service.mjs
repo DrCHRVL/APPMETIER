@@ -19,12 +19,12 @@ import crypto from 'node:crypto'
 import { loadMasterKey, decryptJson, encryptJson } from './attache/crypto.mjs'
 import { loadKeyring, grantKeyring, revokeKeyring, keyringStatus, allowedScopes } from './attache/keyring.mjs'
 import { handleConnectorMessage } from './attache-mcp.mjs'
-import { attacheTj, docServerKey, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
+import { attacheTj, docServerKey, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
 import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride, purgeInbox } from './attache/mail.mjs'
 import { inNightWindow, feuRecoupements, RECOUP_JOUR } from './attache/ordonnancement.mjs'
 import { writeClaudeToken, clearClaudeToken, clearAuthFailure } from './attache/claudeAuth.mjs'
-import { runAgent, checkClaudeCli, testClaudeAuth, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
+import { runAgent, checkClaudeCli, testClaudeAuth, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
 import { usageSummary } from './attache/usage.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { compilerFichierGlobal, entretenirFichiersGlobaux } from './attache/global.mjs'
@@ -44,7 +44,6 @@ import { listPropositions, decideProposition } from './attache/propositions.mjs'
 import { analyseDocuments } from './attache/analyse.mjs'
 import { lirePieceEntraide, sauverLecture, lireLectures } from './attache/entraideAnalyse.mjs'
 import { classerTrames, classerKb, classerSkills } from './attache/classer.mjs'
-import { readDossierMemory } from './attache/dossierMemory.mjs'
 import { listEnvelopesDossier, writeEnvelope, deleteProduction, readProduction, sommaireProductions } from './attache/productions.mjs'
 import { recordLearningSignal, consolidationDue, consolidationPrompt, learningStatus, learningState, latestSignalTs } from './attache/apprentissage.mjs'
 import { corpusActesValides, etudeDue, etudePrompt, etudeState, etudeStatus } from './attache/etude.mjs'
@@ -1636,21 +1635,6 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok })
     }
 
-    if (route === 'GET /dossier-memoire') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      return json(res, 200, { memoire: readDossierMemory(keys, url.searchParams.get('numero') || '') })
-    }
-
-    if (route === 'PUT /dossier-memoire') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      const body = await readBody(req)
-      const { setDossierMemory } = await import('./attache/dossierMemory.mjs')
-      await setDossierMemory(keys, String(body.numero || ''), String(body.contenu || ''))
-      return json(res, 200, { ok: true })
-    }
-
     if (route === 'GET /propositions') {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
@@ -1970,103 +1954,6 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         return json(res, 400, { error: String(e?.message || e) })
       }
-    }
-
-    // …et pour les cartes de statut en clair (questions / journal).
-    if (route === 'PUT /status-map') {
-      const body = await readBody(req)
-      try {
-        await setStatusMapEntryRaw(String(body.file || ''), String(body.id || ''), {
-          status: String(body.status || '').slice(0, 20),
-          at: new Date().toISOString(),
-          by: String(body.by || 'admin').slice(0, 80),
-        })
-        return json(res, 200, { ok: true })
-      } catch (e) {
-        return json(res, 400, { error: String(e?.message || e) })
-      }
-    }
-
-    if (route === 'GET /conversations') {
-      return json(res, 200, { conversations: listConversations() })
-    }
-
-    if (route === 'GET /conversation') {
-      const id = url.searchParams.get('id') || ''
-      const envelope = readConversationEnvelope(id)
-      return envelope ? json(res, 200, { envelope }) : json(res, 404, { error: 'Introuvable' })
-    }
-
-    if (route === 'DELETE /conversation') {
-      const id = url.searchParams.get('id') || ''
-      return json(res, 200, { ok: deleteConversation(id) })
-    }
-
-    if (route === 'POST /chat') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis — remettez les clés depuis Paramètres → Attaché' })
-      const body = await readBody(req)
-      const message = String(body.message || '').slice(0, 100_000)
-      if (!message.trim()) return json(res, 400, { error: 'Message vide' })
-
-      // Chat rattaché à un dossier précis (chat flottant) : on injecte le
-      // contexte au PREMIER message de la conversation, pour cadrer l'agent
-      // sans le répéter à chaque tour.
-      let prompt = message
-      if (body.carto && !body.convId) {
-        prompt = promptConsigne(keys, 'carto_chat', {
-          entete: 'CONTEXTE : le magistrat te consulte depuis le module CARTOGRAPHIE (vue réseau des personnes et affaires du contentieux).',
-          donnees: ['', `Question du magistrat : ${message}`],
-        })
-      } else if (body.dossier && !body.convId) {
-        const cadre = body.cadre === 'instruction' ? 'à l\'instruction' : 'en enquête préliminaire'
-        const memoire = readDossierMemory(keys, String(body.dossier))
-        prompt = [
-          `CONTEXTE : le magistrat te consulte sur le dossier « ${String(body.dossier).slice(0, 80)} » (${cadre}), depuis le chat flottant ouvert sur ce dossier.`,
-          'Sauf mention contraire, TOUTES ses questions portent sur ce dossier. Commence par lire_dossier (aperçu compact : objet, parties, actes + échéances, index des CR). Pour une donnée PRÉCISE (un propriétaire, une date, une échéance, une ligne), NE relis pas tout : cible-la — lire_dossier section:"fiche" cible:"<nom/ligne>", section:"cr" offset/limit pour un CR entier, ou lire_document sur une pièce. Pour LOCALISER une information dans les PIÈCES (« où parle-t-on de… », un nom, un numéro, une plaque) : registre_lire numero filtre:"…" (sommaire pièce par pièce — type, date, personnes, entités, résumé) puis pieces_chercher pour le texte intégral — les deux à coût nul, chemins + extraits en main ; relance pieces_chercher si des pièces restent nonExtraites. diagnostic_dossier, chronologie_lire, verifier_completude selon le besoin.',
-          'RÔLE — aide au contrôle et à la maîtrise : surveiller la direction d\'enquête (éparpillement des enquêteurs : partent-ils dans tous les sens ?), la cohérence entre actes demandés et réalisés, et LES DÉLAIS (en préliminaire, les TSE sont enserrés dans des délais courts — 2 mois typiquement — qui contraignent l\'action ; signale tout risque de dépassement et son incidence).',
-          'Réponses concises, factuelles, chiffrées, orientées décision. Tu peux déposer des propositions (proposer_mec/acte/cr) mais tu n\'écris jamais directement au dossier sans instruction explicite.',
-          'CANTONNEMENT : tu es l\'attaché de CE dossier et tu deviens progressivement SON expert. Les outils transversaux (carto_*, lister_dossiers, recoupements hors dossier) ne servent que sur demande EXPLICITE du magistrat. S\'il veut comparer ou relier ce dossier à d\'autres : pieces_chercher SANS numero (tout le fonds), registre_recouper numero:"<ce dossier>", recoupements_lire numero:"<ce dossier>".',
-          'TRAVAIL DE FOND : dossier_global (toutes les pièces en texte, classées par thème, avec le registre en tête) ; pour LOCALISER, pieces_chercher ou registre_lire, puis lire_document pour lire la pièce EN ENTIER avant de conclure — un extrait ne suffit pas.',
-          'MÉMOIRE DU DOSSIER : ci-dessous l\'essentiel retenu. Deux registres, à respecter strictement — « [fait] … (cote) » : un élément du dossier, TOUJOURS coté ; « [échange] JJ/MM/AAAA — … » : une position, décision ou orientation exprimée par le magistrat, datée. Ne sers JAMAIS un [échange] comme un fait établi : c\'est un souvenir de conversation, à rappeler comme tel (« on en avait parlé : … »). Quand un échange apporte du neuf, ajoute UNE ligne télégraphique du bon registre avec memoire_dossier_noter. Reste bref : cette mémoire est volontairement petite.',
-          memoire ? `--- mémoire du dossier ---\n${memoire}\n--- fin ---` : '(mémoire du dossier vide pour l\'instant)',
-          '',
-          `Question du magistrat : ${message}`,
-        ].join('\n')
-      }
-
-      res.writeHead(200, {
-        'content-type': 'text/event-stream; charset=utf-8',
-        'cache-control': 'no-cache, no-transform',
-        connection: 'keep-alive',
-        'x-accel-buffering': 'no',
-      })
-      const send = (ev) => { try { res.write(`data: ${JSON.stringify(ev)}\n\n`) } catch {} }
-      const heartbeat = setInterval(() => { try { res.write(': ping\n\n') } catch {} }, 15_000)
-      // Si le navigateur se déconnecte en cours de run (onglet fermé, veille
-      // iPhone), le heartbeat continuait d'écrire toutes les 15 s dans une
-      // socket morte jusqu'à la fin du run (jusqu'à 20 min) : on coupe le timer
-      // dès la fermeture. Le run, lui, va au bout pour déposer ses propositions.
-      req.on('close', () => clearInterval(heartbeat))
-
-      await audit(keys, 'chat_message', { convId: body.convId || '(nouvelle)', dossier: body.dossier || null, carto: Boolean(body.carto), apercu: message.slice(0, 200) })
-      const result = await runAgent({
-        keys,
-        prompt,
-        convId: body.convId || undefined,
-        title: body.carto ? 'Cartographie' : body.dossier ? `Dossier ${body.dossier}` : undefined,
-        runLabel: body.carto ? 'chat-carto' : body.dossier ? 'chat-dossier' : 'chat',
-        onEvent: send,
-        model: body.model,
-        effort: body.effort,
-        // Le chat carto peut déclencher une analyse transversale (sous-agents
-        // sur des dizaines de dossiers) : plafond de durée élargi, sinon le run
-        // est tué à 20 min avant de déposer ses propositions.
-        ...(body.carto ? { timeoutMs: CARTO_CHAT_TIMEOUT_MS, mcpToolTimeoutMs: CARTO_CHAT_TIMEOUT_MS - 120_000 } : {}),
-      })
-      clearInterval(heartbeat)
-      send({ type: 'final', convId: result.convId, ok: result.ok, error: result.error, replace: result.replace })
-      return res.end()
     }
 
     return json(res, 404, { error: 'Route inconnue' })
