@@ -15,10 +15,12 @@ import { readRegistre, recouperRegistres } from './registre.mjs'
 import { readDossierMemory } from './dossierMemory.mjs'
 import { listerLiens, recoupementMecs, mecCanonId } from './carto.mjs'
 
-const CR_BUDGET = 80_000
-const CR_ANCIEN_MAX = 1_500
-const PIECES_BUDGET = 90_000
-const DESCRIPTION_MAX = 8_000
+// Budgets de la matière jointe (le prompt part par l'entrée standard : seule
+// compte la fenêtre du modèle). Au-delà, rien n'est perdu en silence : chaque
+// coupe dit où lire la suite.
+const CR_BUDGET = 200_000
+const CR_ANCIEN_MAX = 3_000
+const PIECES_BUDGET = 150_000
 const RECOUPEMENTS_MAX = 25
 
 function stripHtml(html) {
@@ -62,7 +64,9 @@ export function donneesDescription(keys, numero) {
     `Mis en cause ENREGISTRÉS : ${(e.misEnCause || []).map((m) => `${m.nom}${m.role ? ` (${m.role})` : ''}${m.statut ? ` [${m.statut}]` : ''}`).join(' ; ') || '(aucun)'}`,
     '',
     '───── DESCRIPTION ACTUELLE ─────',
-    String(e.description || '').trim() ? String(e.description).slice(0, DESCRIPTION_MAX) : '(vide — à rédiger entièrement)',
+    // EN ENTIER : le run réécrit la description complète à partir de celle-ci —
+    // une version tronquée en effaçait la fin.
+    String(e.description || '').trim() ? String(e.description) : '(vide — à rédiger entièrement)',
   ]
 
   // Ce qui est NOUVEAU depuis la dernière actualisation (★) : le run s'y
@@ -85,7 +89,7 @@ export function donneesDescription(keys, numero) {
   for (let i = 0; i < textes.length && total > CR_BUDGET; i++) {
     if (textes[i].length > CR_ANCIEN_MAX) {
       total -= textes[i].length - CR_ANCIEN_MAX
-      textes[i] = `${textes[i].slice(0, CR_ANCIEN_MAX)} […]`
+      textes[i] = `${textes[i].slice(0, CR_ANCIEN_MAX)} […CR rogné faute de place — texte intégral : lire_dossier section:"cr" offset:${i} limit:1]`
     }
   }
   out.push('', `───── COMPTES RENDUS (${crs.length}, du plus ancien au plus récent) ─────`)

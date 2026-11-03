@@ -27,12 +27,12 @@ const ANALYSE_MODEL = process.env.SIRAL_ATTACHE_ANALYSE_MODEL || 'sonnet'
 const RUN_TIMEOUT_MS = Number(process.env.SIRAL_ATTACHE_ANALYSE_TIMEOUT_MIN || 4) * 60 * 1000
 
 // Bornes de sécurité (un dossier peut charrier beaucoup de PDF volumineux).
-// Le prompt part en UN SEUL argument (-p) : sous Linux, un argv unitaire est
-// plafonné à 128 Kio (MAX_ARG_STRLEN). On borne donc le total bien en-dessous,
-// consignes système et résumé des actes compris.
+// Le prompt part par l'ENTRÉE STANDARD (plus de plafond argv) : seule compte
+// la fenêtre du modèle. Les bornes sont larges — une ordonnance se lit en
+// entier, motivation et liste des cibles comprises.
 const MAX_DOCS = 40
-const MAX_CHARS_PER_DOC = 14_000
-const MAX_TOTAL_CHARS = 90_000
+const MAX_CHARS_PER_DOC = 60_000
+const MAX_TOTAL_CHARS = 300_000
 
 // Aucun outil : le modèle lit et répond, point. Défense en profondeur.
 const DISALLOWED_TOOLS = 'Bash,Edit,Write,NotebookEdit,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite,KillShell,BashOutput'

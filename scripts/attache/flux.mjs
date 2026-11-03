@@ -65,16 +65,15 @@ const bounded = (v, min, max, dflt) => {
   return Number.isFinite(n) && n >= min && n <= max ? n : dflt
 }
 export const VERSEMENT_MASSIF_SEUIL = bounded(process.env.SIRAL_ATTACHE_DESC_CHANTIER_SEUIL, 10, 1000, 100)
-const CR_NOUVEAUX_MAX = 5
-const CR_CHARS_MAX = 2_500
 // Comparaison : TOUS les CR existants en texte intégral (les plus récents
 // d'abord, dans la limite du budget), et le TEXTE des pièces nouvelles — une
 // mini-fiche de 700 caractères ne suffit pas à juger du neuf d'une chronologie
 // ou d'un rapport de synthèse.
-const CR_EXISTANTS_CHARS_MAX = 60_000
-const PIECE_TEXTE_MAX = 30_000
-const PIECES_TEXTE_TOTAL = 90_000
-const DESCRIPTION_CHARS_MAX = 6_000
+// Les CR NOUVEAUX et la description sont joints EN ENTIER (c'est le neuf à
+// intégrer, et la description est réécrite à partir de celle-ci).
+const CR_EXISTANTS_CHARS_MAX = 150_000
+const PIECE_TEXTE_MAX = 60_000
+const PIECES_TEXTE_TOTAL = 150_000
 const ZONES_ACTES = ['Actes/', 'Geoloc/', 'Ecoutes/', 'DML/']
 const DERNIERS_MAX = 20
 
@@ -446,15 +445,15 @@ function promptFlux(keys, e, { fiches, crs, actes, candidats, actesAnalyse }) {
     `Mis en cause ENREGISTRÉS : ${(e.misEnCause || []).map((m) => `${m.nom}${m.role ? ` (${m.role})` : ''}`).join(' ; ') || '(aucun)'}`,
     '',
     '───── DESCRIPTION ACTUELLE ─────',
-    String(e.description || '(vide)').slice(0, DESCRIPTION_CHARS_MAX),
+    String(e.description || '(vide)'),
     '',
     '───── COMPTES RENDUS EXISTANTS (tous, texte intégral, du plus récent au plus ancien) ─────',
     ...(crExistants.length ? crExistants : ['(aucun)']),
   ]
   if (crs.length) {
     donnees.push('', `───── CR NOUVEAUX (${crs.length}) ─────`)
-    for (const c of crs.slice(-CR_NOUVEAUX_MAX)) {
-      donnees.push(`[${c.date}${c.enqueteur ? ` — ${c.enqueteur}` : ''}]`, stripHtml(c.description).slice(0, CR_CHARS_MAX), '')
+    for (const c of crs) {
+      donnees.push(`[${c.date}${c.enqueteur ? ` — ${c.enqueteur}` : ''}]`, stripHtml(c.description), '')
     }
   }
   if (actes.length) {
@@ -594,7 +593,7 @@ export async function traiterDossier(keys, numero, { onHold = async () => false 
   // Texte des pièces nouvelles (copie markdown ou cache — zéro extraction).
   let resteTexte = PIECES_TEXTE_TOTAL
   for (const f of fiches) {
-    if (resteTexte <= 0) break
+    if (resteTexte <= 0) { f.texte = '[texte non joint faute de place — lire_document pour le lire]'; continue }
     let res
     try { res = await texteDocumentIntegral(keys, docKey, f.chemin, { extraire: false }) } catch { res = { ok: false } }
     if (!res.ok || !String(res.texte || '').trim()) continue

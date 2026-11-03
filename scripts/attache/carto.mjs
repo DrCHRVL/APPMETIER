@@ -67,14 +67,14 @@ export function listerFiches(keys) {
   const fichesPersonnes = (ov?.mecsExNihilo || []).slice(0, 400).map((m) => ({
     nom: m.displayName || m.id,
     alias: (m.alias || []).slice(0, 12),
-    notes: m.notes ? String(m.notes).slice(0, 2000) : undefined,
+    notes: m.notes ? String(m.notes) : undefined,
   }))
   const dossiers = (ov?.dossiersExNihilo || []).slice(0, 250).map((d) => ({
     label: d.label,
     dateApprox: d.dateApprox,
     misEnCause: (d.mecIds || []).map((id) => nomDeMec.get(id) || id).slice(0, 30),
     natinfCodes: d.natinfCodes,
-    notes: d.notes ? String(d.notes).slice(0, 2000) : undefined,
+    notes: d.notes ? String(d.notes) : undefined,
     // Documents versés par le magistrat (synthèse ou dossier complet,
     // convertis en texte) : lecture intégrale via carto_lire_document.
     documents: (d.documents || []).map((doc) => ({
@@ -575,17 +575,16 @@ export async function appendMecNoteEnrichissement(keys, { nom, notes, alias }) {
   ov.mecsExNihilo = ov.mecsExNihilo || []
   const now = Date.now()
   const stamp = new Date(now).toLocaleDateString('fr-FR')
-  const bloc = `— Attaché, le ${stamp} —\n${ajout.slice(0, 2000)}`
+  const bloc = `— Attaché, le ${stamp} —\n${ajout}`
   const aliasPropres = Array.isArray(alias)
     ? alias.map((a) => String(a).trim()).filter(Boolean).slice(0, 12)
     : []
   const existante = ov.mecsExNihilo.find((m) => mecCanonId(m.displayName || m.id) === key)
   if (existante) {
     const courantes = String(existante.notes || '').trim()
-    // Plafond global généreux : on tronque l'HISTORIQUE des ajouts attaché le
-    // plus ancien avant de toucher au texte du magistrat (qui est en tête).
+    // Aucun plafond : l'ancien (8 000 car., coupe par la FIN) jetait chaque
+    // nouvel ajout une fois le seuil atteint, et rognait les notes du magistrat.
     existante.notes = (courantes ? courantes + '\n\n' : '') + bloc
-    if (existante.notes.length > 8000) existante.notes = existante.notes.slice(0, 8000)
     existante.alias = [...new Set([...(existante.alias || []), ...aliasPropres])].slice(0, 20)
     existante.updatedAt = now
   } else {

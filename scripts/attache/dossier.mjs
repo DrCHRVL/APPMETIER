@@ -421,8 +421,8 @@ function crPage(e, crs, offset, limit) {
   let i = from
   for (; i < total && shown < maxCount; i++) {
     const cr = crs[i]
-    let block = `\n### [#${i}] CR du ${cr.date}${cr.enqueteur ? ` — ${cr.enqueteur}` : ''}\n${stripHtml(cr.description || '')}`
-    if (block.length > CR_PAGE_BUDGET) block = block.slice(0, CR_PAGE_BUDGET) + '\n…(CR tronqué — pièce source via dossier_arborescence puis lire_document)'
+    // Un CR n'est JAMAIS tronqué : un CR plus long que la page est servi seul.
+    const block = `\n### [#${i}] CR du ${cr.date}${cr.enqueteur ? ` — ${cr.enqueteur}` : ''}\n${stripHtml(cr.description || '')}`
     if (shown > 0 && used + block.length > CR_PAGE_BUDGET) break
     parts.push(block)
     used += block.length
@@ -533,7 +533,9 @@ export function dossierMarkdown(keys, numero, opts = {}) {
       ]
       break
   }
-  return parts.join('\n').slice(0, 380_000)
+  // Pas de coupe muette : au-delà du plafond de sortie, l'outil borne AVEC un
+  // avertissement (bornerSortie) qui renvoie vers la lecture paginée.
+  return parts.join('\n')
 }
 
 // ── Cache markdown des documents ──

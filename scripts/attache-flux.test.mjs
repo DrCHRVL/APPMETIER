@@ -180,6 +180,11 @@ attendu('second passage : rien de neuf, aucun run', b2.pieces === 0 && b2.run ==
 {
   const e = enquete()
   e.comptesRendus.push({ id: Date.now() + 7, date: '2026-09-05', enqueteur: 'CAPITAINE X', description: 'Surveillance du 04/09 : <b>MARTIN</b> vu au garage avec une Clio FG-527-XZ.' })
+  // Rafale de CR (au-delà des 5 derniers d'autrefois) dont un LONG, et une
+  // description longue : tout doit être joint en entier.
+  for (let k = 1; k <= 5; k++) e.comptesRendus.push({ id: Date.now() + 7 + k, date: `2026-09-0${5 + k > 9 ? 9 : 5 + k}`, enqueteur: 'OPJ Y', description: `CR rafale ${k}.` })
+  e.comptesRendus.push({ id: Date.now() + 20, date: '2026-09-09', enqueteur: 'OPJ Z', description: `${'Constatations détaillées. '.repeat(240)}FIN-CR-LONG` })
+  e.description = `${'SYNTHÈSE détaillée du trafic. '.repeat(400)}FIN-DESCRIPTION-LONGUE`
   const { data } = loadContentieux(keys)
   ecrireVault(data.enquetes.map((x) => (x.numero === NUM ? e : x)))
 }
@@ -187,7 +192,9 @@ r = flux.balayer(keys)
 attendu('relève : CR ajouté par l\'app → dossier en file (raison tick)', r.enfiles.includes(NUM) && flux.fileAttente().enAttente[0]?.raisons.includes('tick'), JSON.stringify(r))
 const b3 = await flux.traiterDossier(keys, NUM)
 const prompt3 = appels.runs[1] || ''
-attendu('passage : le CR nouveau est joint (HTML retiré), aucune pièce', b3.crs === 1 && b3.pieces === 0 && b3.run === true && prompt3.includes('CR NOUVEAUX (1)') && prompt3.includes('MARTIN vu au garage') && !prompt3.includes('<b>'), JSON.stringify(b3))
+attendu('passage : les 7 CR nouveaux sont TOUS joints (HTML retiré), aucune pièce', b3.crs === 7 && b3.pieces === 0 && b3.run === true && prompt3.includes('CR NOUVEAUX (7)') && prompt3.includes('MARTIN vu au garage') && !prompt3.includes('<b>'), JSON.stringify(b3))
+attendu('passage : un CR nouveau LONG est joint en entier', prompt3.includes('FIN-CR-LONG'))
+attendu('passage : la description (réécrite à partir de celle-ci) est jointe en ENTIER', prompt3.includes('FIN-DESCRIPTION-LONGUE'))
 attendu('passage : TOUS les CR existants joints en texte intégral (le nouveau n\'y est pas doublé)',
   /COMPTES RENDUS EXISTANTS[\s\S]*FAITS NOUVEAUX : MARTIN Paul fournit la résine \(PV\/D1\)/.test(prompt3)
   && !/COMPTES RENDUS EXISTANTS[\s\S]*MARTIN vu au garage[\s\S]*CR NOUVEAUX/.test(prompt3))

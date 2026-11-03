@@ -130,6 +130,24 @@ const txt2 = donneesDescription(keys, NUM).join('\n')
 attendu('nouveau CR marqué ★, ancien non', txt2.includes('[★ CR 2026-10-01') && !txt2.includes('★ CR 2026-03-10'))
 attendu('mémoire du dossier jointe', txt2.includes('KARIM dit Kiki — ligne 0611223344.'))
 
+// Description LONGUE : le run la réécrit en entier à partir de celle-ci — elle
+// doit être jointe sans coupe (avant : 8 000 car., la fin était effacée).
+await actualiserDescription(keys, { numero: NUM, description: `${'SYNTHÈSE détaillée. '.repeat(800)}FIN-DESCRIPTION` })
+attendu('description longue jointe en ENTIER', donneesDescription(keys, NUM).join('\n').includes('FIN-DESCRIPTION'))
+
+// lire_dossier section "cr" : un CR plus long que la page est servi ENTIER
+{
+  const p2 = loadContentieux(keys)
+  p2.data.enquetes[0].comptesRendus.push({ id: Date.now() + 2000, date: '2026-10-02', description: `${'Écoute retranscrite. '.repeat(2500)}FIN-CR-GEANT` })
+  fs.writeFileSync(
+    path.join(DATA_DIR, 'vaults', 'ctx-crimorg.json'),
+    JSON.stringify(encryptJson(keyCtx, { data: p2.data, metadata: { lastModified: new Date().toISOString(), modifiedBy: 'test', version: 3 } }))
+  )
+  const idx = p2.data.enquetes[0].comptesRendus.length - 1 // le plus récent = dernier en ordre chronologique
+  const page = String(dossierMarkdown(keys, NUM, { section: 'cr', offset: idx, limit: 10 }))
+  attendu('lire_dossier : CR de 50 000 car. servi en entier, jamais tronqué', page.includes('FIN-CR-GEANT') && !page.includes('CR tronqué'))
+}
+
 // Avancement : borné à 97 % tant que non fini, 100 % une fois fini.
 const total = estimerTotalMs({ lotsFiches: 1, chars: 50_000 })
 const a1 = avancement({ numero: NUM, debut: 0, finEstimeeAt: total, phase: 'redaction', etapes: [] }, total / 2)
