@@ -652,7 +652,8 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   ): Promise<{ markdown: string; avertissement?: string } | null> => {
     if (/\.(jpg|jpeg|png|gif|bmp|webp|msg)$/i.test(file.name)) return null;
     try {
-      const { markdown, avertissement } = await fileToMarkdown(file);
+      // Copie INTÉGRALE : aucune coupe (une copie tronquée est écartée par l'attaché).
+      const { markdown, avertissement } = await fileToMarkdown(file, { maxChars: Infinity });
       if (!markdown.trim()) return null;
       const mdRel = 'MD/' + relOriginal.replace(/\.[^./]+$/, '') + '.md';
       const bytes = new TextEncoder().encode(markdown);
