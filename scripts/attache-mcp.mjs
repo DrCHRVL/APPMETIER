@@ -817,7 +817,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
         messages: (conv.messages || []).slice(-n).map((m) => ({
           role: m.role,
           quand: (m.at || '').slice(0, 16),
-          texte: String(m.text || '').slice(0, 2500),
+          texte: String(m.text || ''),
         })),
       }
     },
@@ -880,9 +880,41 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'chronologie_lire',
-    description: 'Chronologie probatoire fusionnée du dossier : actes SIRAL (débuts, fins, prolongations, poses, attentes JLD), CR, modifications (apparition de MEC), DML archivées et cotes NPP datées — triée par date. Base de tout réquisitoire, rapport ou préparation d\'audience.',
-    inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
-    handler: async (a) => buildChronologie(keys, a.numero) ?? { erreur: 'Dossier introuvable' },
+    description: 'Chronologie probatoire fusionnée du dossier : actes SIRAL (débuts, fins, prolongations, poses, attentes JLD), CR, modifications (apparition de MEC), DML archivées et cotes NPP datées — triée par date. Base de tout réquisitoire, rapport ou préparation d\'audience. PAGINÉE (pages bornées pour tenir dans une réponse) — si `offsetSuivant` figure, la chronologie continue : rappelle avec offset pour la suite (rien n\'est coupé).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numero: { type: 'string' },
+        offset: { type: 'number', description: 'Index de la 1re entrée (défaut 0).' },
+        limite: { type: 'number', description: 'Entrées max par page (défaut 2 000) — la page est aussi bornée en taille.' },
+      },
+      required: ['numero'],
+    },
+    handler: async (a) => {
+      const ch = buildChronologie(keys, a.numero)
+      if (!ch) return { erreur: 'Dossier introuvable' }
+      const total = ch.entries.length
+      const debut = Math.min(Math.max(0, Math.floor(Number(a.offset) || 0)), total)
+      const lim = Math.max(1, Math.min(2000, Math.floor(Number(a.limite) || 2000)))
+      // Page bornée en TAILLE (sous le plafond de sortie de l'outil) : une
+      // page trop grosse serait coupée — c'était le cas des 2 000 entrées.
+      const page = []
+      let taille = 0
+      for (let i = debut; i < total && page.length < lim; i++) {
+        const t = JSON.stringify(ch.entries[i]).length + 16
+        if (page.length && taille + t > 120_000) break
+        page.push(ch.entries[i])
+        taille += t
+      }
+      const suivant = debut + page.length
+      return {
+        ...ch,
+        entries: page,
+        total,
+        ...(debut ? { offset: debut } : {}),
+        ...(suivant < total ? { offsetSuivant: suivant, note: `${total - suivant} entrée(s) suivantes — rappelle avec offset:${suivant}` } : {}),
+      }
+    },
   },
   // ── Module Entraide internationale (registre partagé, coffre `entraide`) ──
   {

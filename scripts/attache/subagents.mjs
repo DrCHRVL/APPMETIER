@@ -108,7 +108,7 @@ function runOne({ consigne, mcpConfig, systemPrompt, allowedTools, disallowedToo
       const usage = extractUsage(parsed)
       if (usage) recordUsage({ run: 'sous-agent', model, usage, parent })
       if (parsed && parsed.subtype === 'success' && typeof parsed.result === 'string') {
-        return finish(true, parsed.result.slice(0, 60_000))
+        return finish(true, parsed.result)
       }
       finish(false, '', parsed?.subtype || `run interrompu (code ${code}) ${errTail.split('\n').slice(-2).join(' ').slice(0, 300)}`)
     })

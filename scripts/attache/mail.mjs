@@ -274,7 +274,7 @@ export async function fetchInbox(keys) {
           recuLe: (parsed.date || new Date()).toISOString(),
           de: parsed.from?.text || '',
           sujet: parsed.subject || '(sans objet)',
-          texte: String(parsed.text || '').slice(0, 300_000),
+          texte: String(parsed.text || ''),
           html: undefined, // le texte suffit à l'agent ; pas de HTML stocké
           attachments,
           traite: false,
