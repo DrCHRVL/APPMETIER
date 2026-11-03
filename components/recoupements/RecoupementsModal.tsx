@@ -260,13 +260,21 @@ function EtatChantier({
 }) {
   const [peutLancer, setPeutLancer] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
+  /** Échec du dernier passage, mémorisé par le service (administrateur seulement). */
+  const [erreurServeur, setErreurServeur] = useState<string | null>(null);
 
   // Sondage à l'ouverture seulement (le portail Radix ne monte rien tant que
   // la fenêtre est fermée) : aucun appel en fond toute la journée.
   useEffect(() => {
     let vivant = true;
     fetch('/api/attache/recoupements', { credentials: 'include' })
-      .then((r) => { if (vivant) setPeutLancer(r.ok); })
+      .then(async (r) => {
+        if (!vivant) return;
+        setPeutLancer(r.ok);
+        if (!r.ok) return;
+        const etat = await r.json().catch(() => null);
+        if (vivant) setErreurServeur(typeof etat?.dernierErreur === 'string' ? etat.dernierErreur : null);
+      })
       .catch(() => { if (vivant) setPeutLancer(false); });
     return () => { vivant = false; };
   }, []);
@@ -291,6 +299,11 @@ function EtatChantier({
     })
     : null;
 
+  // Le passage est hebdomadaire : au-delà de huit jours, il en a manqué un.
+  // Des signaux vieux de plusieurs semaines ne doivent pas passer pour frais.
+  const joursDepuis = chantier ? Math.floor((Date.now() - Date.parse(chantier.calculeAt)) / 86_400_000) : 0;
+  const enRetard = !enCours && joursDepuis > 8;
+
   const perimetre = chantier?.perimetre;
   const detail = perimetre
     ? `${perimetre.dossiers} dossier(s) comparé(s), ${perimetre.piecesLues}/${perimetre.pieces} pièce(s) lues`
@@ -302,12 +315,19 @@ function EtatChantier({
 
   return (
     <div className="flex items-center gap-2">
-      <span className="flex items-center gap-1 text-[11px] text-gray-400" title={detail}>
+      <span
+        className={`flex items-center gap-1 text-[11px] ${enRetard ? 'font-semibold text-amber-700' : 'text-gray-400'}`}
+        title={[
+          detail,
+          enRetard ? `Aucun passage depuis ${joursDepuis} jours alors qu’il est hebdomadaire : ces signaux ne tiennent compte d’aucune correction ni d’aucune pièce versée depuis.` : '',
+          erreurServeur ? `Dernier passage en échec : ${erreurServeur}` : '',
+        ].filter(Boolean).join('\n') || undefined}
+      >
         <ServerCog className="h-3 w-3" />
         {enCours
           ? 'chantier en cours sur le serveur…'
           : dateChantier
-            ? `chantier du ${dateChantier}`
+            ? `chantier du ${dateChantier}${enRetard ? ` — en retard (${joursDepuis} j)` : ''}`
             : 'aucun chantier encore passé'}
       </span>
       {peutLancer && (
@@ -323,7 +343,11 @@ function EtatChantier({
           Lancer maintenant
         </Button>
       )}
-      {erreur && <span className="text-[11px] text-red-600">{erreur}</span>}
+      {(erreur || erreurServeur) && (
+        <span className="text-[11px] text-red-600" title={erreur || erreurServeur || undefined}>
+          {erreur || `dernier passage en échec : ${erreurServeur}`}
+        </span>
+      )}
     </div>
   );
 }
