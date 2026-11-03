@@ -35,7 +35,9 @@ import { extraireEntites, majEntitesRegistre } from './registre.mjs'
 // v2 : l'ingestion alimente aussi le REGISTRE (entités déterministes par
 // pièce — téléphones, plaques, IBAN, adresses). Un état v1 est repris une
 // fois, même à signature identique, pour doter le stock déjà ingéré.
-const INGEST_V = 2
+// v3 : OCR de toutes les pages images, copies markdown incomplètes écartées —
+// chaque dossier est re-sondé une fois pour relire les pièces lues en partie.
+const INGEST_V = 3
 
 // Extractions fraîches par passage, tous dossiers confondus : un scan OCR
 // peut coûter des minutes de CPU — on avance par petits pas, le tick suivant
@@ -95,6 +97,10 @@ export async function ingestPass(keys, {
   maxProbes = INGEST_PROBES_MAX,
   // Passage CIBLÉ (flux tendu : le dossier qui vient de bouger) — sinon tout le stock.
   docKeys = null,
+  // Horodatage limite (passage attendu par le magistrat) : au-delà, plus
+  // d'extraction nouvelle et l'OCR s'arrête entre deux lots ; le reste est
+  // laissé à l'ingestion de fond.
+  echeance = null,
 } = {}) {
   const tj = attacheTj()
   const docsDir = tjDataDir(tj, 'docs')
@@ -153,12 +159,14 @@ export async function ingestPass(keys, {
         res = await texteDocumentIntegral(keys, docKey, rel, { extraire: false })
       } catch { res = { ok: false } }
       if (!res.ok && res.nonExtrait) {
-        if (budget <= 0) { enAttente++; continue }
+        if (budget <= 0 || (echeance && Date.now() > echeance)) { enAttente++; continue }
         budget--
         try {
-          res = await texteDocumentIntegral(keys, docKey, rel)
+          res = await texteDocumentIntegral(keys, docKey, rel, { echeance })
         } catch { res = { ok: false } }
         if (res.ok) bilan.extraites++
+        // lecture partielle (échéance) : le dossier reste à reprendre
+        if (res.ok && res.extra?.partiel) enAttente++
       }
       if (res.ok) {
         delete echecs[rel]

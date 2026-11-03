@@ -209,7 +209,7 @@ const TOOLS = [
   },
   {
     name: 'lire_document',
-    description: 'Texte intégral d\'un document déposé sous un numéro de dossier — enquête OU instruction (PDF, ODT, DOCX, RTF, TXT/MD/HTML, et classeurs Excel XLSX/XLS/ODS servis en tableaux markdown, une section par feuille). `chemin` = cheminRelatif exact (voir lire_dossier ou dossier_arborescence), y compris les pièces du « Dossier complet » versé (Dossier/…). PAGINÉ pour les pièces longues : servi par pages de 200 000 caractères max — si `offsetSuivant` figure dans la réponse, la pièce continue : rappelle avec offset pour lire la suite (rien n\'est tronqué en silence). PAGES IMAGES : des marqueurs « [page N : image sans couche texte] » signalent les annexes en images (captures d\'écran, planches photo, tapissages) — elles ne sont PAS océrisées par défaut, pour ne pas alourdir chaque lecture. Note leur existence dans ta fiche ; ne relis avec integrale:true QUE si le contenu de ces pages est nécessaire à la question posée (le texte océrisé allonge la lecture ; première extraction lente, ~30 pages OCR max, en cache ensuite).',
+    description: 'Texte intégral d\'un document déposé sous un numéro de dossier — enquête OU instruction (PDF, ODT, DOCX, RTF, TXT/MD/HTML, et classeurs Excel XLSX/XLS/ODS servis en tableaux markdown, une section par feuille). `chemin` = cheminRelatif exact (voir lire_dossier ou dossier_arborescence), y compris les pièces du « Dossier complet » versé (Dossier/…). PAGINÉ pour les pièces longues : servi par pages de 200 000 caractères max — si `offsetSuivant` figure dans la réponse, la pièce continue : rappelle avec offset pour lire la suite (rien n\'est tronqué en silence). PAGES IMAGES : les annexes en images (captures d\'écran, planches photo, tapissages) et les scans sont OCÉRISÉS EN ENTIER, toutes pages — leur texte est servi précédé de « [page N — texte restitué par OCR] ». Une page restée illisible malgré l\'OCR est marquée comme telle. Première extraction d\'un gros scan lente, en cache ensuite.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -217,7 +217,7 @@ const TOOLS = [
         chemin: { type: 'string' },
         offset: { type: 'number', description: 'Caractère de départ (défaut 0). Utiliser offsetSuivant de la page précédente.' },
         limite: { type: 'number', description: 'Caractères par page (défaut et max 200 000).' },
-        integrale: { type: 'boolean', description: 'true = relire l\'ORIGINAL avec OCR des pages images (annexes). À la DEMANDE uniquement — quand le contenu des pages marquées « image sans couche texte » est nécessaire ; jamais en réflexe de balayage.' },
+        integrale: { type: 'boolean', description: 'true = ignorer la copie markdown du téléversement et relire l\'ORIGINAL (OCR compris). Rarement utile : une copie incomplète est déjà écartée d\'office.' },
       },
       required: ['numero', 'chemin'],
     },

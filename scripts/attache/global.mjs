@@ -52,7 +52,9 @@ const GLOBAL_PAGE_MAX = 350_000
 const GLOBAL_TEXTE_MAX = 60_000_000
 /** Dossiers recompilés par passe de fond (le reste au tick suivant). */
 const ENTRETIEN_DOSSIERS_MAX = 3
-const CACHE_V = 1
+// v2 : textes intégraux (OCR de toutes les pages, copies incomplètes écartées)
+// — les fichiers globaux compilés avec des textes partiels sont recompilés.
+const CACHE_V = 2
 
 const SEP = '='.repeat(80)
 
