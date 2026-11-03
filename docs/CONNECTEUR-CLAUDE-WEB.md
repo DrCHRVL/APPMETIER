@@ -64,6 +64,20 @@ connaissances, statistiques et graphiques, écritures réversibles (actes, CR,
   `stats_graphique` (Claude VOIT les courbes) ;
 - « Extrais tous les mis en cause liés au réseau X et leurs actes » →
   lectures croisées, recoupements ;
+- « Dans tout le fonds, quels dossiers montrent une logistique par société
+  écran ? » → `fonds_interroger` : une **question large, sans mot-clé**,
+  qui exige de sonder **toutes** les pièces. Le service relit chaque pièce
+  du périmètre (un dossier, ou le fonds entier, archives et instructions
+  comprises) **avec la question** et rend un verdict par pièce (pertinente
+  ou non, score, justification, extraits verbatim), puis relit un
+  échantillon des pièces écartées (**contrôle d'élusion** → rappel estimé)
+  et rédige la synthèse, chaque affirmation citant sa pièce. Travail de
+  fond, par lots, dès que le forfait l'autorise : minutes à heures, une
+  nuit pour un fonds entier. Le résultat arrive en **livrable** (fil
+  « pendant votre absence », « Actes rédigés » du dossier ou hors dossier)
+  et se relit par `interrogation_lire` (pièces retenues paginées, non lues
+  nommées, couverture) ; `interrogations_lister`, `interrogation_arreter`.
+  `niveau:"fiches"` pour une passe rapide sur les mini-fiches du registre ;
 - « Prépare le réquisitoire définitif du dossier 2026/000123 » →
   `instructions_projet_lire`, `dossier_global` (fiche, chronologie, registre,
   puis les pièces en texte — thème par thème : auditions, téléphonie,

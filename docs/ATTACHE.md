@@ -636,6 +636,28 @@ actes corrigés ou refusés (voir « Instructions du projet Claude web »).
     **numéro du dossier** où il figure déjà.
   Rien n'est bloqué sur un simple rapprochement : le magistrat voit le doublon
   possible et tranche lui-même d'un ✓ ou d'un ✗.
+- **Interrogation du fonds** (`scripts/attache/interrogation.mjs`) : une
+  **question large** qui exige de sonder **toutes** les pièces d'un dossier
+  ou du fonds entier (enquêtes en cours et archivées, instructions,
+  documents de la carte), sans mot-clé possible. Déposée par Claude web via
+  le connecteur (`fonds_interroger`) ou par l'attaché, elle est exécutée
+  **côté service** : chaque pièce est soumise au modèle économe **avec la
+  question** et rend un **verdict** (pertinente ou non, score,
+  justification, extraits verbatim — une pièce longue est lue en tranches,
+  verdict fusionné) ; à la fin, **contrôle d'élusion** (un échantillon des
+  pièces écartées est relu → taux d'élusion, pièces manquées estimées,
+  rappel estimé) puis **synthèse** citant chaque pièce, remise en
+  **livrable** (fil « pendant votre absence », « Actes rédigés » du dossier
+  ou hors dossier). Lots repris à chaque tick, **gouverneur de forfait**
+  (différés, jamais perdus), curseur persistant : un lot en échec ne saute
+  aucune pièce, trois échecs consécutifs mettent l'interrogation en échec
+  (résultats partiels lisibles). `niveau:"fiches"` : passe rapide sur les
+  mini-fiches du registre, pièces sans fiche nommées non lues. Aucune
+  interface dans l'app : suivi par `interrogations_lister` /
+  `interrogation_lire`, arrêt par `interrogation_arreter`. Consignes
+  « Interrogation du fonds — verdict / synthèse » (Paramètres → Attaché
+  IA). Consommation sous le poste **« interrogation »** ; audit
+  `interrogation_deposee` / `interrogation_fait` / `interrogation_arretee`.
 - **Relance les dossiers dormants** : `lister_dossiers` marque `dormant:true`
   tout dossier sans mouvement depuis plus de 2 mois — une routine de veille en
   tire un projet de mail de relance au directeur d'enquête, prêt à coller.

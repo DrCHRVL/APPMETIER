@@ -137,6 +137,31 @@ export const SOCLES = {
     'Recoupe (recouper_personnes) puis PROPOSE (jamais tracé d\'office) : proposer_lien entre personnes reliées, proposer_mec_carto pour un suspect/surnom absent des dossiers, proposer_dossier_carto pour une architecture cachée (grappe autour d\'une même figure — ex. un détenu qui pilote plusieurs affaires), proposer_note_mec pour enrichir la fiche d\'une personne déjà connue (append-only), proposer_camp_carto quand un GROS amas se structure en groupes rivaux (membres sûrs uniquement ; les camps déjà assignés par le magistrat priment).',
   ].join('\n'),
 
+  interrogation_verdict: [
+    'But : dire, pour CHAQUE pièce jointe, si elle apporte quelque chose à la QUESTION du magistrat — et quoi. Pas de généralités : un verdict par pièce, fondé sur son texte seul.',
+    'Est PERTINENTE une pièce qui contient un fait, une déclaration, une donnée (personne, lieu, ligne, véhicule, somme, date, modus operandi) qui répond à la question, en tout ou partie, directement ou par recoupement évident. Une simple mention d\'un mot de la question ne suffit pas ; une ORTC qui cite « Vu le réquisitoire définitif » n\'est pas un réquisitoire définitif.',
+    'score : 0 à 1 — 0,9 et plus = la pièce répond nettement ; 0,5 à 0,8 = élément utile mais partiel ou indirect ; moins de 0,5 = non pertinente (pertinent:false).',
+    'justification : une à trois phrases, factuelles, qui disent CE QUE la pièce apporte (qui, quoi, où, quand). Vide si non pertinente.',
+    'extraits : jusqu\'à 5 citations VERBATIM de la pièce (copiées telles quelles, sans réécriture), celles qui fondent le verdict. Vide si non pertinente.',
+    'Tu réponds UNIQUEMENT par un tableau JSON strict, un objet par pièce, dans l\'ordre, sans texte autour ni balises markdown :',
+    '[',
+    '  {',
+    '    "chemin": "l\'entête EXACT de la pièce (après « PIÈCE »), mention de partie comprise",',
+    '    "pertinent": true,',
+    '    "score": 0.85,',
+    '    "justification": "…",',
+    '    "extraits": ["…", "…"]',
+    '  }',
+    ']',
+  ].join('\n'),
+
+  interrogation_synthese: [
+    'But : RÉPONDRE à la question du magistrat à partir des pièces retenues (jointes plus bas avec leur justification et leurs extraits), en rendant compte honnêtement de la couverture.',
+    'Format : prose dense, en français, structurée par points de réponse (titres courts « ## »). Chaque affirmation cite sa pièce entre crochets : [dossier] chemin. Les extraits verbatim utiles sont repris entre guillemets. Regroupe par dossier quand la question couvre tout le fonds.',
+    'Dis d\'abord ce que les pièces ÉTABLISSENT, puis ce qu\'elles suggèrent sans l\'établir, puis ce qui MANQUE (ce que la question demandait et qu\'aucune pièce ne donne). Les pièces non lues et le contrôle d\'élusion figurent dans la COUVERTURE jointe : reprends-les en une phrase de réserve à la fin — jamais « j\'ai tout lu » si des pièces sont non lues ou si le rappel estimé est inférieur à 100 %.',
+    'Tu n\'inventes rien : rien qui ne soit dans les justifications et extraits joints. Signé de personne : ne te désigne jamais (ni « IA », ni « attaché »).',
+  ].join('\n'),
+
   versement: [
     'But : la SYNTHÈSE COMPLÈTE d\'un versement massif de pièces, pour que le magistrat sache tout ce qu\'il contient sans l\'ouvrir. Le REGISTRE AGRÉGÉ du versement est joint plus bas : toutes les personnes (rôles relevés, cotes), véhicules, lignes, adresses, comptes, puis la chronologie pièce par pièce. Il a été établi pièce par pièce, sur le texte intégral.',
     'MÉTHODE : pars du registre joint ; LIS EN ENTIER (lire_document) les pièces clés — PV de synthèse, auditions des principaux mis en cause, rapports — et vérifie dans les pièces ce qui reste ambigu (qui utilise telle ligne, qui conduit tel véhicule, quel rôle). registre_lire et pieces_chercher (numero:"{{dossier}}") pour localiser. Prends le temps qu\'il faut : l\'exhaustivité prime.',
@@ -197,6 +222,19 @@ export const CATALOGUE = [
     resume: 'Le prompt de la synthèse complète d\'un versement massif : personnes et rôles, véhicules, lignes, adresses, comptes, chronologie, points à vérifier — classée au dossier comme compte rendu.',
     quand: 'Après un versement d\'au moins 100 pièces nouvelles, une fois toutes les pièces fichées au registre — de nuit de préférence, d\'office au-delà de 24 h d\'attente. Le registre agrégé du versement est joint au prompt.',
     variables: ['{{dossier}}'],
+  },
+  {
+    id: 'interrogation_verdict', groupe: 'Analyse', label: 'Interrogation du fonds — verdict par pièce',
+    resume: 'Le prompt qui juge chaque pièce au regard d\'une question large : pertinente ou non, score, justification, extraits verbatim.',
+    quand: 'Sur fonds_interroger (Claude web par le connecteur, ou l\'attaché) : lot après lot, à chaque tick du service, dès que le forfait l\'autorise. La question du magistrat est jointe.',
+    variables: ['{{question}}'],
+    avertissement: 'Le moteur attend un TABLEAU JSON strict : un remplacement qui change la sortie met l\'interrogation en échec.',
+  },
+  {
+    id: 'interrogation_synthese', groupe: 'Analyse', label: 'Interrogation du fonds — synthèse',
+    resume: 'Le prompt de la réponse d\'ensemble, rédigée depuis les pièces retenues (justifications, extraits) avec la couverture et le contrôle d\'élusion — remise en livrable.',
+    quand: 'Une fois toutes les pièces du périmètre jugées et le contrôle d\'élusion fait.',
+    variables: ['{{question}}'],
   },
   {
     id: 'registre_fiche', groupe: 'Rédaction automatique', label: 'Registre des pièces (mini-fiches)',
