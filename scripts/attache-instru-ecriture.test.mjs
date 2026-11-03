@@ -152,9 +152,17 @@ groupe = lire('instructions-groupe').dossiers.find((d) => d.id === 42)
 attendu('suspect retiré, 2 MEX', perso.suspects.length === 0 && perso.misEnExamen.length === 2)
 attendu('coffres personnel et groupe identiques', JSON.stringify(perso) === JSON.stringify(groupe))
 
+// Textes longs : la relecture doit les rendre EN ENTIER (aucune troncature)
+const LONG = 'Analyse détaillée. '.repeat(250)
+r = await call('instru_element', { numero: 'JIRS AC 26/01', collection: 'notesPerso', operation: 'ajouter', champs: { date: '2026-03-01', contenu: `${LONG}FIN-NOTE-LONGUE` } })
+attendu('note longue ajoutée', !r.err, r.text.slice(0, 200))
+r = await call('instru_element', { numero: 'JIRS AC 26/01', collection: 'evenements', operation: 'ajouter', champs: { type: 'autre', date: '2026-03-02', titre: 'Synthèse', description: `${LONG}FIN-EVENEMENT-LONG` } })
+attendu('événement long ajouté', !r.err, r.text.slice(0, 200))
+
 // ── Relecture : tout, avec les ids
 r = await call('lire_dossier', { numero: 'JIRS AC 26/01' })
 const md = r.text
+attendu('lecture : note et événement longs rendus en entier', md.includes('FIN-NOTE-LONGUE') && md.includes('FIN-EVENEMENT-LONG'))
 attendu('lecture : cotes, saisine, victimes, notes, ids', /Cotes : 15/.test(md) && /\[#1\] Trafic de stupéfiants en bande organisée/.test(md)
   && /DURAND Marie/.test(md) && /relancer le JI/.test(md) && /\[#7\] DUPONT Jean/.test(md), md.slice(0, 300))
 

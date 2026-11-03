@@ -130,7 +130,7 @@ export function instructionCorpus(keys) {
   }).filter((d) => d.numero)
 }
 
-/** Dossier d'instruction complet, en markdown compact. */
+/** Dossier d'instruction complet, en markdown — chaque texte rendu EN ENTIER. */
 export function instructionDossierMarkdown(keys, numero) {
   const d = loadAllDossiers(keys).find((x) => matchNumero(x, numero))
   if (!d) return null
@@ -142,9 +142,9 @@ export function instructionDossierMarkdown(keys, numero) {
 
   if (d.saisine?.length) {
     parts.push('\n## Saisine (in rem)')
-    for (const s of d.saisine) parts.push(`- [#${s.id}] ${s.qualification}${s.natinfCode ? ` (NATINF ${s.natinfCode})` : ''} — ${s.acte === 'suppletif' ? 'supplétif' : 'introductif'}${s.dateActe ? ` du ${fdate(s.dateActe)}` : ''}${s.faits ? ` · ${stripHtml(s.faits).slice(0, 300)}` : ''}`)
+    for (const s of d.saisine) parts.push(`- [#${s.id}] ${s.qualification}${s.natinfCode ? ` (NATINF ${s.natinfCode})` : ''} — ${s.acte === 'suppletif' ? 'supplétif' : 'introductif'}${s.dateActe ? ` du ${fdate(s.dateActe)}` : ''}${s.faits ? ` · ${stripHtml(s.faits)}` : ''}`)
   }
-  if (d.description) parts.push('\n## Narratif\n' + stripHtml(d.description).slice(0, 8000))
+  if (d.description) parts.push('\n## Narratif\n' + stripHtml(d.description))
 
   const mex = d.misEnExamen || []
   if (mex.length) {
@@ -161,10 +161,10 @@ export function instructionDossierMarkdown(keys, numero) {
       if (m.infractions?.length) parts.push('Chefs : ' + m.infractions.map((i) => `[#${i.id}] ${i.qualification}${i.natinfCode ? ` (NATINF ${i.natinfCode})` : ''}`).join(' ; '))
       if (m.dmls?.length) {
         parts.push('DML :')
-        for (const x of m.dmls) parts.push(`- [#${x.id}] déposée le ${fdate(x.dateDepot)}, échéance ${fdate(x.dateEcheance)} — ${x.statut}${x.dateRequisitions ? ` (réquisitions du ${fdate(x.dateRequisitions)})` : ''}${x.notes ? ` · ${stripHtml(x.notes).slice(0, 200)}` : ''}`)
+        for (const x of m.dmls) parts.push(`- [#${x.id}] déposée le ${fdate(x.dateDepot)}, échéance ${fdate(x.dateEcheance)} — ${x.statut}${x.dateRequisitions ? ` (réquisitions du ${fdate(x.dateRequisitions)})` : ''}${x.notes ? ` · ${stripHtml(x.notes)}` : ''}`)
       }
-      if (m.elementsCharge) parts.push('Éléments à charge : ' + stripHtml(m.elementsCharge).slice(0, 2000))
-      if (m.notes) parts.push('Notes : ' + stripHtml(m.notes).slice(0, 1000))
+      if (m.elementsCharge) parts.push('Éléments à charge : ' + stripHtml(m.elementsCharge))
+      if (m.notes) parts.push('Notes : ' + stripHtml(m.notes))
     }
   }
 
@@ -174,38 +174,38 @@ export function instructionDossierMarkdown(keys, numero) {
   }
   if (d.victimes?.length) {
     parts.push('\n## Victimes')
-    for (const x of d.victimes) parts.push(`- [#${x.id}] ${x.nom}${x.partieCivile ? ` — partie civile${x.datePC ? ` depuis le ${fdate(x.datePC)}` : ''}` : ''}${x.notes ? ` · ${stripHtml(x.notes).slice(0, 300)}` : ''}`)
+    for (const x of d.victimes) parts.push(`- [#${x.id}] ${x.nom}${x.partieCivile ? ` — partie civile${x.datePC ? ` depuis le ${fdate(x.datePC)}` : ''}` : ''}${x.notes ? ` · ${stripHtml(x.notes)}` : ''}`)
   }
 
   if (d.debatsJLD?.length) {
     parts.push('\n## Débats JLD')
     for (const j of [...d.debatsJLD].sort((a, b) => String(a.date).localeCompare(String(b.date)))) {
       const qui = j.misEnExamenId ? mex.find((m) => m.id === j.misEnExamenId)?.nom : null
-      parts.push(`- [#${j.id}] ${fdate(j.date)} — ${j.type}${qui ? ` (${qui})` : ''}${j.requisitionsRedigees ? ' · réquisitions rédigées' : ' · réquisitions À RÉDIGER'}${j.decision ? ` · décision : ${stripHtml(String(j.decision)).slice(0, 120)}` : ''}`)
+      parts.push(`- [#${j.id}] ${fdate(j.date)} — ${j.type}${qui ? ` (${qui})` : ''}${j.requisitionsRedigees ? ' · réquisitions rédigées' : ' · réquisitions À RÉDIGER'}${j.decision ? ` · décision : ${stripHtml(String(j.decision))}` : ''}`)
     }
   }
 
   if (d.ops?.length) {
     parts.push('\n## Opérations')
-    for (const o of d.ops) parts.push(`- [#${o.id}] ${fdate(o.date)} — ${stripHtml(o.description || '').slice(0, 200)}${o.service ? ` (${o.service})` : ''}${o.requisitionsRedigees ? ' · réquisitions rédigées' : ''}`)
+    for (const o of d.ops) parts.push(`- [#${o.id}] ${fdate(o.date)} — ${stripHtml(o.description || '')}${o.service ? ` (${o.service})` : ''}${o.requisitionsRedigees ? ' · réquisitions rédigées' : ''}`)
   }
 
   if (d.evenements?.length) {
     parts.push('\n## Chronologie (événements)')
     for (const e of [...d.evenements].sort((a, b) => String(a.date).localeCompare(String(b.date)))) {
       const qui = e.misEnExamenId ? mex.find((m) => m.id === e.misEnExamenId)?.nom : null
-      parts.push(`- [#${e.id}] ${fdate(e.date)} — [${e.type}] ${e.titre || ''}${qui ? ` (${qui})` : ''}${e.description ? ` · ${stripHtml(e.description).slice(0, 300)}` : ''}`)
+      parts.push(`- [#${e.id}] ${fdate(e.date)} — [${e.type}] ${e.titre || ''}${qui ? ` (${qui})` : ''}${e.description ? ` · ${stripHtml(e.description)}` : ''}`)
     }
   }
 
   if (d.notesPerso?.length) {
     parts.push('\n## Notes du dossier')
     for (const n of [...d.notesPerso].sort((a, b) => String(b.date).localeCompare(String(a.date)))) {
-      parts.push(`- [#${n.id}] ${fdate(n.date)}${n.tags?.length ? ` (${n.tags.join(', ')})` : ''} — ${stripHtml(n.contenu).slice(0, 2000)}`)
+      parts.push(`- [#${n.id}] ${fdate(n.date)}${n.tags?.length ? ` (${n.tags.join(', ')})` : ''} — ${stripHtml(n.contenu)}`)
     }
   }
 
-  if (d.notesActesJI) parts.push('\n## Actes à faire / à demander à la JI\n' + stripHtml(d.notesActesJI).slice(0, 4000))
+  if (d.notesActesJI) parts.push('\n## Actes à faire / à demander à la JI\n' + stripHtml(d.notesActesJI))
 
   const numeroDocs = d.numeroInstruction || d.numeroParquet
   const metas = listDocsMeta(attacheTj(), docServerKey(numeroDocs))
@@ -216,5 +216,7 @@ export function instructionDossierMarkdown(keys, numero) {
     parts.push(`DOSSIER COMPLET VERSÉ : ${nbDossierComplet} pièce(s) en texte, organisées en pochettes — dossier_arborescence(« ${numeroDocs} ») pour la table des matières, puis lire_document. C'est la matière première de toute synthèse, DML ou réquisitoire.`)
   }
   parts.push(`(${nbDml || 'Aucune'} réponse(s) DML archivée(s) : lister_dml avec le numéro « ${numeroDocs} » — puis lire_document sur la plus récente.)`)
-  return parts.join('\n').slice(0, 200_000)
+  // Aucune troncature : au-delà du plafond de sortie, lire_dossier borne avec
+  // un avertissement et dossier_global sert la fiche intégrale par pages.
+  return parts.join('\n')
 }

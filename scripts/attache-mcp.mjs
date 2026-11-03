@@ -1983,7 +1983,8 @@ function bornerSortie(text, contexte) {
   return text.slice(0, max)
     + `\n\n[SORTIE BORNÉE PAR SIRAL — ${max} caractères servis sur ${text.length}.`
     + ' Au-delà, ta réponse serait déversée dans un fichier que tu ne peux pas rouvrir : elle serait perdue.'
-    + ' Reprends avec les paramètres de cadrage de l\'outil (filtre, portee, offset/limit, pochette, section) pour lire la suite par pages.]'
+    + ' Reprends avec les paramètres de cadrage de l\'outil (filtre, portee, offset/limit, pochette, section) pour lire la suite par pages'
+    + ' — pour une fiche de dossier (instruction comprise), dossier_global la sert EN ENTIER, page par page.]'
 }
 
 // ── Répartition JSON-RPC partagée (boucle stdio · connecteur Claude web) ──
