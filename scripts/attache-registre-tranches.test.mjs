@@ -34,7 +34,7 @@ const RUNS = path.join(SCRATCH, 'runs.txt')
 const FAUX = path.join(SCRATCH, 'claude')
 fs.writeFileSync(FAUX, `#!/usr/bin/env node
 const fs = require('fs')
-const prompt = process.argv[process.argv.indexOf('-p') + 1]
+const prompt = fs.readFileSync(0, 'utf8')
 fs.appendFileSync(${JSON.stringify(RUNS)}, 'run\\n')
 const blocs = prompt.split('═══ PIÈCE ').slice(1)
 const fiches = blocs.map((b) => {

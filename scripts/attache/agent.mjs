@@ -412,7 +412,7 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
     : ['--resume', conv.claudeSessionId]
 
   const args = [
-    '-p', String(prompt),
+    '-p',
     '--output-format', 'stream-json',
     '--verbose',
     '--include-partial-messages',
@@ -455,8 +455,12 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
         // le timeout d'outil MCP du CLI doit couvrir le lot entier.
         MCP_TOOL_TIMEOUT: String(toolTimeout),
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
     })
+    // Prompt par l'ENTRÉE STANDARD, jamais en argument : un argv unitaire est
+    // plafonné à 128 Kio (E2BIG) — un dossier joint en entier le dépasse.
+    child.stdin.on('error', () => {})
+    child.stdin.end(String(prompt))
 
     let assistantText = ''
     let stderrTail = ''

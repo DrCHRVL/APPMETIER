@@ -35,7 +35,7 @@ const reponse = {
   pays: 'belgique', type: 'dee', sens: 'recue', dateButoir: '15/12/2026', vigilance: ['Adresse à confirmer'],
 }
 fs.writeFileSync(FAUX, `#!/usr/bin/env node
-const i = process.argv.indexOf('-p'); require('fs').writeFileSync(${JSON.stringify(PROMPT)}, process.argv[i + 1])
+require('fs').writeFileSync(${JSON.stringify(PROMPT)}, require('fs').readFileSync(0, 'utf8'))
 process.stdout.write(JSON.stringify({ type: 'result', is_error: false, result: '\`\`\`json\\n' + ${JSON.stringify(JSON.stringify(reponse))} + '\\n\`\`\`', usage: { input_tokens: 1200, output_tokens: 300 }, total_cost_usd: 0.01 }))
 `)
 fs.chmodSync(FAUX, 0o755)
