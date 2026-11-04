@@ -307,6 +307,77 @@ export function listPropositions(keys, { numero, enAttente = true } = {}) {
 }
 
 /**
+ * L'attaché RETIRE une de ses propositions encore en attente (erreur de saisie,
+ * doublon repéré après coup). Ce n'est pas un ✗ du magistrat : aucun signal
+ * d'apprentissage. Une proposition déjà tranchée ne se retire plus.
+ */
+export async function retirerProposition(keys, { id, motif }) {
+  const propositions = load(keys)
+  const prop = propositions.find((p) => p.id === id)
+  if (!prop) throw new Error('Proposition inconnue')
+  if (prop.statut !== 'en_attente') throw new Error('Proposition déjà traitée : le magistrat a tranché, elle ne peut plus être retirée')
+  prop.statut = 'retiree'
+  prop.retireeLe = new Date().toISOString()
+  const raison = String(motif || '').replace(/\s+/g, ' ').trim().slice(0, 320)
+  if (raison) prop.retraitMotif = raison
+  await save(keys, propositions)
+  await audit(keys, 'proposition_retiree', { id, numero: prop.numero, type: prop.type, titre: prop.titre, ...(raison ? { motif: raison } : {}) })
+  return { ok: true, id, statut: 'retiree' }
+}
+
+/**
+ * CORRIGE une proposition en attente : les champs fournis remplacent ceux du
+ * payload (null en retire un), les autres sont conservés. La version corrigée
+ * est REDÉPOSÉE avec les mêmes contrôles qu'un dépôt neuf (doublons,
+ * avertissements de rapprochement) et l'ancienne est retirée. Si le redépôt
+ * est refusé, l'ancienne est rétablie telle quelle.
+ */
+export async function modifierProposition(keys, { id, payload, source, motif }) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Champs à corriger requis (objet)')
+  const propositions = load(keys)
+  const prop = propositions.find((p) => p.id === id)
+  if (!prop) throw new Error('Proposition inconnue')
+  if (prop.statut !== 'en_attente') throw new Error('Proposition déjà traitée : le magistrat a tranché, elle ne peut plus être corrigée')
+  const corrige = { ...prop.payload }
+  for (const [k, v] of Object.entries(payload)) {
+    if (v === null) delete corrige[k]
+    else corrige[k] = v
+  }
+
+  // L'ancienne sort des propositions en attente le temps du redépôt, pour ne
+  // pas être prise pour un doublon de sa propre correction.
+  prop.statut = 'retiree'
+  await save(keys, propositions)
+  const retablir = async () => {
+    const liste = load(keys)
+    const p = liste.find((x) => x.id === id)
+    if (p) { p.statut = 'en_attente'; await save(keys, liste) }
+  }
+  let res
+  try {
+    res = await addProposition(keys, { numero: prop.numero, type: prop.type, payload: corrige, source: source || prop.source })
+  } catch (e) {
+    await retablir()
+    throw e
+  }
+  if (!res?.id) {
+    await retablir()
+    return { ...res, message: `Correction NON déposée : ${res?.message || 'refusée'} — la proposition d'origine reste en attente` }
+  }
+
+  const liste = load(keys)
+  const ancienne = liste.find((x) => x.id === id)
+  if (ancienne) {
+    ancienne.retireeLe = new Date().toISOString()
+    ancienne.remplaceePar = res.id
+    await save(keys, liste)
+  }
+  const raison = String(motif || '').replace(/\s+/g, ' ').trim().slice(0, 320)
+  await audit(keys, 'proposition_corrigee', { id, remplaceePar: res.id, numero: prop.numero, type: prop.type, champs: Object.keys(payload), ...(raison ? { motif: raison } : {}) })
+  return { ok: true, ancienne: id, id: res.id, ...(res.avertissements ? { avertissements: res.avertissements } : {}) }
+}
+
+/**
  * Décision de l'administrateur. action: valider | refuser.
  * À la validation, l'écriture réelle est faite ICI, signée de son nom.
  */
