@@ -547,12 +547,19 @@ export const useCartographieOverlayStore = create<OverlayState>((set, get) => ({
     });
     const liens = get().liensRenseignement.filter(l => l.source !== id && l.target !== id);
     const removedLienIds = get().liensRenseignement.filter(l => l.source === id || l.target === id).map(l => l.id);
+    const wasPinned = get().pinnedMecIds.includes(id);
     const pinned = get().pinnedMecIds.filter(p => p !== id);
     set({
       mecsExNihilo: list.filter(m => m.id !== id),
       dossiersExNihilo: dossiers,
       liensRenseignement: liens,
       pinnedMecIds: pinned,
+      // Tombstone de l'épingle, sinon une épingle déjà poussée sur le serveur
+      // ressuscite au prochain merge (union local+serveur). Même règle que
+      // unpinMec / togglePinMec / renameMecReferences.
+      deletedPinnedMecIds: wasPinned
+        ? appendTombstone(get().deletedPinnedMecIds, id)
+        : (get().deletedPinnedMecIds || []),
       deletedMecExNihiloIds: appendTombstone(get().deletedMecExNihiloIds, id),
       deletedLienIds: removedLienIds.reduce(
         (acc, lid) => appendTombstone(acc, lid),

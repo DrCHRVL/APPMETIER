@@ -245,12 +245,6 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
         const dureeInitiale = geoloc.prolongationsHistory[0]?.dureeInitiale || geoloc.duree;
         const dureeInitialeUnit = geoloc.dureeUnit || 'jours';
 
-        // Recalculer la durée totale (pour rétrocompatibilité, même si mixte)
-        let nouvelleDuree = dureeInitiale;
-        updatedHistory.forEach(entry => {
-          nouvelleDuree = (parseInt(nouvelleDuree) + parseInt(entry.dureeAjoutee)).toString();
-        });
-
         // Rejouer la chaîne datePose + durée initiale + chaque prolongation
         const dateReference = geoloc.datePose || geoloc.dateDebut;
         const nouvelleDateFin = ActeUtils.replayDateFin(
@@ -263,7 +257,7 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
         return {
           ...geoloc,
           prolongationsHistory: updatedHistory,
-          duree: nouvelleDuree,
+          duree: dureeInitiale, // Ne plus accumuler : garder la durée initiale (cf. ActeUtils.calculateProlongation)
           dateFin: nouvelleDateFin,
           prolongationDate: updatedHistory.length > 0 ? updatedHistory[updatedHistory.length - 1].date : undefined
         };
