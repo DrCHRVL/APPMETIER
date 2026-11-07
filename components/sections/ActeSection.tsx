@@ -277,11 +277,6 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
         const dureeInitiale = acte.prolongationsHistory[0]?.dureeInitiale || acte.duree;
         const dureeInitialeUnit = acte.dureeUnit || 'jours';
 
-        let nouvelleDuree = dureeInitiale;
-        updatedHistory.forEach(entry => {
-          nouvelleDuree = (parseInt(nouvelleDuree) + parseInt(entry.dureeAjoutee)).toString();
-        });
-
         const dateReference = acte.datePose || acte.dateDebut;
         const nouvelleDateFin = ActeUtils.replayDateFin(
           dateReference,
@@ -293,7 +288,7 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
         return {
           ...acte,
           prolongationsHistory: updatedHistory,
-          duree: nouvelleDuree,
+          duree: dureeInitiale, // Ne plus accumuler : garder la durée initiale (cf. ActeUtils.calculateProlongation)
           dateFin: nouvelleDateFin,
           prolongationDate: updatedHistory.length > 0 ? updatedHistory[updatedHistory.length - 1].date : undefined
         };

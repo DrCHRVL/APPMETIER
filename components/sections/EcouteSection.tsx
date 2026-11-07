@@ -308,11 +308,6 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
         const dureeInitiale = ecoute.prolongationsHistory[0]?.dureeInitiale || ecoute.duree;
         const dureeInitialeUnit = ecoute.dureeUnit || 'jours';
 
-        let nouvelleDuree = dureeInitiale;
-        updatedHistory.forEach(entry => {
-          nouvelleDuree = (parseInt(nouvelleDuree) + parseInt(entry.dureeAjoutee)).toString();
-        });
-
         const dateReference = ecoute.datePose || ecoute.dateDebut;
         const nouvelleDateFin = ActeUtils.replayDateFin(
           dateReference,
@@ -324,7 +319,7 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
         return {
           ...ecoute,
           prolongationsHistory: updatedHistory,
-          duree: nouvelleDuree,
+          duree: dureeInitiale, // Ne plus accumuler : garder la durée initiale (cf. ActeUtils.calculateProlongation)
           dateFin: nouvelleDateFin,
           prolongationDate: updatedHistory.length > 0 ? updatedHistory[updatedHistory.length - 1].date : undefined
         };
