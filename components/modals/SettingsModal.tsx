@@ -86,7 +86,7 @@ const TABS: TabDef[] = [
 
   // Administration (admin uniquement)
   { id: 'admin_users',       label: 'Utilisateurs & accès', icon: Users,     section: 'admin', isAdmin: true },
-  { id: 'admin_tjs',         label: 'Tribunaux',        icon: Landmark,      section: 'admin', isAdmin: true, superAdmin: true },
+  { id: 'admin_tjs',         label: 'Gestion des TJ',        icon: Landmark,      section: 'admin', isAdmin: true, superAdmin: true },
   { id: 'papeterie',         label: 'En-têtes des documents', icon: FileText, section: 'admin', isAdmin: true },
   { id: 'admin_contentieux', label: 'Contentieux',      icon: Layers,        section: 'admin', isAdmin: true },
   { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      section: 'admin', isAdmin: true },
