@@ -35,7 +35,6 @@
     "d3-force": "^3.0.0",
     "date-fns": "^2.30.0",
     "docx": "^9.5.1",
-    "pizzip": "^3.1.7",
     "html-to-image": "^1.11.13",
     "html2pdf.js": "^0.10.1",
     "imapflow": "^1.0.164",
@@ -48,6 +47,7 @@
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "^5.4.449",
+    "pizzip": "^3.1.7",
     "react": "^18.2.0",
     "react-chartjs-2": "^5.2.0",
     "react-day-picker": "^8.10.0",
@@ -73,6 +73,7 @@
     "eslint-config-next": "13.5.4",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.3",
+    "tsx": "4.20.3",
     "typescript": "^5.2.2"
   }
 }

@@ -77,8 +77,13 @@ export function isTjAdmin(account: Account | null, tj: string): boolean {
   return account.role === 'admin' || (account.tjAdmins || []).includes(tj)
 }
 
-/** Premier compte (hors administrateur général) d'un TJ → il en devient l'administrateur local. */
+/**
+ * Premier compte (hors administrateur général) d'un nouveau TJ → il en devient
+ * l'administrateur local. Le TJ d'origine reste administré par l'administrateur
+ * général (désignation explicite seulement).
+ */
 export function initialTjAdmins(tj: string): string[] | undefined {
+  if (tj === DEFAULT_TJ_ID) return undefined
   return listAccounts().some((a) => a.role !== 'admin' && accountTjs(a).includes(tj)) ? undefined : [tj]
 }
 

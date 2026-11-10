@@ -115,3 +115,44 @@ export function escrowNeedsUpdate(
   if (current.fp === mine.fp) return false
   return current.scopes.every((s) => mine.scopes.includes(s))
 }
+
+/** Accès HTTP minimal (injecté : navigateur, ou tests). */
+export interface EscrowHttp {
+  getJson: (path: string) => Promise<{ status: number, json: Record<string, unknown> }>
+  putJson: (path: string, body: unknown) => Promise<number>
+}
+
+/**
+ * Tient à jour le séquestre, après chaque déverrouillage :
+ *  - l'administrateur général, au TJ d'origine, crée sa paire si elle manque ;
+ *  - l'administrateur LOCAL d'un TJ y dépose une copie des clés du TJ scellée
+ *    pour la clé publique de l'administrateur général.
+ * Rend ce qui a été fait (pour le journal et les tests).
+ */
+export async function maintenirSequestre(
+  keys: Record<string, string>,
+  identity: { username: string, role: string },
+  phrase: string,
+  state: { isTjAdmin?: boolean, escrow?: { publicId: string, fp: string, scopes: string[] } | null } | null,
+  tjId: string,
+  http: EscrowHttp,
+): Promise<'paire-creee' | 'depose' | 'a-jour' | 'rien'> {
+  const pub = await http.getJson('/api/escrow')
+  if (identity.role === 'admin') {
+    if (pub.status === 404 && tjId === 'default' && phrase) {
+      const pair = await generateEscrowKeypair(phrase)
+      const st = await http.putJson('/api/escrow', pair)
+      if (st !== 200) throw new Error(`Publication de la clé d'administration refusée (${st})`)
+      return 'paire-creee'
+    }
+    return 'rien'
+  }
+  if (!state?.isTjAdmin || pub.status !== 200) return 'rien'
+  const publicSpki = String(pub.json.publicSpki)
+  const mine = { publicId: String(pub.json.publicId), fp: await keysFingerprint(keys), scopes: Object.keys(keys).sort() }
+  if (!escrowNeedsUpdate(state.escrow ?? null, mine)) return 'a-jour'
+  const env = await sealForEscrow(publicSpki, keys, identity.username)
+  const st = await http.putJson('/api/vaults/escrow-keys', env)
+  if (st !== 200) throw new Error(`Dépôt du séquestre refusé (${st})`)
+  return 'depose'
+}

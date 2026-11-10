@@ -26,7 +26,7 @@ import {
 import { idb, setIdbNamespace } from '@/lib/web/idb'
 import * as offlineMode from '@/lib/web/offlineMode'
 import {
-  generateEscrowKeypair, openPrivateKey, openEscrow, sealForEscrow, keysFingerprint, escrowNeedsUpdate,
+  openPrivateKey, openEscrow, maintenirSequestre,
   type EscrowEnvelope, type PrivateKeyEnvelope,
 } from '@/lib/web/escrow'
 import { NetworkStatusManager } from '@/utils/networkStatusManager'
@@ -36,37 +36,6 @@ type Phase = 'boot' | 'login' | 'register' | 'unlock' | 'create-fresh' | 'migrat
 export interface TjInfo { id: string, name: string }
 
 const KEYRING_STORE = '__siral_keyring__'
-
-/**
- * Tient à jour le séquestre de l'administrateur général :
- *  - lui-même, au TJ d'origine, crée sa paire de clés si elle manque ;
- *  - l'administrateur LOCAL d'un TJ y dépose une copie des clés du TJ scellée
- *    pour la clé publique de l'administrateur général.
- */
-async function maintenirSequestre(keys: Record<string, string>, identity: BridgeIdentity, phrase: string, state: E2eeState | null): Promise<void> {
-  const tjId = window.__SIRAL_TJ__?.active?.id || 'default'
-  const pub = await apiJson('/api/escrow')
-  if (identity.role === 'admin') {
-    if (pub.status === 404 && tjId === 'default' && phrase) {
-      const pair = await generateEscrowKeypair(phrase)
-      await fetch('/api/escrow', {
-        method: 'PUT', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(pair), credentials: 'same-origin',
-      })
-    }
-    return
-  }
-  if (!state?.isTjAdmin || pub.status !== 200) return
-  const publicSpki = String(pub.json.publicSpki)
-  const publicId = String(pub.json.publicId)
-  const mine = { publicId, fp: await keysFingerprint(keys), scopes: Object.keys(keys).sort() }
-  if (!escrowNeedsUpdate(state.escrow ?? null, mine)) return
-  const env = await sealForEscrow(publicSpki, keys, identity.username)
-  await fetch('/api/vaults/escrow-keys', {
-    method: 'PUT', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(env), credentials: 'same-origin',
-  })
-}
 
 const LEGACY_KEY_STORE = '__siral_cryptokey__'
 
@@ -229,7 +198,13 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     const ok = await verifyOrCreateCanary(scoped.global, identity)
     if (ok !== true) throw new Error(ok)
     // Séquestre pour l'administrateur général (best-effort, jamais bloquant).
-    maintenirSequestre(payload.keys, identity, phrase, e2eeRef.current).catch((e) => {
+    maintenirSequestre(payload.keys, identity, phrase, e2eeRef.current, window.__SIRAL_TJ__?.active?.id || 'default', {
+      getJson: apiJson,
+      putJson: async (path, body) => (await fetch(path, {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body), credentials: 'same-origin',
+      })).status,
+    }).catch((e) => {
       console.warn('Séquestre administrateur général non mis à jour', e)
     })
     // Mémoriser la session en mémoire vive : permet de « préparer ce poste »

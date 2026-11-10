@@ -35,10 +35,14 @@ const transpile = (rel, out) => {
   fs.writeFileSync(path.join(TMP, out), outputText
     .replace(/from '\.\/store'/g, "from './store.mjs'")
     .replace(/from '\.\/auth'/g, "from './auth.mjs'")
+    .replace(/from '\.\/tj'/g, "from './tj.mjs'")
+    .replace(/from '\.\/password'/g, "from './password.mjs'")
     .replace(/from '@\/utils\/numeroDossier'/g, "from './numeroDossier.mjs'"))
 }
 transpile('lib/server/store.ts', 'store.mjs')
 transpile('lib/server/auth.ts', 'auth.mjs')
+transpile('lib/server/password.ts', 'password.mjs')
+transpile('lib/server/tj.ts', 'tj.mjs')
 transpile('utils/numeroDossier.ts', 'numeroDossier.mjs')
 transpile('lib/server/attache.ts', 'attache.mjs')
 const { readProductionEnvelopes, readProductionDossiers, readIaMasquee, writeIaMasquee, attacheDiagnostic } = await import(path.join(TMP, 'attache.mjs'))
