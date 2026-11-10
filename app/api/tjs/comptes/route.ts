@@ -2,7 +2,7 @@
  * Gestion des comptes par l'ADMINISTRATEUR GÉNÉRAL, dans n'importe quel TJ —
  * en parallèle de l'administrateur local, qui reste la voie normale.
  *  POST  { username, displayName, tj, tjAdmin? } : crée le compte avec un mot
- *        de passe provisoire, rendu UNE fois (à remettre de vive voix).
+ *        de passe provisoire, rendu UNE fois (à remettre à l'intéressé).
  *  PATCH { username, action, ... } :
  *        'admin-local' { valeur: boolean } · 'suspendre' · 'reactiver'
  *        'tribunal' { tj } (déplace : coupe l'accès à l'ancien TJ)

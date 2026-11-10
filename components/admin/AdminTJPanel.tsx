@@ -166,7 +166,7 @@ export const AdminTJPanel = () => {
     if (status !== 200) { showToast(String(json.error || 'Création refusée'), 'error'); return; }
     const tj = json.tj as { id: string, name: string };
     montrerSecret(`Code d’accès de « ${tj.name} »`, String(json.code),
-      'À remettre de vive voix à la personne qui administrera ce tribunal : la première inscrite avec ce code en devient l’administratrice locale. Vous pouvez aussi créer les comptes vous-même ci-dessous.');
+      'À remettre à la personne qui administrera ce tribunal : la première inscrite avec ce code en devient l’administratrice locale. Vous pouvez aussi créer les comptes vous-même ci-dessous.');
     setShowAddTj(false); setNewTjName('');
     load();
   };
@@ -238,7 +238,7 @@ export const AdminTJPanel = () => {
     try {
       const r = await patch(a.username, 'mot-de-passe');
       montrerSecret(`Mot de passe provisoire de ${a.displayName}`, String(r.motDePasse),
-        'À remettre de vive voix. Il le changera dans Paramètres → Mon profil. Ses données ne sont pas touchées.');
+        'À remettre à l’intéressé. Il le changera dans Paramètres → Mon profil. Ses données ne sont pas touchées.');
     } catch (e) { showToast(e instanceof Error ? e.message : 'Erreur', 'error'); }
     finally { setBusy(false); }
   };
@@ -253,7 +253,7 @@ export const AdminTJPanel = () => {
       const { code, scopes } = await debloquerCompte(tjId, a.username, cleAdmin, httpAdmin, identiteSession()?.username || 'admin');
       const ctx = scopes.filter(s => s.startsWith('ctx-')).map(s => s.slice(4));
       montrerSecret(`Code d’invitation de ${a.displayName}`, code,
-        `À remettre de vive voix : à sa connexion, il le saisit puis choisit sa phrase personnelle. Périmètre : ${ctx.length ? ctx.join(', ') : 'aucun contentieux attribué (habilitations à régler dans le TJ)'}.`);
+        `À remettre à l’intéressé : à sa connexion, il le saisit puis choisit sa phrase personnelle. Périmètre : ${ctx.length ? ctx.join(', ') : 'aucun contentieux attribué (habilitations à régler dans le TJ)'}.`);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Déblocage impossible', 'error');
     } finally { setBusy(false); load(); }
@@ -266,7 +266,7 @@ export const AdminTJPanel = () => {
     setBusy(false);
     if (status !== 200) { showToast(String(json.error || 'Création refusée'), 'error'); return; }
     montrerSecret(`Compte ${newUser.username} créé dans ${nameOf(tjId)}`, String(json.motDePasse),
-      'Mot de passe provisoire, à remettre de vive voix. L’accès aux données suit la règle commune : invitation par un administrateur du TJ (ou, TJ vierge et compte administrateur local, création des clés à sa première connexion). Habilitations : dans le TJ, Paramètres → Utilisateurs & accès.');
+      'Mot de passe provisoire, à remettre à l’intéressé. L’accès aux données suit la règle commune : invitation par un administrateur du TJ (ou, TJ vierge et compte administrateur local, création des clés à sa première connexion). Habilitations : dans le TJ, Paramètres → Utilisateurs & accès.');
     setAddUserTj(null);
     setNewUser({ username: '', displayName: '', tjAdmin: false });
     load();

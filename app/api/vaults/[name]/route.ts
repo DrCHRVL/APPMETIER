@@ -54,6 +54,10 @@ export async function PUT(req: Request, { params }: { params: { name: string } }
     if (access) {
       const tjAdmin = isTjAdmin(findAccount(session.u), session.tj)
       const ownKeyring = access[1] === 'keyring' && access[2] === session.u
+      // l'accès de l'administrateur général ne relève pas des administrateurs locaux
+      if (!ownKeyring && session.r !== 'admin' && findAccount(access[2])?.role === 'admin') {
+        return jsonResponse({ error: 'Accès de l’administrateur général : non modifiable ici' }, { status: 403 })
+      }
       const adminGrant = access[1] === 'grant' && tjAdmin
       if (!ownKeyring && !adminGrant) {
         return jsonResponse({ error: 'Écriture non autorisée sur ce coffre d’accès' }, { status: 403 })
@@ -104,6 +108,10 @@ export async function DELETE(req: Request, { params }: { params: { name: string 
     if (!isSafeName(name)) return jsonResponse({ error: 'Nom invalide' }, { status: 400 })
     const isAccessVault = /^(keyring|grant)-/.test(name)
     const ownGrant = name === `grant-${session.u}` || name === `keyring-${session.u}`
+    const cibleCompte = /^(?:keyring|grant)-(.+)$/.exec(name)?.[1]
+    if (isAccessVault && !ownGrant && session.r !== 'admin' && cibleCompte && findAccount(cibleCompte)?.role === 'admin') {
+      return jsonResponse({ error: 'Accès de l’administrateur général : non modifiable ici' }, { status: 403 })
+    }
     if (!isAccessVault || (!isTjAdmin(findAccount(session.u), session.tj) && !ownGrant)) {
       return jsonResponse({ error: 'Suppression non autorisée' }, { status: 403 })
     }

@@ -1,5 +1,6 @@
 'use client';
 
+import { estSuperAdmin } from '@/lib/web/identite';
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserPlus, Trash2, Shield, X, Check, ChevronDown, KeyRound, Copy, ShieldOff, AlertTriangle } from 'lucide-react';
 import { UserManager } from '@/utils/userManager';
@@ -256,7 +257,11 @@ export const AdminUsersPanel = () => {
   };
 
   // L'enrôlement serveur fait foi : seuls les utilisateurs approuvés sont gérés ici.
-  const approvedUsers = users.filter(u => u.approved === true || u.globalRole === 'admin');
+  // L'administrateur général (rattaché à tous les TJ) n'apparaît pas aux administrateurs locaux.
+  const generaux = new Set(((typeof window !== 'undefined' && (window as unknown as { __SIRAL_GENERAUX__?: string[] }).__SIRAL_GENERAUX__) || []).map(u => u.toLowerCase()));
+  const approvedUsers = users
+    .filter(u => u.approved === true || u.globalRole === 'admin')
+    .filter(u => estSuperAdmin() || !generaux.has(u.windowsUsername.toLowerCase()));
 
   return (
     <div className="space-y-6">
@@ -296,14 +301,13 @@ export const AdminUsersPanel = () => {
                 </li>
                 <li>
                   <b>Lui s&apos;enrôle</b> : il ouvre l&apos;application et remplit l&apos;écran <i>Enrôlement</i> avec le
-                  <b> code d&apos;enrôlement du service</b> (la valeur <code>SIRAL_SETUP_CODE</code>, à lui communiquer de
-                  vive voix) puis son mot de passe. ⚠️ Il doit utiliser <b>exactement le même identifiant</b> que celui de
+                  <b> code d&apos;accès du tribunal</b> (remis par l&apos;administrateur général à la création du TJ)
+                  puis son mot de passe. ⚠️ Il doit utiliser <b>exactement le même identifiant</b> que celui de
                   sa fiche, sinon les deux ne se relient pas.
                 </li>
                 <li>
                   <b>Vous l&apos;invitez</b> : son badge passe à <b>« À inviter »</b>. Dépliez sa carte → <b>Inviter</b> :
-                  vous obtenez un <b>code à usage unique</b> qui livre exactement ses clés. Transmettez-le maintenant, de
-                  vive voix ou par canal sûr — il ne sera <b>plus jamais affiché</b>.
+                  vous obtenez un <b>code à usage unique</b> qui livre exactement ses clés. Transmettez-le maintenant — il ne sera <b>plus jamais affiché</b>.
                 </li>
                 <li>
                   <b>Lui active son trousseau</b> : il saisit ce code d&apos;invitation et choisit sa <b>phrase
@@ -642,8 +646,7 @@ const UserCard = ({
                         </button>
                       </div>
                       <p className="text-[11px] text-emerald-800">
-                        À usage unique — il ne sera <b>plus jamais affiché</b>. Transmettez-le maintenant, de vive voix
-                        ou par canal sûr.
+                        À usage unique — il ne sera <b>plus jamais affiché</b>. Transmettez-le maintenant.
                       </p>
                     </div>
                   )}

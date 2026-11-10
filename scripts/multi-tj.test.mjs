@@ -233,6 +233,7 @@ r = await accounts.GET(requete('/api/accounts', 'GET', undefined, la.cookie))
 const liste = (await json(r)).accounts || []
 verifier('l’admin local voit la demande du magistrat', r.status === 200 && liste.some((a) => a.username === 'lille.magistrat' && !a.hasKeyring && !a.hasGrant))
 verifier('… et aucun compte d’Amiens', !liste.some((a) => a.username === 'collegue.amiens'))
+verifier('… ni l’administrateur général', !liste.some((a) => a.username === 'audran'))
 
 app = await ouvrirApp(la.cookie)
 await app.um.reconcileWithAccounts(liste.map((a) => ({ username: a.username, displayName: a.displayName, role: a.role, tjAdmin: a.tjAdmin })))
@@ -294,6 +295,8 @@ const payloadSa = { v: 1, keys: clesOuvertes, createdAt: new Date().toISOString(
 verifier('son trousseau de Lille est créé', (await deposerTrousseau('audran', payloadSa, PHRASE_ADMIN, sw)).status === 200)
 lu = await lireDonnees('ctx-crimorg', (await ouvrirTrousseau('audran', PHRASE_ADMIN, sw)).keys, 'ctx-crimorg', sw)
 verifier('il lit les données de Lille', lu.data?.dossiers?.[0] === 'LILLE-1')
+verifier('l’admin local ne peut pas révoquer l’accès de l’admin général', (await coffreDel('keyring-audran', la.cookie)).status === 403
+  && (await coffreGet('keyring-audran', sw)).status === 200)
 const audit = fs.readFileSync(path.join(process.env.SIRAL_DATA_DIR, 'audit.jsonl'), 'utf8')
 verifier('l’ouverture du séquestre est journalisée', audit.includes('"escrow.read"') && audit.includes(tjLille.id))
 r = await accountsTjs.POST(requete('/api/accounts/tjs', 'POST', { username: 'lille.magistrat', tjs: [tjLille.id], tjAdmins: [tjLille.id] }, sa.cookie))
