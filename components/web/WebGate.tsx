@@ -855,6 +855,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
         )}
 
         <div className="siral-foot">Chiffrement de bout en bout · clés individuelles · hébergement UE · journal d&apos;accès</div>
+        <div className="siral-foot" style={{ marginTop: 4, opacity: 0.8 }}>SIRAL — propriété d&apos;Audran Chevalier</div>
       </div>
     </div>
   )

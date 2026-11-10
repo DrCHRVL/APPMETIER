@@ -297,7 +297,7 @@ export const SettingsModal = ({
             <div className="hidden sm:block mt-auto px-4 pt-3 border-t border-gray-200 mx-2">
               <p className="text-[10px] leading-tight text-gray-400 font-medium uppercase tracking-wide">SIRAL — Suivi Intégré des Réseaux criminels et Affaires Liées</p>
               <p className="text-[10px] leading-tight text-gray-400 mt-0.5">
-                {"Conçu par A. CHEVALIER — Parquet d'Amiens"}
+                {"Propriété d'Audran Chevalier"}
               </p>
               <p className="text-[9px] leading-tight text-red-400 font-semibold mt-1">NE PAS DIFFUSER</p>
             </div>

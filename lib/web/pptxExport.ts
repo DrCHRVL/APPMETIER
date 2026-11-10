@@ -493,7 +493,7 @@ export function construirePptx(diapos: Diapo[], pied: string, images: Map<string
 
   const now = new Date().toISOString()
   zip.file('docProps/core.xml', `${XML_DECL}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">`
-    + `<dc:title>${esc(titreDoc)}</dc:title><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`)
+    + `<dc:title>${esc(titreDoc)}</dc:title><dc:creator>${esc("SIRAL — propriété d'Audran Chevalier")}</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`)
   zip.file('docProps/app.xml', `${XML_DECL}<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>SIRAL</Application><Slides>${total}</Slides></Properties>`)
   zip.file('_rels/.rels', relsXml([
     { id: 'rId1', type: REL.office, target: 'ppt/presentation.xml' },
