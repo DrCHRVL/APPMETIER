@@ -26,7 +26,7 @@ import {
 import { idb, setIdbNamespace } from '@/lib/web/idb'
 import * as offlineMode from '@/lib/web/offlineMode'
 import {
-  openPrivateKey, openEscrow, maintenirSequestre,
+  openPrivateKey, openEscrow, maintenirSequestre, chargerEpinglesAdmin, controlerClesTj,
   type EscrowEnvelope, type PrivateKeyEnvelope,
 } from '@/lib/web/escrow'
 import { NetworkStatusManager } from '@/utils/networkStatusManager'
@@ -531,6 +531,14 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       const priv = await apiJson('/api/escrow?prive=1')
       if (priv.status !== 200) throw new Error('Clé d’administration générale absente : déverrouillez d’abord le tribunal d’origine')
       const privateKey = await openPrivateKey(priv.json.privateEnvelope as unknown as PrivateKeyEnvelope, pass1)
+      const httpSequestre = {
+        getJson: apiJson,
+        putJson: async (path: string, body: unknown) => (await fetch(path, {
+          method: 'PUT', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body), credentials: 'same-origin',
+        })).status,
+      }
+      await chargerEpinglesAdmin(pass1, httpSequestre)
       const sq = await apiJson('/api/vaults/escrow-keys')
       if (sq.status !== 200) throw new Error('Séquestre de ce tribunal introuvable')
       let keys: Record<string, string>
@@ -539,6 +547,11 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       } catch {
         throw new Error('Séquestre scellé pour une autre clé d’administration : l’administrateur local doit se reconnecter')
       }
+      // garde contre un séquestre contrefait par le serveur : les clés doivent
+      // ouvrir le témoin du TJ et correspondre à celles déjà connues
+      const temoin = await apiJson('/api/vaults/e2ee-check')
+      await controlerClesTj(window.__SIRAL_TJ__?.active?.id || 'default', keys,
+        temoin.status === 200 ? temoin.json.envelope as unknown as CipherEnvelope : null)
       const now = new Date().toISOString()
       const payload: KeyringPayload = { v: 1, keys, createdAt: now, updatedAt: now }
       await pushKeyring(payload, pass1, me)

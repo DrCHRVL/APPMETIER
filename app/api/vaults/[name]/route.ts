@@ -89,8 +89,10 @@ export async function PUT(req: Request, { params }: { params: { name: string } }
     if (indicUser && indicUser[1].toLowerCase() !== session.u.toLowerCase()) {
       return jsonResponse({ error: 'Écriture non autorisée' }, { status: 403 })
     }
-    // Épinglage de la clé d'administration générale : administrateur du TJ seulement.
-    if (params.name === 'escrow-pin' && !isTjAdmin(findAccount(session.u), session.tj)) {
+    // Habilitations (contentieux, modules, rôles, en-têtes) et épinglage de la
+    // clé d'administration générale : administrateur du TJ (local ou général)
+    // seulement — un membre ne peut pas s'attribuer de contentieux.
+    if ((params.name === 'escrow-pin' || params.name === 'users-config') && !isTjAdmin(findAccount(session.u), session.tj)) {
       return jsonResponse({ error: 'Réservé à l’administrateur de ce tribunal' }, { status: 403 })
     }
     const envelope = await req.json().catch(() => ({}))

@@ -102,10 +102,11 @@ Ouvrez **https://votre-domaine** : l'écran de connexion SIRAL apparaît.
 
 ## 4. Premier démarrage (~10 min)
 
-1. **Enrôlement** : « Premier accès ? Enrôler une passkey » → identifiant
-   (ex. votre login Windows), nom affiché, tribunal, code
-   d'enrôlement → Windows Hello / Face ID crée la passkey. *Le premier compte
-   créé est administrateur du serveur.*
+1. **Enrôlement** : « Premier accès sur cet appareil ? Enrôler » → identifiant,
+   nom affiché, code d'enrôlement (`SIRAL_SETUP_CODE`) et mot de passe
+   (10 caractères minimum). *Le premier compte créé est l'administrateur
+   général du serveur.* La connexion se fait toujours par identifiant et mot de
+   passe (aucune passkey).
 2. **Votre trousseau personnel** (cloisonnement par clé individuelle) :
    - *Serveur vierge* : écran « Initialisation du chiffrement » — choisissez
      votre **phrase personnelle** (longue — quatre mots aléatoires). Des clés
@@ -117,7 +118,7 @@ Ouvrez **https://votre-domaine** : l'écran de connexion SIRAL apparaît.
    (les contentieux à donner se règlent juste au-dessus, dans ses
    habilitations) → un **code d'invitation à usage unique** s'affiche :
    transmettez-le de vive voix.
-   Le collègue s'enrôle (passkey + code d'enrôlement), saisit son code
+   Le collègue s'enrôle (identifiant, mot de passe, code d'accès du tribunal), saisit son code
    d'invitation et choisit SA phrase personnelle. Révoquer un membre se fait
    au même endroit.
 
@@ -166,8 +167,7 @@ Guide utilisateur imprimable : [GUIDE-CREATION-COMPTE.pdf](GUIDE-CREATION-COMPTE
 - **PC (Edge/Chrome)** : ouvrez le site → menu ⋯ → **« Installer SIRAL »**.
   L'app a sa fenêtre, son icône, sa place dans le menu Démarrer.
 - **iPhone (Safari)** : ouvrez le site → bouton Partager →
-  **« Sur l'écran d'accueil »**. L'app s'ouvre en plein écran, Face ID sert
-  de passkey. Fonctionne hors-ligne (les données déjà synchronisées restent
+  **« Sur l'écran d'accueil »**. L'app s'ouvre en plein écran. Fonctionne hors-ligne (les données déjà synchronisées restent
   consultables).
 - Chaque membre du service s'enrôle avec **son** identifiant (celui de
   `users.json`) + le code d'enrôlement, saisit le **code d'invitation** remis
@@ -219,7 +219,6 @@ docker compose up -d --build
 | Le site ne répond pas | `docker compose ps`, puis `docker compose logs --tail 50` |
 | Certificat HTTPS absent | le DNS pointe-t-il bien sur l'IP ? `dig +short votre-domaine` |
 | « Code d'enrôlement incorrect » | valeur `SIRAL_SETUP_CODE` dans `.env`, puis `docker compose up -d` |
-| Passkey refusée | l'URL doit être exactement `https://votre-domaine` (pas l'IP) |
 | Phrase secrète refusée | c'est la bonne phrase ? (insensible aux espaces de début/fin — sinon, irrécupérable : restaurer un snapshot) |
 | La MAJ in-app échoue ou « service non installé » | `docker compose ps updater`, puis `docker compose logs updater` ; journal détaillé : fichier `update.log` du volume `siral_updater-state` |
 
@@ -228,8 +227,8 @@ docker compose up -d --build
 ## Rappels de sécurité
 
 - Le serveur ne voit **que des données chiffrées** : même compromis, il ne
-  livre rien d'exploitable. La sécurité réelle repose sur 1) vos passkeys,
-  2) la phrase secrète, 3) le code d'enrôlement.
+  livre rien d'exploitable. La sécurité réelle repose sur 1) vos mots de passe,
+  2) la phrase secrète, 3) le code d'enrôlement et les codes d'accès des TJ.
 - Ne stockez jamais la phrase secrète dans un e-mail ou un fichier. Papier,
   scellé, coffre.
 - L'accès SSH au serveur = accès aux blobs chiffrés + possibilité de saboter

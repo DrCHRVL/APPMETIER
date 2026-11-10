@@ -1,10 +1,7 @@
 /**
  * SIRAL — authentification par mot de passe.
  *
- * Complément aux passkeys WebAuthn, destiné aux postes où Windows Hello est
- * désactivé par la stratégie d'entreprise (ex. PC pro Justice) et où le QR
- * inter-appareils est bloqué par le réseau. Un compte peut posséder à la fois
- * des passkeys ET un mot de passe.
+ * Seul moyen de connexion (aucune passkey) : identifiant + mot de passe.
  *
  * Hachage : scrypt (intégré à Node, résistant au matériel), sel aléatoire par
  * compte, comparaison à temps constant. Le format stocké est autodescriptif :

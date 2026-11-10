@@ -90,6 +90,9 @@ export const AdminUsersPanel = () => {
   // username (minuscule) → état du compte serveur correspondant.
   type AccountState = { exists: boolean; hasKeyring: boolean; hasGrant: boolean; suspendu?: boolean };
   const [accountStates, setAccountStates] = useState<Record<string, AccountState>>({});
+  // Accès de l'administrateur général à ce tribunal (information des administrateurs locaux)
+  type AdminGeneralInfo = { displayName: string; acces: 'ouvert' | 'pret' | 'non-depose'; journal: Array<{ date: string; action: string; details: string | null }> };
+  const [adminGeneral, setAdminGeneral] = useState<AdminGeneralInfo | null>(null);
 
   const loadAccountStates = useCallback(async () => {
     const api = (typeof window !== 'undefined' ? (window as any).siralBridge : null);
@@ -105,6 +108,7 @@ export const AdminUsersPanel = () => {
       const map: Record<string, AccountState> = {};
       for (const a of list) map[a.username.toLowerCase()] = { exists: true, hasKeyring: a.hasKeyring, hasGrant: a.hasGrant, suspendu: a.suspendu };
       setAccountStates(map);
+      setAdminGeneral(((window as unknown as { __SIRAL_ADMIN_GENERAL__?: AdminGeneralInfo | null }).__SIRAL_ADMIN_GENERAL__) || null);
     } catch {
       // non bloquant : la liste des comptes peut être momentanément indisponible
     }
@@ -391,6 +395,23 @@ export const AdminUsersPanel = () => {
 
       {/* Liste des utilisateurs approuvés */}
       <div className="space-y-3">
+        {adminGeneral && !estSuperAdmin() && (
+          <div className="border border-sky-200 bg-sky-50 rounded-lg p-3 text-xs text-sky-900 space-y-1.5">
+            <div>
+              <b>Administrateur général : {adminGeneral.displayName}</b> — accès à ce tribunal :{' '}
+              {adminGeneral.acces === 'ouvert' ? 'ouvert (il a ses clés)' : adminGeneral.acces === 'pret' ? 'possible (séquestre déposé)' : 'pas encore possible'}.
+              {' '}Il peut ouvrir ce tribunal, créer, suspendre ou débloquer des comptes ; chacune de ses actions est inscrite ci-dessous.
+            </div>
+            {adminGeneral.journal.length > 0 ? (
+              <ul className="space-y-0.5 text-[11px] text-sky-800">
+                {adminGeneral.journal.map((e, i) => (
+                  <li key={i}>{new Date(e.date).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })} — {e.action}{e.details ? ` (${e.details})` : ''}</li>
+                ))}
+              </ul>
+            ) : <div className="text-[11px] text-sky-700">Aucune action de sa part sur ce tribunal.</div>}
+          </div>
+        )}
+
         {approvedUsers.map(user => (
           <UserCard
             key={user.windowsUsername}

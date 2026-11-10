@@ -12,7 +12,7 @@ ENVIRO).
 ## Édition web
 
 Application web hébergée — chiffrement de bout en bout côté client,
-authentification WebAuthn/passkeys, multi-tribunaux, PWA installable
+authentification par identifiant et mot de passe, multi-tribunaux, PWA installable
 (desktop + iPhone).
 
 ```bash
@@ -62,7 +62,7 @@ web obtient les outils de l'attaché — lecture des dossiers et des pièces,
 trames, skills et base de connaissances du magistrat, statistiques,
 écritures réversibles et auditées — et **c'est là que les actes se
 rédigent**, puis se rangent dans SIRAL. OAuth réservé à l'administrateur
-(session passkey + consentement), désactivé par défaut, révocable en un
+(session administrateur + consentement), désactivé par défaut, révocable en un
 clic.
 Voir **[docs/CONNECTEUR-CLAUDE-WEB.md](docs/CONNECTEUR-CLAUDE-WEB.md)**.
 

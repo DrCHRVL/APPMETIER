@@ -1182,8 +1182,9 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     e2ee_listAccounts: async () => {
       const res = await api('/api/accounts')
       if (!res.ok) throw new Error('Liste des comptes indisponible (' + res.status + ')')
-      const { accounts, generaux } = await res.json()
+      const { accounts, generaux, adminGeneral } = await res.json()
       ;(window as unknown as { __SIRAL_GENERAUX__?: string[] }).__SIRAL_GENERAUX__ = generaux || []
+      ;(window as unknown as { __SIRAL_ADMIN_GENERAL__?: unknown }).__SIRAL_ADMIN_GENERAL__ = adminGeneral || null
       return accounts
     },
     /**

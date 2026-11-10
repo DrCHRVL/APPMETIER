@@ -4,7 +4,7 @@
  * serveur ne fait que transmettre des enveloppes, que le navigateur de
  * l'administrateur général ouvre avec le séquestre du TJ. Chaque appel est
  * journalisé.
- *  GET    ?tj=…&coffre=…   escrow-keys · users-config · ctx-<contentieux>
+ *  GET    ?tj=…&coffre=…   escrow-keys · e2ee-check · users-config · ctx-<contentieux>
  *  PUT    ?tj=…&coffre=grant-<identifiant>   (invitation de déblocage)
  *  DELETE ?tj=…&coffre=keyring-<identifiant> | grant-<identifiant>
  *         (réinitialisation de l'accès d'un compte : phrase perdue…)
@@ -15,7 +15,7 @@ import { readVault, writeVault, deleteVault, isSafeName, appendLog } from '@/lib
 
 export const dynamic = 'force-dynamic'
 
-const LECTURE = /^(escrow-keys|users-config|ctx-[a-z0-9_-]+)$/
+const LECTURE = /^(escrow-keys|e2ee-check|users-config|ctx-[a-z0-9_-]+)$/
 const ACCES = /^(keyring|grant)-(.+)$/
 
 function cible(req: Request): { tj: string, coffre: string } | Response {

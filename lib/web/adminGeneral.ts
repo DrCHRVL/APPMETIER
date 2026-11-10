@@ -11,7 +11,7 @@
  */
 import { decryptJson, encryptJson, type CipherEnvelope } from './crypto'
 import { deriveRawKey, generateInvitationCode, importAesKey, newKdfParams, SCOPE_GLOBAL } from './keyring'
-import { openEscrow, type EscrowEnvelope } from './escrow'
+import { openEscrow, controlerClesTj, type EscrowEnvelope } from './escrow'
 import { mecSortedKey } from '@/lib/recoupements/nomsCore.mjs'
 
 export interface AdminHttp {
@@ -27,7 +27,11 @@ const cleAes = (b64: string) => importAesKey(Uint8Array.from(atob(b64), (c) => c
 export async function clesDuTj(tj: string, clePrivee: CryptoKey, http: AdminHttp): Promise<Record<string, string>> {
   const r = await http.get(chemin(tj, 'escrow-keys'))
   if (r.status !== 200) throw new Error('Séquestre absent : l’administrateur local ne s’est pas encore connecté depuis l’ouverture de l’accès général')
-  return openEscrow(clePrivee, r.json.envelope as unknown as EscrowEnvelope)
+  const keys = await openEscrow(clePrivee, r.json.envelope as unknown as EscrowEnvelope)
+  // garde contre un séquestre contrefait : témoin du TJ + empreintes retenues
+  const t = await http.get(chemin(tj, 'e2ee-check'))
+  await controlerClesTj(tj, keys, t.status === 200 ? t.json.envelope as unknown as CipherEnvelope : null)
+  return keys
 }
 
 async function lireCoffre<T>(tj: string, coffre: string, cle: string | undefined, http: AdminHttp): Promise<T | null> {

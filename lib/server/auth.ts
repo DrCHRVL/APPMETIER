@@ -1,7 +1,7 @@
 /**
  * SIRAL — authentification serveur.
  *
- * - Comptes : passkeys WebAuthn (anti-phishing, sans mot de passe).
+ * - Comptes : identifiant + mot de passe (scrypt). Pas de passkey.
  *   Enrôlement protégé par un code d'enrôlement (SIRAL_SETUP_CODE) défini
  *   par l'administrateur du serveur. Le premier compte créé est admin.
  * - Sessions : cookie HttpOnly signé HMAC-SHA256 (aucun stockage serveur),
@@ -47,8 +47,9 @@ export interface Account {
   tjAdmins?: string[]
   /** Compte suspendu par l'administrateur général : plus aucune connexion ni accès. */
   suspendu?: boolean
+  /** Héritage : anciennes passkeys (plus utilisées — connexion par mot de passe seulement). */
   credentials: StoredCredential[]
-  /** Hachage scrypt du mot de passe (optionnel — complément aux passkeys). */
+  /** Hachage scrypt du mot de passe (seul moyen de connexion). */
   passwordHash?: string
   createdAt: string
   lastLoginAt?: string
@@ -312,24 +313,7 @@ export function requireSuperAdmin(req: Request): SessionPayload {
   return s
 }
 
-// ── Défis WebAuthn éphémères (mémoire process, TTL 5 min) ──
-const challenges = new Map<string, { challenge: string, exp: number }>()
-
-export function storeChallenge(key: string, challenge: string) {
-  // purge opportuniste
-  const now = Date.now()
-  for (const [k, v] of challenges) { if (v.exp < now) challenges.delete(k) }
-  challenges.set(key, { challenge, exp: now + 5 * 60 * 1000 })
-}
-
-export function takeChallenge(key: string): string | null {
-  const entry = challenges.get(key)
-  challenges.delete(key)
-  if (!entry || entry.exp < Date.now()) return null
-  return entry.challenge
-}
-
-// ── RP (Relying Party) WebAuthn ──
+// ── Origine publique du serveur (connecteur MCP / OAuth) ──
 export function rpFromRequest(req: Request): { rpID: string, origin: string, rpName: string } {
   const url = new URL(req.url)
   const fwdHost = req.headers.get('x-forwarded-host')

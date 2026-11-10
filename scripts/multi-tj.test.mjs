@@ -70,6 +70,7 @@ const [register, tjsApi, vault, accounts, accountsTjs, state, me, switchTj, escr
   route('vaults/[name]/versions/[file]'), route('tjs/comptes'), route('auth/password-login'), route('auth/password-change'),
 ])
 const donnees = await route('tjs/donnees')
+const epinglesApi = await route('escrow/epingles')
 const { encryptJson, decryptJson } = await imp('lib/web/crypto.ts')
 const keyring = await imp('lib/web/keyring.ts')
 const escrow = await imp('lib/web/escrow.ts')
@@ -107,12 +108,17 @@ const http = (c) => ({
       const res = await coffreGet(chemin.replace('/api/vaults/', ''), c)
       return { status: res.status, json: await json(res) }
     }
+    if (chemin === '/api/escrow/epingles') {
+      const res = await epinglesApi.GET(requete(chemin, 'GET', undefined, c))
+      return { status: res.status, json: await json(res) }
+    }
     if (chemin !== '/api/escrow') throw new Error('route non simulée ' + p)
     const res = await escrowApi.GET(requete(chemin + (qs ? `?${qs}` : ''), 'GET', undefined, c))
     return { status: res.status, json: await json(res) }
   },
   putJson: async (p, body) => {
     if (p === '/api/escrow') return (await escrowApi.PUT(requete(p, 'PUT', body, c))).status
+    if (p === '/api/escrow/epingles') return (await epinglesApi.PUT(requete(p, 'PUT', body, c))).status
     const name = p.replace('/api/vaults/', '')
     return (await coffrePut(name, body, c)).status
   },
@@ -499,6 +505,39 @@ const [k1, k2] = await Promise.all([
   deposerTrousseau('audran', keyring.freshKeyringPayload(), PHRASE_ADMIN, swA),
 ])
 verifier('initialisations simultanées : un seul jeu de clés créé', [k1.status, k2.status].filter((x) => x === 200).length === 1)
+// habilitations protégées
+verifier('un membre ne peut pas écrire les habilitations de son TJ', (await coffrePut('users-config', { encrypted: true, ct: 'x', iv: 'y' }, dm2)).status === 403)
+verifier('l’admin local le peut', (await ecrireDonnees('users-config', clesLille.keys, 'global',
+  { users: [{ windowsUsername: 'douai.magistrat', contentieux: [{ contentieuxId: 'crimorg', role: 'magistrat' }] }] }, la.cookie)).status === 200)
+// les administrateurs locaux sont informés de l'accès de l'administrateur général
+const infoLocale = await json(await accounts.GET(requete('/api/accounts', 'GET', undefined, la.cookie)))
+verifier('l’admin local voit l’accès de l’admin général à son TJ et ses actions',
+  infoLocale.adminGeneral?.acces === 'ouvert' && infoLocale.adminGeneral.journal.some((x) => x.action === 'a lu à distance')
+  && infoLocale.adminGeneral.journal.some((x) => x.action === 'a suspendu un compte'))
+const infoDouai = await json(await accounts.GET(requete('/api/accounts', 'GET', undefined, da)))
+verifier('… et l’admin de Douai ne voit pas ce qui concerne Lille',
+  !!infoDouai.adminGeneral && !infoDouai.adminGeneral.journal.some((x) => x.action === 'a déposé une invitation'))
+// protection contre un séquestre contrefait par le serveur
+const pairePub = JSON.parse(fs.readFileSync(fichierPaire, 'utf8'))
+const fichierSqLille = path.join(process.env.SIRAL_DATA_DIR, 'tj', tjLille.id, 'vaults', 'escrow-keys.json')
+const sqLilleAvant = fs.readFileSync(fichierSqLille, 'utf8')
+const faux = keyring.freshKeyringPayload()
+fs.writeFileSync(fichierSqLille, JSON.stringify(await escrow.sealForEscrow(pairePub.publicSpki, faux.keys, 'serveur-pirate')))
+let refuse = ''
+try { await adminGen.clesDuTj(tjLille.id, pk, httpAdmin(sa.cookie)) } catch (err) { refuse = err.message }
+verifier('séquestre contrefait (clés différentes de celles connues) : refusé', /Sécurité/.test(refuse))
+fs.writeFileSync(fichierSqLille, sqLilleAvant)
+verifier('… le vrai séquestre s’ouvre à nouveau', (await adminGen.clesDuTj(tjLille.id, pk, httpAdmin(sa.cookie)))['ctx-crimorg'] === clesLille.keys['ctx-crimorg'])
+const vraiTemoin = await encryptJson(await keyring.importAesKey(new Uint8Array(Buffer.from(clesLille.keys.global, 'base64'))), { check: 'siral' })
+refuse = ''
+try { await escrow.controlerClesTj('tj-jamais-ouvert', faux.keys, vraiTemoin) } catch (err) { refuse = err.message }
+verifier('clés qui n’ouvrent pas le témoin du TJ : refusées dès la première ouverture', /témoin/.test(refuse))
+let accepte = true
+try { await escrow.controlerClesTj('tj-jamais-ouvert-2', clesLille.keys, vraiTemoin) } catch { accepte = false }
+verifier('… les vraies clés passent', accepte)
+verifier('les empreintes retenues sont illisibles pour le serveur',
+  !fs.readFileSync(path.join(process.env.SIRAL_DATA_DIR, 'escrow-epingles.json'), 'utf8').includes(tjLille.id))
+verifier('connexion par passkey supprimée', !fs.existsSync(path.join(REPO, 'app/api/auth/login-verify')) && !fs.existsSync(path.join(REPO, 'lib/server/webauthn.ts')))
 verifier('un deuxième compte « premier du serveur » est impossible : un seul administrateur général',
   JSON.parse(fs.readFileSync(path.join(process.env.SIRAL_DATA_DIR, 'accounts.json'), 'utf8')).filter((a) => a.role === 'admin').length === 1)
 

@@ -165,6 +165,7 @@ export async function maintenirSequestre(
       await epingler(keys, pair.publicId, http)
       const env = await sealForEscrow(pair.publicSpki, keys, identity.username)
       await http.putJson('/api/vaults/escrow-keys', env)
+      await chargerEpinglesAdmin(phrase, http).catch(() => {})
       return 'paire-creee'
     }
     if (pub.status === 200 && phrase && !clePriveeAdmin) {
@@ -173,6 +174,8 @@ export async function maintenirSequestre(
         try { setClePriveeAdmin(await openPrivateKey(priv.json.privateEnvelope as unknown as PrivateKeyEnvelope, phrase)) } catch { /* autre phrase : indicateurs non lisibles */ }
       }
     }
+    // empreintes des clés des TJ, retenues par l'administrateur général
+    if (phrase && clePriveeAdmin) await chargerEpinglesAdmin(phrase, http).catch(() => {})
     // puis, comme tout administrateur du TJ ouvert, il en tient le séquestre à
     // jour (TJ d'origine compris) : la cartographie et le déblocage à distance
     // reposent sur le séquestre de chaque TJ.
@@ -220,4 +223,70 @@ async function epingler(keys: Record<string, string>, publicId: string, http: Es
   const cle = await cleGlobale(keys)
   if (!cle) return
   await http.putJson(`/api/vaults/${PIN}`, await encryptJson(cle, { publicId, epingleLe: new Date().toISOString() }))
+}
+
+// ── Contrôle des clés d'un TJ ouvertes par l'administrateur général ──
+// Un serveur actif pourrait sceller pour la clé publique de l'administrateur
+// général des clés de SON choix (il connaît cette clé publique). Deux gardes :
+//  1. les clés du séquestre doivent ouvrir le témoin `e2ee-check` du TJ — celui
+//     que vérifient les postes de ses membres à chaque déverrouillage ;
+//  2. l'empreinte de chaque clé est retenue à la première ouverture (dans une
+//     enveloppe chiffrée par une clé dérivée de la phrase de l'administrateur
+//     général, que le serveur ne peut contrefaire) ; elle ne doit plus changer.
+let cleEpingles: { cle: CryptoKey, sel: string, iterations: number } | null = null
+let epingles: Record<string, Record<string, string>> = {}
+let httpEpingles: EscrowHttp | null = null
+
+/** Charge (ou initialise) les empreintes retenues, avec la phrase de l'administrateur général. */
+export async function chargerEpinglesAdmin(phrase: string, http: EscrowHttp): Promise<void> {
+  const r = await http.getJson('/api/escrow/epingles')
+  if (r.status === 200) {
+    const env = r.json.envelope as unknown as PrivateKeyEnvelope
+    const cle = await importAesKey(await deriveRawKey(phrase, env.kdfSalt, env.kdfIterations))
+    epingles = (await decryptJson<{ tjs: Record<string, Record<string, string>> }>(cle, env)).tjs || {}
+    cleEpingles = { cle, sel: env.kdfSalt, iterations: env.kdfIterations }
+  } else {
+    const kdf = newKdfParams()
+    cleEpingles = { cle: await importAesKey(await deriveRawKey(phrase, kdf.salt, kdf.iterations)), sel: kdf.salt, iterations: kdf.iterations }
+    epingles = {}
+  }
+  httpEpingles = http
+}
+
+export function epinglesChargees(): boolean { return cleEpingles !== null }
+
+async function empreinteCle(cleB64: string): Promise<string> {
+  return (await sha256Hex(b64.decode(cleB64))).slice(0, 32)
+}
+
+/**
+ * Vérifie les clés d'un TJ tirées de son séquestre avant tout usage. Lève si
+ * elles n'ouvrent pas le témoin du TJ, ou si une clé déjà connue a changé ;
+ * retient sinon les empreintes nouvelles. `temoin` : l'enveloppe e2ee-check du
+ * TJ (null si le TJ n'en a pas encore).
+ */
+export async function controlerClesTj(tj: string, keys: Record<string, string>, temoin: CipherEnvelope | null): Promise<void> {
+  if (!cleEpingles || !httpEpingles) {
+    throw new Error('Clé d’administration non chargée : reconnectez-vous avec votre phrase personnelle')
+  }
+  if (temoin) {
+    const cle = await cleGlobale(keys)
+    let ok = false
+    try { ok = !!cle && (await decryptJson<{ check?: string }>(cle, temoin)).check === 'siral' } catch { ok = false }
+    if (!ok) throw new Error('Sécurité : les clés du séquestre n’ouvrent pas le témoin de ce tribunal. Rien n’a été ouvert ; prévenez son administrateur local.')
+  }
+  const connues = epingles[tj] || {}
+  const actuelles: Record<string, string> = {}
+  for (const [scope, cle] of Object.entries(keys)) actuelles[scope] = await empreinteCle(cle)
+  for (const [scope, empreinte] of Object.entries(connues)) {
+    if (actuelles[scope] && actuelles[scope] !== empreinte) {
+      throw new Error('Sécurité : les clés de ce tribunal ne sont plus celles que vous connaissiez. Rien n’a été ouvert ; vérifiez avec son administrateur local.')
+    }
+  }
+  const fusion = { ...connues, ...actuelles }
+  if (JSON.stringify(fusion) === JSON.stringify(connues)) return
+  epingles = { ...epingles, [tj]: fusion }
+  const env = await encryptJson(cleEpingles.cle, { tjs: epingles })
+  const st = await httpEpingles.putJson('/api/escrow/epingles', { ...env, kdfSalt: cleEpingles.sel, kdfIterations: cleEpingles.iterations })
+  if (st !== 200) throw new Error(`Empreintes non enregistrées (${st})`)
 }

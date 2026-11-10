@@ -88,10 +88,17 @@ export class UserManager {
 
       // 3. Config absente sur le serveur (premier lancement / migration) → créer une config par défaut
       if (!this.config) {
-        console.warn('UserManager: users.json introuvable côté serveur, création de la config initiale');
-        this.config = this.createDefaultConfig(systemUser.displayName);
-        // Persister immédiatement sur le serveur pour que les prochains lancements la trouvent
-        await this.saveConfig();
+        if (!identiteSession() || estAdminTj()) {
+          console.warn('UserManager: users.json introuvable côté serveur, création de la config initiale');
+          this.config = this.createDefaultConfig(systemUser.displayName);
+          // Persister immédiatement sur le serveur pour que les prochains lancements la trouvent
+          await this.saveConfig();
+        } else {
+          // Habilitations réservées aux administrateurs : un membre n'en crée pas,
+          // il attend que l'administrateur de son TJ les règle (aucun contentieux).
+          const now = new Date().toISOString();
+          this.config = { version: 1, contentieux: DEFAULT_CONTENTIEUX, users: [], updatedAt: now, updatedBy: '' };
+        }
       }
 
       // 4. Identifier l'utilisateur courant
@@ -100,11 +107,14 @@ export class UserManager {
       ) || null;
 
       if (!this.currentUser) {
-        // Auto-inscription : nouvel utilisateur → JA sans contentieux
-        console.log(`UserManager: auto-inscription de "${systemUser.displayName}" en tant que JA`);
+        // Pas encore de profil : JA sans contentieux. Seul un administrateur
+        // l'enregistre (habilitations protégées) ; pour un membre, le profil
+        // reste en mémoire jusqu'à ce que son administrateur le crée.
         this.currentUser = this.autoRegisterUser(systemUser.displayName);
-        this.config.users.push(this.currentUser);
-        await this.saveConfig();
+        if (!identiteSession() || estAdminTj()) {
+          this.config.users.push(this.currentUser);
+          await this.saveConfig();
+        }
       }
 
       // 4 bis. Le rôle « administrateur » de ce TJ est tenu par le SERVEUR
@@ -524,6 +534,9 @@ export class UserManager {
    */
   private async saveConfig(): Promise<boolean> {
     if (!this.config) return false;
+    // Habilitations : écriture réservée à l'administrateur du TJ (local ou
+    // général) — le serveur le refuse de toute façon à un membre.
+    if (identiteSession() && !estAdminTj()) return false;
 
     this.config.updatedAt = new Date().toISOString();
     this.config.updatedBy = this.currentUser?.windowsUsername || 'unknown';
