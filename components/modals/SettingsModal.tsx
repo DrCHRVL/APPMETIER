@@ -2,7 +2,8 @@
 
 import { estSuperAdmin } from '@/lib/web/identite';
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark, Scale, WifiOff } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark, Scale, WifiOff, FileSignature } from 'lucide-react';
+import { PapeterieSettings } from '@/components/PapeterieSettings';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId, ModuleId } from '@/types/userTypes';
 
@@ -11,7 +12,7 @@ import { ContentieuxId, ModuleId } from '@/types/userTypes';
 // ──────────────────────────────────────────────
 
 type SettingsTab =
-  | 'alertes' | 'tags' | 'sauvegardes' | 'mode_hors_ligne' | 'mon_profil' | 'agenda' | 'a_propos'
+  | 'alertes' | 'tags' | 'sauvegardes' | 'mode_hors_ligne' | 'mon_profil' | 'papeterie' | 'agenda' | 'a_propos'
   | 'module_instruction' | 'module_cartographie' | 'module_air'
   | 'admin_users' | 'admin_tjs' | 'admin_contentieux' | 'admin_dashboard' | 'admin_tag_history' | 'admin_natinf' | 'admin_update' | 'admin_attache';
 
@@ -75,6 +76,7 @@ const TABS: TabDef[] = [
   { id: 'sauvegardes', label: 'Sauvegardes', icon: Save, section: 'general' },
   { id: 'mode_hors_ligne', label: 'Mode hors-ligne', icon: WifiOff, section: 'general' },
   { id: 'mon_profil',  label: 'Mon profil',  icon: User, section: 'general' },
+  { id: 'papeterie',   label: 'Papeterie',   icon: FileSignature, section: 'general' },
   { id: 'agenda',      label: 'Agenda',      icon: CalendarDays, section: 'general' },
   { id: 'a_propos',    label: 'À propos',    icon: Info, section: 'general' },
 
@@ -168,6 +170,7 @@ export const SettingsModal = ({
       case 'sauvegardes':        return sauvegardesContent;
       case 'mode_hors_ligne':    return modeHorsLigneContent;
       case 'mon_profil':         return monProfilContent;
+      case 'papeterie':          return <PapeterieSettings />;
       case 'agenda':             return agendaContent;
       case 'a_propos':           return aProposContent;
       case 'module_instruction':  return moduleInstructionContent;

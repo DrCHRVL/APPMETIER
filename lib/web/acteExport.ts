@@ -342,7 +342,7 @@ function renderLetterHeader(logo: string | undefined, addressee: string, dateStr
   const right = '<td style="border:1px solid #000;vertical-align:top;padding:8pt 10pt;">'
     + `<div style="font-weight:bold;">${escapeHtml(m.nomQualite)},</div>`
     + `<div>${escapeHtml(m.qualite.charAt(0).toUpperCase() + m.qualite.slice(1))}</div>`
-    + `<div>Près le tribunal judiciaire d'Amiens</div>`
+    + `<div>${escapeHtml(m.ressort.charAt(0).toUpperCase() + m.ressort.slice(1))}</div>`
     + '<div>&#160;</div>'
     + '<div>À</div>'
     + `<div>${escapeHtml(addressee || '…')}</div>`

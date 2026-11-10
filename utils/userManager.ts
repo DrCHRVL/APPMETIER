@@ -4,7 +4,8 @@
 // identifie l'utilisateur courant par son Windows username,
 // et fournit les méthodes CRUD pour l'admin.
 
-import { identiteSession, estAdminTj } from '@/lib/web/identite';
+import { identiteSession, estAdminTj, estSuperAdmin, estTjOrigine, tjCourantNom } from '@/lib/web/identite';
+import { appliquerPapeterie, type PapeterieTj, type PapeteriePerso } from '@/lib/web/papeterie';
 import { SiralBridge } from './siralBridge';
 import {
   UsersConfig,
@@ -120,6 +121,8 @@ export class UserManager {
           this.currentUser = { ...this.currentUser, globalRole: null };
         }
       }
+
+      this.appliquerPapeterie();
 
       // 5. Construire les permissions
       const allContentieuxIds = this.config.contentieux.map(c => c.id);
@@ -417,6 +420,47 @@ export class UserManager {
       createdAt: now,
       updatedAt: now,
     };
+  }
+
+  // ──────────────────────────────────────────────
+  // PAPETERIE (en-têtes et signature des documents)
+  // ──────────────────────────────────────────────
+
+  /** Fusionne la papeterie du TJ et celle de l'utilisateur courant dans PAPETERIE. */
+  private appliquerPapeterie(): void {
+    const origine = estTjOrigine();
+    appliquerPapeterie({
+      tj: this.config?.papeterie,
+      perso: this.currentUser?.papeterie,
+      nomTj: tjCourantNom(),
+      origine,
+      nomAffiche: this.currentUser?.displayName || '',
+      historique: origine && estSuperAdmin(),
+    });
+  }
+
+  /** Papeterie du tribunal — administrateur du TJ. */
+  public async updatePapeterieTj(papeterie: PapeterieTj): Promise<boolean> {
+    if (!this.config || !this.isCurrentUserAdmin()) return false;
+    this.config.papeterie = papeterie;
+    const ok = await this.saveConfig();
+    this.appliquerPapeterie();
+    return ok;
+  }
+
+  /** Papeterie personnelle — chacun la sienne. */
+  public async updateMyPapeterie(papeterie: PapeteriePerso): Promise<boolean> {
+    if (!this.config || !this.currentUser) return false;
+    const profile = this.config.users.find(
+      u => u.windowsUsername.toLowerCase() === this.currentUser!.windowsUsername.toLowerCase(),
+    );
+    if (!profile) return false;
+    profile.papeterie = papeterie;
+    profile.updatedAt = new Date().toISOString();
+    this.currentUser = { ...this.currentUser, papeterie };
+    const ok = await this.saveConfig();
+    this.appliquerPapeterie();
+    return ok;
   }
 
   private isCurrentUserAdmin(): boolean {

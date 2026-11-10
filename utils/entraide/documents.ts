@@ -7,7 +7,8 @@
 // été validé par lui (événement « signature »).
 
 import PizZip from 'pizzip';
-import { PAPETERIE } from '@/lib/web/papeterie';
+import { PAPETERIE, adapterTrameOdt } from '@/lib/web/papeterie';
+import { estTjOrigine } from '@/lib/web/identite';
 import { aujourdhui, CASES_TRAME, delaisDe, paysDe } from './logique';
 import {
   autreUnite,
@@ -135,7 +136,15 @@ export async function genererDocument(ctx: ContexteDocument): Promise<Blob> {
   const res = await fetch(`/modeles/entraide/${ctx.doc}_${ctx.langue}.odt`, { credentials: 'same-origin' });
   if (!res.ok) throw new Error(`Modèle ${ctx.doc.toUpperCase()} (${ctx.langue}) introuvable`);
   const zip = new PizZip(await res.arrayBuffer());
-  let content = zip.file('content.xml')!.asText();
+  let content = adapterTrameOdt(zip.file('content.xml')!.asText());
+  zip.file('styles.xml', adapterTrameOdt(zip.file('styles.xml')!.asText()));
+  // T1/T2 : la grille des services de départ (commissariats et compagnies de
+  // la Somme) n'existe qu'à Amiens ; ailleurs, seule la ligne « Autre unité ».
+  if (!estTjOrigine()) {
+    for (const cle of ['cb_comm_amiens', 'cb_cgd']) {
+      content = content.replace(new RegExp(`<table:table-row\\b(?:(?!<table:table-row\\b)[\\s\\S])*?\\{\\{${cle}\\}\\}[\\s\\S]*?<\\/table:table-row>`), '');
+    }
+  }
 
   // Mesures : la ligne {{mesure}} du modèle est dupliquée, une par mesure.
   const lignes = lignesDemande(ctx.demande);

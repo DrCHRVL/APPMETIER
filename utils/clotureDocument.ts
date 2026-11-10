@@ -1,3 +1,4 @@
+import { PAPETERIE, signatairePapeterie } from '@/lib/web/papeterie';
 // utils/clotureDocument.ts
 //
 // Génération de la trame « soit-transmis » de contrôle JLD (art. 706-95 CPP)
@@ -36,15 +37,15 @@ export interface ClotureTemplate {
   signataire: string;
 }
 
-export const DEFAULT_CLOTURE_TEMPLATE: ClotureTemplate = {
-  enteteJuridiction: "Cour d'Appel d'Amiens — Tribunal Judiciaire d'Amiens",
-  enteteParquet: 'Parquet du procureur de la République',
-  enteteService: 'Section Criminalité Organisée',
+/** Trame par défaut, construite sur la papeterie du TJ et du magistrat. */
+export const defaultClotureTemplate = (): ClotureTemplate => ({
+  enteteJuridiction: PAPETERIE.juridiction,
+  enteteParquet: PAPETERIE.parquet,
+  enteteService: PAPETERIE.section,
   titre: 'INFORMATION au JUGE DES LIBERTÉS ET DE LA DÉTENTION',
   sousTitre: 'Contrôle des actes autorisés',
   reference: 'Article 706-95 du code de procédure pénale',
-  qualiteMagistrat:
-    'Nous, CHEVALIER Audran, substitut du Procureur de la République près le tribunal judiciaire d’AMIENS,',
+  qualiteMagistrat: `Nous, ${PAPETERIE.magistrat.nomQualite}, ${PAPETERIE.magistrat.qualite} ${PAPETERIE.magistrat.ressort},`,
   visa: 'Vu les articles 706-95, 100-4 et 100-5 du code de procédure pénale,',
   beforeEcoutes:
     'METTONS A DISPOSITION les pièces correspondant aux interceptions de correspondance des lignes et/ou IMEI suivants :',
@@ -52,9 +53,9 @@ export const DEFAULT_CLOTURE_TEMPLATE: ClotureTemplate = {
     'METTONS A DISPOSITION les pièces correspondant aux géolocalisations des objets suivants :',
   footer:
     'Auprès de Monsieur le juge des libertés et de la détention et le prions de bien vouloir nous en faire retour revêtu de son visa.',
-  lieu: 'Amiens',
-  signataire: 'Audran CHEVALIER, substitut,',
-};
+  lieu: PAPETERIE.ville,
+  signataire: signatairePapeterie(),
+});
 
 /**
  * Fusionne une trame sauvegardée (potentiellement partielle / ancienne version
@@ -62,7 +63,7 @@ export const DEFAULT_CLOTURE_TEMPLATE: ClotureTemplate = {
  */
 export const mergeClotureTemplate = (
   saved: Partial<ClotureTemplate> | null | undefined,
-): ClotureTemplate => ({ ...DEFAULT_CLOTURE_TEMPLATE, ...(saved || {}) });
+): ClotureTemplate => ({ ...defaultClotureTemplate(), ...(saved || {}) });
 
 /** Service ayant diligenté l'enquête (directeur d'enquête, à défaut services). */
 const dilligentParLabel = (enquete: Enquete): string => {

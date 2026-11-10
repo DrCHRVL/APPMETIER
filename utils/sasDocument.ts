@@ -1,3 +1,4 @@
+import { PAPETERIE, signatairePapeterie } from '@/lib/web/papeterie';
 // utils/sasDocument.ts
 //
 // Génération de la trame « SAS » — autorisation de poursuite d'actes en cours
@@ -46,14 +47,14 @@ export interface SasTemplate {
   signataire: string;
 }
 
-export const DEFAULT_SAS_TEMPLATE: SasTemplate = {
-  enteteJuridiction: "Cour d'Appel d'Amiens — Tribunal Judiciaire d'Amiens",
-  enteteParquet: 'Parquet du procureur de la République',
-  enteteService: 'Section Criminalité Organisée',
+/** Trame par défaut, construite sur la papeterie du TJ et du magistrat. */
+export const defaultSasTemplate = (): SasTemplate => ({
+  enteteJuridiction: PAPETERIE.juridiction,
+  enteteParquet: PAPETERIE.parquet,
+  enteteService: PAPETERIE.section,
   titre: "AUTORISATION DE POURSUITE D'ACTES EN COURS",
   reference: 'Article 80-5 du code de procédure pénale',
-  qualiteMagistrat:
-    'Le procureur de la République près le tribunal judiciaire d’AMIENS,',
+  qualiteMagistrat: `Le procureur de la République ${PAPETERIE.magistrat.ressort},`,
   visa: 'Vu l’article 80-5 du code de procédure pénale,',
   beforePreventions: 'Concernant les préventions d’infraction suivantes :',
   attendu:
@@ -74,9 +75,9 @@ export const DEFAULT_SAS_TEMPLATE: SasTemplate = {
     '— les interceptions de correspondances émises par la voie des '
     + 'communications électroniques sur les lignes et/ou IMEI suivants :',
   beforeGeolocs: '— les géolocalisations en temps réel des objets suivants :',
-  lieu: 'Amiens',
-  signataire: 'Audran CHEVALIER, substitut,',
-};
+  lieu: PAPETERIE.ville,
+  signataire: signatairePapeterie(),
+});
 
 /**
  * Fusionne une trame sauvegardée (potentiellement partielle) avec les valeurs
@@ -84,7 +85,7 @@ export const DEFAULT_SAS_TEMPLATE: SasTemplate = {
  */
 export const mergeSasTemplate = (
   saved: Partial<SasTemplate> | null | undefined,
-): SasTemplate => ({ ...DEFAULT_SAS_TEMPLATE, ...(saved || {}) });
+): SasTemplate => ({ ...defaultSasTemplate(), ...(saved || {}) });
 
 /**
  * Données propres au dossier saisies au moment de la génération (elles ne font

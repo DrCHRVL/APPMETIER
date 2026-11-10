@@ -8,7 +8,7 @@ import { copyPlainToClipboard, downloadAsDocx } from '@/utils/richTextExport';
 import { APP_CONFIG } from '@/config/constants';
 import {
   ClotureTemplate,
-  DEFAULT_CLOTURE_TEMPLATE,
+  defaultClotureTemplate,
   mergeClotureTemplate,
   buildClotureText,
   buildClotureHtml,
@@ -67,7 +67,7 @@ const FIELD_GROUPS: { title: string; fields: TemplateField[] }[] = [
 
 export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummaryModalProps) => {
   const [copied, setCopied] = useState(false);
-  const [template, setTemplate] = useState<ClotureTemplate>(DEFAULT_CLOTURE_TEMPLATE);
+  const [template, setTemplate] = useState<ClotureTemplate>(defaultClotureTemplate);
   const [templateLoaded, setTemplateLoaded] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<ClotureTemplate | null>(null);
   // Snapshot du template au début de l'édition pour détecter si l'utilisateur a modifié
@@ -81,7 +81,7 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
     if (isOpen) {
       SiralBridge.getData<Partial<ClotureTemplate>>(
         APP_CONFIG.STORAGE_KEYS.CLOTURE_TEMPLATE,
-        DEFAULT_CLOTURE_TEMPLATE,
+        defaultClotureTemplate(),
       ).then((saved) => {
         setTemplate(mergeClotureTemplate(saved));
         setTemplateLoaded(true);
@@ -313,7 +313,7 @@ export const ClotureSummaryModal = ({ isOpen, onClose, enquete }: ClotureSummary
                   Annuler
                 </Button>
                 <Button variant="destructive" size="sm" onClick={() => {
-                  setEditingTemplate({ ...DEFAULT_CLOTURE_TEMPLATE });
+                  setEditingTemplate(defaultClotureTemplate());
                   setShowConfirmReset(false);
                 }}>
                   Réinitialiser
