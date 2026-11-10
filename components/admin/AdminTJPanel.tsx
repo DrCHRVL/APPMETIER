@@ -421,7 +421,7 @@ export const AdminTJPanel = () => {
                     <tr key={a.username} className={a.suspendu ? 'opacity-60' : ''}>
                       <td className="px-3 py-1.5">
                         <div className="font-medium text-gray-800">{a.displayName}</div>
-                        <div className="text-[11px] text-gray-400">{a.username}</div>
+                        <div className="text-xs font-mono text-gray-600" title="Identifiant de connexion">{a.username}</div>
                       </td>
                       <td className="px-3 py-1.5">
                         <select className="border border-gray-300 rounded px-1.5 py-1 text-xs bg-white" disabled={busy}
