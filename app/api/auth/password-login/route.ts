@@ -23,6 +23,9 @@ export async function POST(req: Request) {
     if (!account || !ok) {
       return jsonResponse({ error: 'Identifiant ou mot de passe incorrect' }, { status: 401 })
     }
+    if (account.suspendu) {
+      return jsonResponse({ error: 'Compte suspendu — voyez l’administrateur' }, { status: 403 })
+    }
 
     account.lastLoginAt = new Date().toISOString()
     await saveAccount(account)

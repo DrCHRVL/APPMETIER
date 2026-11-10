@@ -1,4 +1,4 @@
-import type { PapeterieTj, PapeteriePerso } from '@/lib/web/papeterie';
+import type { PapeterieTj } from '@/lib/web/papeterie';
 // types/userTypes.ts — Types pour le système multi-utilisateurs et multi-contentieux
 
 // ──────────────────────────────────────────────
@@ -58,8 +58,6 @@ export interface UserProfile {
   contentieux: UserContentieuxAssignment[];
   modules: ModuleId[];        // Modules activés pour cet utilisateur
   approved?: boolean;         // true = approuvé par l'admin, false/undefined = en attente
-  /** Papeterie personnelle (nom, qualité, section, signature) — Mon profil. */
-  papeterie?: PapeteriePerso;
   createdAt: string;          // ISO date
   updatedAt: string;          // ISO date
 }

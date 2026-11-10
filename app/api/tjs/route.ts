@@ -41,6 +41,7 @@ export async function GET(req: Request) {
         codeUpdatedAt: t.codeUpdatedAt || null,
         createdAt: t.createdAt,
         members: duTj.length,
+        suspendus: duTj.filter((a) => a.suspendu).length,
         admins: duTj.filter((a) => (a.tjAdmins || []).includes(t.id)).map((a) => a.displayName),
         /** clés créées (au moins un trousseau) */
         initialized: vaults.some((v) => v.startsWith('keyring-')),
@@ -50,20 +51,31 @@ export async function GET(req: Request) {
         escrow: escrow ? { savedAt: escrow.savedAt || null, savedBy: escrow.savedBy || null } : null,
         /** l'administrateur général a son propre trousseau dans ce TJ */
         myAccess: vaults.includes(`keyring-${session.u}`),
+        /** indicateurs scellés pour l'administrateur général (opaques pour le serveur) */
+        indicateurs: vaults.filter((v) => v.startsWith('indicateurs-')).map((v) => readVault(t.id, v)),
       }
     })
     return jsonResponse({
       tjs,
       activeTj: session.tj,
-      accounts: listAccounts().map((a) => ({
-        username: a.username,
-        displayName: a.displayName,
-        role: a.role,
-        tjs: accountTjs(a),
-        tjAdmins: (a.tjAdmins || []).filter((id) => accountTjs(a).includes(id)),
-        lastLoginAt: a.lastLoginAt || null,
-        createdAt: a.createdAt,
-      })),
+      accounts: listAccounts().map((a) => {
+        const tj = accountTjs(a)[0]
+        const vaults = a.role === 'admin' ? [] : listVaults(tj)
+        return {
+          username: a.username,
+          displayName: a.displayName,
+          role: a.role,
+          tjs: accountTjs(a),
+          tjAdmins: (a.tjAdmins || []).filter((id) => accountTjs(a).includes(id)),
+          suspendu: a.suspendu === true,
+          /** accès aux données de son TJ : trousseau actif, invitation en attente, ou rien */
+          acces: a.role === 'admin' ? 'general'
+            : vaults.includes(`keyring-${a.username}`) ? 'actif'
+              : vaults.includes(`grant-${a.username}`) ? 'invite' : 'en-attente',
+          lastLoginAt: a.lastLoginAt || null,
+          createdAt: a.createdAt,
+        }
+      }),
     })
   })
 }

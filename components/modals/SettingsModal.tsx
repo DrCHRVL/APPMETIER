@@ -2,7 +2,7 @@
 
 import { estSuperAdmin } from '@/lib/web/identite';
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark, Scale, WifiOff, FileSignature } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark, Scale, WifiOff, FileText } from 'lucide-react';
 import { PapeterieSettings } from '@/components/PapeterieSettings';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId, ModuleId } from '@/types/userTypes';
@@ -76,7 +76,6 @@ const TABS: TabDef[] = [
   { id: 'sauvegardes', label: 'Sauvegardes', icon: Save, section: 'general' },
   { id: 'mode_hors_ligne', label: 'Mode hors-ligne', icon: WifiOff, section: 'general' },
   { id: 'mon_profil',  label: 'Mon profil',  icon: User, section: 'general' },
-  { id: 'papeterie',   label: 'Papeterie',   icon: FileSignature, section: 'general' },
   { id: 'agenda',      label: 'Agenda',      icon: CalendarDays, section: 'general' },
   { id: 'a_propos',    label: 'À propos',    icon: Info, section: 'general' },
 
@@ -88,6 +87,7 @@ const TABS: TabDef[] = [
   // Administration (admin uniquement)
   { id: 'admin_users',       label: 'Utilisateurs & accès', icon: Users,     section: 'admin', isAdmin: true },
   { id: 'admin_tjs',         label: 'Tribunaux',        icon: Landmark,      section: 'admin', isAdmin: true, superAdmin: true },
+  { id: 'papeterie',         label: 'En-têtes des documents', icon: FileText, section: 'admin', isAdmin: true },
   { id: 'admin_contentieux', label: 'Contentieux',      icon: Layers,        section: 'admin', isAdmin: true },
   { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      section: 'admin', isAdmin: true },
   { id: 'admin_tag_history', label: 'Historique tags',  icon: ClipboardList, section: 'admin', isAdmin: true },

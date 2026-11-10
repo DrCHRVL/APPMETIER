@@ -222,7 +222,7 @@ export function generateStatsPdfHtml(data: PdfExportData, options: PdfExportOpti
   const totalAvecProlongations = totalActes + totalProlongations;
   // Une section est rendue si elle n'a pas été explicitement décochée.
   const on = (k: string): boolean => (options.sections ? options.sections[k] !== false : true);
-  const redacteur = options.redacteur || data.redacteur || 'Audran CHEVALIER';
+  const redacteur = options.redacteur || data.redacteur || PAPETERIE.magistrat.prenomNom;
   const destinataire = options.destinataire || 'Procureur de la République';
   const contentieuxLabel = formatContentieuxLabel(data.contentieuxLabel);
   const isAnneeEnCours = selectedYear === new Date().getFullYear();

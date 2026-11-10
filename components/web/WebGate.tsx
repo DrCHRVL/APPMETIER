@@ -276,7 +276,10 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     if (state.hasKeyring) setPhase('unlock')
     else if (state.hasGrant) setPhase('redeem')
     else if (state.legacyKdf && !state.anyKeyrings) setPhase('migrate')
-    else if (!state.legacyKdf && !state.anyKeyrings && state.canInitialize) setPhase('create-fresh')
+    // TJ vierge : son administrateur local crée les clés. L'administrateur
+    // général, hors TJ d'origine, choisit (écran d'attente) de le faire lui-même.
+    else if (!state.legacyKdf && !state.anyKeyrings && state.canInitialize
+      && !(meRef.current?.role === 'admin' && (window.__SIRAL_TJ__?.active?.id || 'default') !== 'default')) setPhase('create-fresh')
     // administrateur général : accès au TJ par le séquestre déposé par son admin local
     else if (meRef.current?.role === 'admin' && state.anyKeyrings && state.escrow) setPhase('escrow-access')
     else setPhase('no-access')
@@ -806,6 +809,15 @@ export function WebGate({ children }: { children: React.ReactNode }) {
             {me?.role === 'admin' && e2ee?.anyKeyrings && !e2ee.escrow ? (
               <div className="siral-text">Ce tribunal est initialisé, mais son administrateur local n&apos;a pas encore déposé
                 l&apos;accès de l&apos;administrateur général : il le sera automatiquement à sa prochaine connexion.</div>
+            ) : me?.role === 'admin' && e2ee && !e2ee.anyKeyrings && !e2ee.legacyKdf ? (
+              <>
+                <div className="siral-text">Ce tribunal n&apos;est pas encore initialisé. Son administrateur local le fera à sa
+                  première connexion — ou vous pouvez le préparer vous-même : vous en créerez les clés, puis inviterez ses
+                  membres (administrateur local compris) depuis Paramètres → Utilisateurs &amp; accès.</div>
+                <button className="siral-btn" onClick={() => { setError(''); setPhase('create-fresh') }} disabled={busy}>
+                  Initialiser ce tribunal moi-même
+                </button>
+              </>
             ) : e2ee && !e2ee.anyKeyrings && !e2ee.legacyKdf ? (
               <div className="siral-text">Ce tribunal n&apos;est pas encore initialisé. Son <b>administrateur</b> doit s&apos;y
                 connecter en premier pour créer ses clés de chiffrement, puis vous inviter.</div>

@@ -45,6 +45,8 @@ export interface Account {
    * à jour, supervision globale).
    */
   tjAdmins?: string[]
+  /** Compte suspendu par l'administrateur général : plus aucune connexion ni accès. */
+  suspendu?: boolean
   credentials: StoredCredential[]
   /** Hachage scrypt du mot de passe (optionnel — complément aux passkeys). */
   passwordHash?: string
@@ -88,14 +90,15 @@ export function initialTjAdmins(tj: string): string[] | undefined {
 }
 
 /**
- * Création des clés d'un TJ VIERGE : son administrateur local. L'administrateur
- * général ne le fait que pour le TJ d'origine — ailleurs il accède par le
- * séquestre, sans jamais détenir seul les clés d'un TJ.
+ * Création des clés d'un TJ VIERGE : son administrateur local — ou
+ * l'administrateur général, s'il choisit de préparer lui-même le TJ (il en
+ * invite alors les membres, administrateur local compris).
  */
 export function canInitializeTj(account: Account | null, tj: string): boolean {
   if (!account || !accountTjs(account).includes(tj)) return false
   if ((account.tjAdmins || []).includes(tj)) return true
-  return account.role === 'admin' && tj === DEFAULT_TJ_ID
+  // l'administrateur général peut préparer lui-même un TJ (il en invitera les membres)
+  return account.role === 'admin'
 }
 
 function accountsPath() { return dataDir('accounts.json') }
@@ -227,7 +230,7 @@ export function requireSession(req: Request): SessionPayload {
 export function requireTjSession(req: Request): SessionPayload {
   const s = requireSession(req)
   const account = findAccount(s.u)
-  if (!account || !accountTjs(account).includes(s.tj)) {
+  if (!account || account.suspendu || !accountTjs(account).includes(s.tj)) {
     throw new Response(JSON.stringify({ error: 'Accès à ce tribunal révoqué — reconnectez-vous' }), {
       status: 403,
       headers: { 'content-type': 'application/json' },

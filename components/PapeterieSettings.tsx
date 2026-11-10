@@ -1,21 +1,18 @@
 'use client';
 
 /**
- * Paramètres → Papeterie : en-têtes et signature des documents produits par
- * SIRAL (actes, courriers, SAS, clôture, trames Entraide, rapports PDF).
- *  - « Ma signature » : chacun règle la sienne ;
- *  - « Tribunal » : réservé à l'administrateur du TJ.
- * Un champ laissé vide reprend la valeur par défaut affichée en grisé.
+ * Paramètres → En-têtes des documents (administrateur du TJ).
+ * Ce qui s'imprime en haut et en bas des documents produits par SIRAL dans ce
+ * tribunal : actes, courriers, SAS, clôtures, trames Entraide, rapports PDF.
+ * Un champ laissé vide reprend la valeur grisée.
  */
 import React, { useMemo, useState } from 'react';
-import { FileSignature, Landmark } from 'lucide-react';
+import { Landmark } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 import { UserManager } from '@/utils/userManager';
-import {
-  papeterieTjParDefaut, papeteriePersoParDefaut, type PapeterieTj, type PapeteriePerso,
-} from '@/lib/web/papeterie';
-import { estSuperAdmin, estTjOrigine, tjCourantNom } from '@/lib/web/identite';
+import { papeterieTjParDefaut, type PapeterieTj } from '@/lib/web/papeterie';
+import { estTjOrigine, tjCourantNom } from '@/lib/web/identite';
 
 const champ = 'w-full border border-gray-300 rounded px-2 py-1.5 text-sm';
 
@@ -32,38 +29,25 @@ const Ligne: React.FC<{ label: string; value: string; placeholder: string; onCha
   );
 
 export const PapeterieSettings: React.FC = () => {
-  const { user, isAdmin, refreshUsers } = useUser();
+  const { isAdmin } = useUser();
   const { showToast } = useToast();
   const manager = UserManager.getInstance();
-  const origine = estTjOrigine();
   const nomTj = tjCourantNom();
   const admin = isAdmin();
 
-  const defTj = useMemo(() => papeterieTjParDefaut(nomTj, origine), [nomTj, origine]);
-  const defPerso = useMemo(
-    () => papeteriePersoParDefaut(user?.displayName || '', origine && estSuperAdmin()),
-    [user?.displayName, origine],
-  );
-
+  const defTj = useMemo(() => papeterieTjParDefaut(nomTj, estTjOrigine()), [nomTj]);
   const [tj, setTj] = useState<PapeterieTj>(() => manager.getConfig()?.papeterie || {});
   // saisie brute (retours à la ligne, virgules) : convertie à l'enregistrement
   const [adresseTxt, setAdresseTxt] = useState(() => (tj.adresse || []).join('\n'));
   const [mailsTxt, setMailsTxt] = useState(() => (tj.mailsService || []).join(', '));
-  const [perso, setPerso] = useState<PapeteriePerso>(() => user?.papeterie || {});
   const [busy, setBusy] = useState(false);
 
   const texte = (v: string | undefined) => v || '';
   const lignes = (v: string) => v.split('\n').map((l) => l.trim()).filter(Boolean);
+  const val = (v: string | undefined, d: string) => (v && v.trim()) || d;
+  const adresse = lignes(adresseTxt).length ? lignes(adresseTxt) : defTj.adresse;
 
-  const enregistrerPerso = async () => {
-    setBusy(true);
-    const ok = await manager.updateMyPapeterie(perso);
-    setBusy(false);
-    if (ok) { await refreshUsers(); showToast('Signature enregistrée', 'success'); }
-    else showToast('Enregistrement impossible', 'error');
-  };
-
-  const enregistrerTj = async () => {
+  const enregistrer = async () => {
     setBusy(true);
     const ok = await manager.updatePapeterieTj({
       ...tj,
@@ -71,41 +55,34 @@ export const PapeterieSettings: React.FC = () => {
       mailsService: mailsTxt.split(',').map((m) => m.trim()).filter(Boolean),
     });
     setBusy(false);
-    if (ok) showToast('Papeterie du tribunal enregistrée', 'success');
+    if (ok) showToast('En-têtes du tribunal enregistrés', 'success');
     else showToast('Enregistrement impossible', 'error');
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <p className="text-xs text-gray-500 leading-relaxed">
-        En-têtes et signature des documents produits par SIRAL : actes, courriers, SAS, clôtures, trames Entraide et
-        rapports PDF. Un champ laissé vide reprend la valeur grisée.
+    <div className="space-y-5 max-w-2xl">
+      <p className="text-xs text-gray-600 leading-relaxed">
+        Ce qui s&apos;imprime <b>en haut et en bas</b> des documents que SIRAL produit dans ce tribunal (actes, courriers,
+        SAS, clôtures, trames Entraide, rapports PDF). Un champ vide reprend la valeur grisée.
       </p>
 
-      <section className="border border-gray-200 rounded-lg p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-          <FileSignature className="h-4 w-4 text-emerald-600" /> Ma signature
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Ligne label="NOM Prénom (« Nous, … »)" value={texte(perso.nomQualite)} placeholder={defPerso.nomQualite} onChange={(v) => setPerso({ ...perso, nomQualite: v })} />
-          <Ligne label="Prénom NOM (signature)" value={texte(perso.prenomNom)} placeholder={defPerso.prenomNom} onChange={(v) => setPerso({ ...perso, prenomNom: v })} />
-          <Ligne label="Qualité" value={texte(perso.qualite)} placeholder={defPerso.qualite} onChange={(v) => setPerso({ ...perso, qualite: v })} />
-          <Ligne label="Mention sous la signature" value={texte(perso.fonctionCourte)} placeholder={defPerso.fonctionCourte} onChange={(v) => setPerso({ ...perso, fonctionCourte: v })} />
-          <Ligne label="Section (en-tête des actes)" value={texte(perso.section)} placeholder={defPerso.section || 'ex. Section criminalité organisée'} onChange={(v) => setPerso({ ...perso, section: v })} />
-          <Ligne label="Section détaillée (courriers)" value={texte(perso.sectionDetail)} placeholder={defPerso.sectionDetail || 'reprend la section'} onChange={(v) => setPerso({ ...perso, sectionDetail: v })} />
-          <Ligne label="Compétences (pied de page)" value={texte(perso.thematiques)} placeholder={defPerso.thematiques || 'facultatif'} onChange={(v) => setPerso({ ...perso, thematiques: v })} />
-          <Ligne label="Mail professionnel" value={texte(perso.mail)} placeholder={defPerso.mail || 'prenom.nom@justice.fr'} onChange={(v) => setPerso({ ...perso, mail: v })} />
+      {/* Aperçu : ce que verra le destinataire */}
+      <div className="border border-gray-200 rounded-lg p-4 bg-white text-[12px] leading-snug text-gray-800">
+        <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-2">Aperçu</div>
+        <div className="font-semibold">{val(tj.juridiction, defTj.juridiction)}</div>
+        <div>{val(tj.parquet, defTj.parquet)}</div>
+        <div className="my-3 text-gray-400 italic">… corps du document …</div>
+        <div>Fait à {val(tj.ville, defTj.ville)}, le …</div>
+        <div className="mt-3 pt-2 border-t border-gray-100 text-[11px] text-gray-500">
+          {adresse.join(' · ')}{val(tj.standard, defTj.standard) ? ` · ${val(tj.standard, defTj.standard)}` : ''}
         </div>
-        <button className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-3 py-1.5 disabled:opacity-50" onClick={enregistrerPerso} disabled={busy}>
-          Enregistrer ma signature
-        </button>
-      </section>
+      </div>
 
       <section className="border border-gray-200 rounded-lg p-4 space-y-3">
         <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-          <Landmark className="h-4 w-4 text-emerald-600" /> Tribunal{nomTj ? ` — ${nomTj}` : ''}
+          <Landmark className="h-4 w-4 text-emerald-600" /> {nomTj || 'Tribunal'}
         </h3>
-        {!admin && <p className="text-xs text-gray-500">Réglée par l&apos;administrateur de votre tribunal.</p>}
+        {!admin && <p className="text-xs text-gray-500">Réglés par l&apos;administrateur de votre tribunal.</p>}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Ligne label="En-tête (« Cour d'appel de X — Tribunal judiciaire de Y »)" value={texte(tj.juridiction)} placeholder={defTj.juridiction} disabled={!admin} onChange={(v) => setTj({ ...tj, juridiction: v })} />
           <Ligne label="Parquet" value={texte(tj.parquet)} placeholder={defTj.parquet} disabled={!admin} onChange={(v) => setTj({ ...tj, parquet: v })} />
@@ -118,8 +95,8 @@ export const PapeterieSettings: React.FC = () => {
           </div>
         </div>
         {admin && (
-          <button className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-3 py-1.5 disabled:opacity-50" onClick={enregistrerTj} disabled={busy}>
-            Enregistrer la papeterie du tribunal
+          <button className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-3 py-1.5 disabled:opacity-50" onClick={enregistrer} disabled={busy}>
+            Enregistrer
           </button>
         )}
       </section>

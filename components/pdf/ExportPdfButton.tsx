@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { PAPETERIE } from '@/lib/web/papeterie';
 import { Button } from '../ui/button';
 import { FileText, Loader2 } from 'lucide-react';
 import { useAudience } from '@/hooks/useAudience';
@@ -347,7 +348,7 @@ export const ExportPdfButton = ({
           || contentieuxId);
 
       // Rédacteur : utilisateur courant (à défaut, valeur de repli)
-      const redacteur = UserManager.getInstance().getCurrentUser()?.displayName || 'Audran CHEVALIER';
+      const redacteur = UserManager.getInstance().getCurrentUser()?.displayName || PAPETERIE.magistrat.prenomNom;
 
       // Section instruction — reflète InstructionStats (n'apparaît que s'il y a
       // au moins un dossier). Top 8 des qualifications comme à l'écran.

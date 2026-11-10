@@ -146,6 +146,7 @@ export async function authenticationVerify(req: Request, response: Authenticatio
     if (c) { account = a; cred = c; break }
   }
   if (!account || !cred) throw new Error('Passkey inconnue de ce serveur')
+  if (account.suspendu) throw new Error('Compte suspendu — voyez l’administrateur')
   if (username && account.username.toLowerCase() !== username.toLowerCase()) throw new Error('Passkey non rattachée à ce compte')
 
   const challenge =

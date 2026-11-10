@@ -23,6 +23,10 @@ export async function GET(req: Request, { params }: { params: { name: string } }
     if (keyring && keyring[1] !== session.u) {
       return jsonResponse({ error: 'Lecture non autorisée sur ce trousseau' }, { status: 403 })
     }
+    // Indicateurs scellés pour l'administrateur général : lui seul les lit.
+    if (params.name.startsWith('indicateurs-') && session.r !== 'admin') {
+      return jsonResponse({ error: 'Réservé à l’administrateur général' }, { status: 403 })
+    }
     // Séquestre des clés du TJ : lisible par l'administrateur général seul.
     if (params.name === ESCROW_VAULT) {
       if (session.r !== 'admin') return jsonResponse({ error: 'Réservé à l’administrateur général' }, { status: 403 })

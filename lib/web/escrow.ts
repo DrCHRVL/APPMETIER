@@ -79,27 +79,39 @@ export async function openPrivateKey(env: PrivateKeyEnvelope, phrase: string): P
   return crypto.subtle.importKey('pkcs8', b64.decode(pkcs8) as BufferSource, RSA, false, ['decrypt'])
 }
 
-/** Scelle les clés d'un TJ pour l'administrateur général. */
-export async function sealForEscrow(publicSpki: string, keys: Record<string, string>, savedBy: string): Promise<EscrowEnvelope> {
+export interface SealedEnvelope extends CipherEnvelope { wrappedKey: string, publicId: string }
+
+/** Scelle une donnée pour l'administrateur général : lui seul pourra l'ouvrir. */
+export async function sealPourAdmin(publicSpki: string, payload: unknown, savedBy: string): Promise<SealedEnvelope> {
   const pub = await crypto.subtle.importKey('spki', b64.decode(publicSpki) as BufferSource, RSA, false, ['encrypt'])
   const raw = randomRawKey()
-  const env = await encryptJson(await importAesKey(raw), { v: 1, keys }, { savedAt: new Date().toISOString(), savedBy })
+  const env = await encryptJson(await importAesKey(raw), payload, { savedAt: new Date().toISOString(), savedBy })
   const wrapped = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, raw as BufferSource)
-  return {
-    ...env,
-    wrappedKey: b64.encode(wrapped),
-    publicId: await publicIdOf(publicSpki),
-    fp: await keysFingerprint(keys),
-    scopes: Object.keys(keys).sort(),
-  }
+  return { ...env, wrappedKey: b64.encode(wrapped), publicId: await publicIdOf(publicSpki) }
+}
+
+/** Ouvre une donnée scellée pour l'administrateur général. */
+export async function ouvrirPourAdmin<T>(privateKey: CryptoKey, env: SealedEnvelope): Promise<T> {
+  const raw = new Uint8Array(await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, privateKey, b64.decode(env.wrappedKey) as BufferSource))
+  return decryptJson<T>(await importAesKey(raw), env)
+}
+
+/** Scelle les clés d'un TJ pour l'administrateur général. */
+export async function sealForEscrow(publicSpki: string, keys: Record<string, string>, savedBy: string): Promise<EscrowEnvelope> {
+  const env = await sealPourAdmin(publicSpki, { v: 1, keys }, savedBy)
+  return { ...env, fp: await keysFingerprint(keys), scopes: Object.keys(keys).sort() }
 }
 
 /** Ouvre un séquestre avec la clé privée de l'administrateur général. */
 export async function openEscrow(privateKey: CryptoKey, env: EscrowEnvelope): Promise<Record<string, string>> {
-  const raw = new Uint8Array(await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, privateKey, b64.decode(env.wrappedKey) as BufferSource))
-  const { keys } = await decryptJson<{ keys: Record<string, string> }>(await importAesKey(raw), env)
-  return keys
+  return (await ouvrirPourAdmin<{ keys: Record<string, string> }>(privateKey, env)).keys
 }
+
+// Clé privée de l'administrateur général, ouverte au déverrouillage et gardée
+// en mémoire vive seulement (jamais stockée) : sert à lire les indicateurs.
+let clePriveeAdmin: CryptoKey | null = null
+export function getClePriveeAdmin(): CryptoKey | null { return clePriveeAdmin }
+export function setClePriveeAdmin(cle: CryptoKey | null): void { clePriveeAdmin = cle }
 
 /**
  * Faut-il (re)déposer le séquestre ? Oui s'il manque, si la paire de
@@ -143,7 +155,14 @@ export async function maintenirSequestre(
       const pair = await generateEscrowKeypair(phrase)
       const st = await http.putJson('/api/escrow', pair)
       if (st !== 200) throw new Error(`Publication de la clé d'administration refusée (${st})`)
+      setClePriveeAdmin(await openPrivateKey(pair.privateEnvelope, phrase))
       return 'paire-creee'
+    }
+    if (pub.status === 200 && phrase && !clePriveeAdmin) {
+      const priv = await http.getJson('/api/escrow?prive=1')
+      if (priv.status === 200) {
+        try { setClePriveeAdmin(await openPrivateKey(priv.json.privateEnvelope as unknown as PrivateKeyEnvelope, phrase)) } catch { /* autre phrase : indicateurs non lisibles */ }
+      }
     }
     return 'rien'
   }
