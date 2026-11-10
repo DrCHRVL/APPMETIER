@@ -2,11 +2,12 @@
  * Gestion des tribunaux (TJ) — réservée à l'administrateur unique.
  *  GET   : registre des TJ + comptes rattachés (pour le panneau « Tribunaux »)
  *  POST  : { name } crée un TJ ; retourne le code d'accès EN CLAIR une seule
- *          fois (seul le hachage est conservé). L'admin est rattaché d'office.
+ *          fois (seul le hachage est conservé). Le premier inscrit avec ce
+ *          code devient l'administrateur local du TJ.
  *  PATCH : { id, name? } renomme ; { id, regenerateCode: true } régénère le
  *          code d'accès (l'ancien cesse immédiatement de fonctionner).
  */
-import { requireSession, handle, jsonResponse, listAccounts, findAccount, saveAccount, accountTjs } from '@/lib/server/auth'
+import { requireSession, handle, jsonResponse, listAccounts, accountTjs } from '@/lib/server/auth'
 import { listTjs, createTj, renameTj, regenerateTjCode, findTj } from '@/lib/server/tj'
 import { appendLog } from '@/lib/server/store'
 
@@ -42,6 +43,7 @@ export async function GET(req: Request) {
         displayName: a.displayName,
         role: a.role,
         tjs: accountTjs(a),
+        tjAdmins: (a.tjAdmins || []).filter((id) => accountTjs(a).includes(id)),
       })),
     })
   })
@@ -54,13 +56,10 @@ export async function POST(req: Request) {
     if (typeof name !== 'string' || name.trim().length < 2) {
       return jsonResponse({ error: 'Nom de tribunal requis' }, { status: 400 })
     }
+    // Pas de rattachement d'office de l'administrateur du serveur : le premier
+    // inscrit avec le code devient l'administrateur local du TJ et en crée les
+    // clés — l'administrateur du serveur ne détient pas les clés des autres TJ.
     const { entry, code } = await createTj(name, session.u)
-    // L'admin unique pilote tous les TJ : rattachement d'office au nouveau TJ.
-    const admin = findAccount(session.u)
-    if (admin && !accountTjs(admin).includes(entry.id)) {
-      admin.tjs = [...accountTjs(admin), entry.id]
-      await saveAccount(admin)
-    }
     await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: session.u, action: 'tj.create', details: { tj: entry.id, name: entry.name } })
     return jsonResponse({ ok: true, tj: { id: entry.id, name: entry.name }, code })
   })

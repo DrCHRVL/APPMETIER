@@ -41,6 +41,8 @@ interface E2eeState {
   hasGrant: boolean
   grantKdf: { salt: string, iterations: number, grantedBy?: string } | null
   anyKeyrings: boolean
+  /** Je suis l'administrateur de ce TJ : je peux en créer les clés s'il est vierge. */
+  canInitialize?: boolean
 }
 
 declare global {
@@ -123,6 +125,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   const installBridge = useCallback((keys: ScopedKeys, identity: BridgeIdentity) => {
     if (installedRef.current) return
     installedRef.current = true
+    window.__SIRAL_ME__ = identity
     const bridge = buildWebBridge({ keys, me: identity })
     if (window.__SIRAL_BRIDGE_SET__) window.__SIRAL_BRIDGE_SET__(bridge as Record<string, unknown>)
     // enregistre le service worker (PWA / hors-ligne)
@@ -188,7 +191,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     const tjState = window.__SIRAL_TJ__
     offlineMode.rememberSession(
       payload,
-      { username: identity.username, displayName: identity.displayName, role: identity.role },
+      { username: identity.username, displayName: identity.displayName, role: identity.role, tjAdmin: identity.tjAdmin },
       tjState?.active ?? null,
       tjState?.tjs ?? [],
     )
@@ -251,7 +254,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     if (state.hasKeyring) setPhase('unlock')
     else if (state.hasGrant) setPhase('redeem')
     else if (state.legacyKdf && !state.anyKeyrings) setPhase('migrate')
-    else if (!state.legacyKdf && !state.anyKeyrings) setPhase('create-fresh')
+    else if (!state.legacyKdf && !state.anyKeyrings && state.canInitialize) setPhase('create-fresh')
     else setPhase('no-access')
   }, [])
 
@@ -271,7 +274,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   const adoptMe = useCallback(async (): Promise<BridgeIdentity | null> => {
     const { status, json } = await apiJson('/api/me')
     if (status !== 200) return null
-    const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
+    const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role), tjAdmin: json.tjAdmin === true }
     const active = (json.tj as TjInfo | undefined) || { id: 'default', name: '' }
     setIdbNamespace(active.id)
     window.__SIRAL_TJ__ = { active, tjs: (json.tjs as TjInfo[] | undefined) || [active] }
@@ -676,7 +679,8 @@ export function WebGate({ children }: { children: React.ReactNode }) {
             <div className="siral-title">Initialisation du chiffrement</div>
             <div className="siral-text">Vous êtes le premier utilisateur de {tj?.name ? <b>{tj.name}</b> : 'ce tribunal'} sur ce serveur.
               Des clés de chiffrement neuves, propres à ce tribunal, vont être générées et scellées
-              dans votre trousseau personnel. Vous pourrez ensuite inviter vos collègues depuis Paramètres → Accès &amp; clés.</div>
+              dans votre trousseau personnel. En tant qu&apos;<b>administrateur de ce tribunal</b>, vous inviterez ensuite vos
+              collègues depuis Paramètres → Utilisateurs &amp; accès.</div>
             {phraseFields(true)}
             <button className="siral-btn" onClick={doCreateFresh} disabled={busy || !pass1}>
               {busy ? 'Génération des clés…' : 'Créer mon trousseau'}
@@ -726,8 +730,14 @@ export function WebGate({ children }: { children: React.ReactNode }) {
           <>
             {me && <span className="siral-user">Connecté : {me.displayName}{tj?.name ? ` · ${tj.name}` : ''}</span>}
             <div className="siral-title">Accès en attente</div>
-            <div className="siral-text">Votre compte est créé mais aucun trousseau de clés ne vous a encore été remis.
-              Demandez à un membre du service de vous inviter (Paramètres → Accès &amp; clés), puis revenez ici.</div>
+            {e2ee && !e2ee.anyKeyrings && !e2ee.legacyKdf ? (
+              <div className="siral-text">Ce tribunal n&apos;est pas encore initialisé. Son <b>administrateur</b> doit s&apos;y
+                connecter en premier pour créer ses clés de chiffrement, puis vous inviter.</div>
+            ) : (
+              <div className="siral-text">Votre compte est créé mais aucun trousseau de clés ne vous a encore été remis.
+                Demandez à l&apos;<b>administrateur de votre tribunal</b> de vous inviter (Paramètres → Utilisateurs &amp; accès),
+                puis revenez ici.</div>
+            )}
             <button className="siral-btn ghost" onClick={() => { setError(''); loadStateAndRoute() }} disabled={busy}>
               J&apos;ai reçu mon invitation — vérifier
             </button>

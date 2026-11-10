@@ -94,11 +94,11 @@ export const AdminUsersPanel = () => {
     const api = (typeof window !== 'undefined' ? (window as any).siralBridge : null);
     if (!api?.e2ee_listAccounts) return;
     try {
-      const list: Array<{ username: string; displayName: string; role: 'admin' | 'member'; hasKeyring: boolean; hasGrant: boolean }> = await api.e2ee_listAccounts();
+      const list: Array<{ username: string; displayName: string; role: 'admin' | 'member'; tjAdmin?: boolean; hasKeyring: boolean; hasGrant: boolean }> = await api.e2ee_listAccounts();
       // Unification : tout compte serveur enrôlé doit avoir un profil d'habilitations.
       const manager = UserManager.getInstance();
       const changed = await manager.reconcileWithAccounts(
-        list.map(a => ({ username: a.username, displayName: a.displayName, role: a.role })),
+        list.map(a => ({ username: a.username, displayName: a.displayName, role: a.role, tjAdmin: a.tjAdmin })),
       );
       if (changed) { loadUsers(); await refreshUsers(); }
       const map: Record<string, AccountState> = {};
@@ -359,7 +359,7 @@ export const AdminUsersPanel = () => {
                 className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm"
               >
                 <option value="">Aucun (contentieux uniquement)</option>
-                <option value="admin">Administrateur</option>
+                <option value="admin" disabled>Administrateur (désigné par l’admin du serveur)</option>
                 <option value="pra">PR / PRA</option>
                 <option value="vice_proc">Vice-procureur</option>
                 <option value="jld">JLD (tableau de bord seul)</option>
@@ -529,10 +529,12 @@ const UserCard = ({
             <select
               value={user.globalRole || ''}
               onChange={e => onUpdateGlobalRole(user.windowsUsername, e.target.value ? e.target.value as GlobalRole : null)}
-              className="px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white"
+              disabled={user.globalRole === 'admin'}
+              title={user.globalRole === 'admin' ? 'Administrateur du tribunal : désigné par l’administrateur du serveur (Paramètres → Tribunaux)' : undefined}
+              className="px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white disabled:bg-gray-100"
             >
               <option value="">Aucun</option>
-              <option value="admin">Administrateur</option>
+              <option value="admin" disabled>Administrateur (désigné par l’admin du serveur)</option>
               <option value="pra">PR / PRA</option>
               <option value="vice_proc">Vice-procureur</option>
               <option value="jld">JLD (tableau de bord seul)</option>

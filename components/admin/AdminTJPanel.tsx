@@ -10,11 +10,14 @@
  *    au premier utilisateur ; il n'est demandé qu'à la première inscription) ;
  *  - renommer un TJ / régénérer son code d'accès ;
  *  - rattacher un compte à un ou plusieurs TJ (double accès, rarissime) — le
- *    rattachement seul n'ouvre aucune donnée : il faut ensuite inviter
- *    l'utilisateur depuis « Accès & clés » EN ÉTANT sur le TJ concerné.
+ *    rattachement seul n'ouvre aucune donnée : il faut ensuite une invitation
+ *    de l'administrateur de ce TJ ;
+ *  - désigner l'ADMINISTRATEUR LOCAL de chaque TJ (le premier inscrit l'est
+ *    d'office) : il y gère comptes, invitations, habilitations et papeterie.
  */
+import { estSuperAdmin } from '@/lib/web/identite';
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Landmark, RefreshCw, Copy, Check, Edit2, X, KeyRound, AlertTriangle, Users } from 'lucide-react';
+import { Plus, Landmark, RefreshCw, Copy, Check, Edit2, X, KeyRound, AlertTriangle, Users, ShieldCheck } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 
@@ -32,6 +35,8 @@ interface AccountRow {
   displayName: string;
   role: 'admin' | 'member';
   tjs: string[];
+  /** TJ dont le compte est l'administrateur local. */
+  tjAdmins?: string[];
 }
 
 async function apiJson(path: string, body?: unknown, method?: string): Promise<{ status: number, json: Record<string, unknown> }> {
@@ -82,8 +87,8 @@ export const AdminTJPanel = () => {
 
   useEffect(() => { load(); }, [load]);
 
-  if (!checkIsAdmin()) {
-    return <div className="text-gray-500">Accès réservé à l&apos;administrateur.</div>;
+  if (!checkIsAdmin() || !estSuperAdmin()) {
+    return <div className="text-gray-500">Accès réservé à l&apos;administrateur du serveur.</div>;
   }
 
   const handleCreate = async () => {
@@ -136,7 +141,24 @@ export const AdminTJPanel = () => {
     showToast(
       has
         ? `Accès de ${account.displayName} au TJ retiré`
-        : `${account.displayName} rattaché — invitez-le ensuite depuis « Accès & clés » en étant sur ce TJ`,
+        : `${account.displayName} rattaché — l'administrateur de ce TJ doit ensuite l'inviter`,
+      'success'
+    );
+    load();
+  };
+
+  const handleToggleTjAdmin = async (account: AccountRow, tjId: string) => {
+    const current = account.tjAdmins || [];
+    const has = current.includes(tjId);
+    const next = has ? current.filter(t => t !== tjId) : [...current, tjId];
+    setBusy(true);
+    const { status, json } = await apiJson('/api/accounts/tjs', { username: account.username, tjs: account.tjs, tjAdmins: next });
+    setBusy(false);
+    if (status !== 200) { showToast(String(json.error || 'Modification refusée'), 'error'); return; }
+    showToast(
+      has
+        ? `${account.displayName} n'est plus administrateur de ${nameOf(tjId)}`
+        : `${account.displayName} est désormais administrateur de ${nameOf(tjId)}`,
       'success'
     );
     load();
@@ -160,8 +182,9 @@ export const AdminTJPanel = () => {
           Chaque tribunal dispose d&apos;un espace de données <b>strictement séparé</b> : enquêtes, cartographie,
           instruction, AIR, documents et clés de chiffrement. Aucun partage n&apos;est possible entre tribunaux
           (secret de l&apos;enquête). Le code d&apos;accès d&apos;un TJ n&apos;est demandé qu&apos;à la <b>première inscription</b> d&apos;un
-          utilisateur ; la validation de son accès aux données passe ensuite, comme aujourd&apos;hui, par votre
-          invitation (Accès &amp; clés).
+          utilisateur. Chaque TJ a son <b>administrateur local</b> (le premier inscrit, ou celui que vous désignez
+          ci-dessous) : lui seul crée les clés du TJ, invite ses collègues, règle leurs habilitations et la papeterie.
+          Vous ne détenez pas les clés des TJ que vous créez.
         </p>
       </div>
 
@@ -286,9 +309,9 @@ export const AdminTJPanel = () => {
             autoFocus
           />
           <p className="text-[11px] text-gray-500 leading-relaxed">
-            Un code d&apos;accès sera généré et affiché <b>une seule fois</b>. Vous serez rattaché d&apos;office à ce
-            tribunal : basculez ensuite dessus (sélecteur en bas de la barre latérale) pour initialiser ses clés de
-            chiffrement, puis invitez ses utilisateurs depuis « Accès &amp; clés ».
+            Un code d&apos;accès sera généré et affiché <b>une seule fois</b>. Remettez-le à la personne qui administrera
+            ce tribunal : <b>la première inscrite avec ce code en devient l&apos;administratrice locale</b> et crée ses clés de
+            chiffrement, puis transmet le code à ses collègues et les invite.
           </p>
           <div className="flex gap-2">
             <button
@@ -319,10 +342,9 @@ export const AdminTJPanel = () => {
           Rattachement des comptes aux tribunaux
         </h4>
         <p className="text-[11px] text-gray-500 mt-1 mb-2 leading-relaxed">
-          Autoriser un compte sur plusieurs TJ est exceptionnel. Le rattachement seul n&apos;ouvre <b>aucune donnée</b> :
-          l&apos;utilisateur doit ensuite recevoir votre invitation E2EE depuis « Accès &amp; clés », <b>en étant vous-même
-          sur le TJ concerné</b>. Retirer un rattachement bloque immédiatement l&apos;accès à ce TJ&nbsp;; pensez aussi à
-          révoquer son trousseau (Accès &amp; clés) sur ce TJ.
+          Case de gauche : rattachement au TJ. Bouclier : <b>administrateur local</b> de ce TJ. Autoriser un compte sur
+          plusieurs TJ est exceptionnel ; le rattachement seul n&apos;ouvre <b>aucune donnée</b> : l&apos;administrateur du TJ
+          doit ensuite l&apos;inviter. Retirer un rattachement bloque immédiatement l&apos;accès à ce TJ.
         </p>
         <div className="border border-gray-200 rounded-lg overflow-x-auto">
           <table className="w-full text-sm">
@@ -343,14 +365,26 @@ export const AdminTJPanel = () => {
                   </td>
                   {tjs.map(tj => (
                     <td key={tj.id} className="px-3 py-2">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 accent-emerald-600 disabled:opacity-40"
-                        checked={a.tjs.includes(tj.id)}
-                        disabled={busy || a.role === 'admin'}
-                        title={a.role === 'admin' ? 'L’admin est rattaché automatiquement aux TJ qu’il crée' : undefined}
-                        onChange={() => handleToggleAccess(a, tj.id)}
-                      />
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-emerald-600 disabled:opacity-40"
+                          checked={a.tjs.includes(tj.id)}
+                          disabled={busy}
+                          title="Rattachement à ce tribunal"
+                          onChange={() => handleToggleAccess(a, tj.id)}
+                        />
+                        {a.role !== 'admin' && a.tjs.includes(tj.id) && (
+                          <button
+                            className={`p-0.5 rounded hover:bg-gray-100 disabled:opacity-40 ${(a.tjAdmins || []).includes(tj.id) ? 'text-emerald-600' : 'text-gray-300'}`}
+                            disabled={busy}
+                            title={(a.tjAdmins || []).includes(tj.id) ? 'Administrateur de ce tribunal — cliquer pour retirer' : 'Désigner administrateur de ce tribunal'}
+                            onClick={() => handleToggleTjAdmin(a, tj.id)}
+                          >
+                            <ShieldCheck className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   ))}
                 </tr>

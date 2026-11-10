@@ -1,4 +1,5 @@
 'use client';
+import { estSuperAdmin } from '@/lib/web/identite';
 
 import React, { useState } from 'react';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
@@ -12,7 +13,6 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { CopyButton } from '../ui/CopyButton';
 import { useToast } from '@/contexts/ToastContext';
-import { useUser } from '@/contexts/UserContext';
 import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { ProductionsSection } from '../attache/ProductionsSection';
 import { DmlArchiveSection } from '../instruction/DmlArchiveSection';
@@ -145,7 +145,7 @@ export const InstructionDetailModal = ({
   recoupements,
 }: InstructionDetailModalProps) => {
   const { showToast } = useToast();
-  const { isAdmin } = useUser();
+
   const { getCabinetById } = useInstructionCabinets();
   const cabinet = getCabinetById(dossier.cabinetId);
   const cabinetColor = cabinet?.color || FALLBACK_CABINET_COLOR;
@@ -1008,7 +1008,7 @@ export const InstructionDetailModal = ({
                 )}
 
                 {/* Atelier des actes rédigés (attaché IA) — admin only. */}
-                {isAdmin() && (dossier.numeroInstruction || dossier.numeroParquet) && (
+                {estSuperAdmin() && (dossier.numeroInstruction || dossier.numeroParquet) && (
                   <ProductionsSection numero={dossier.numeroInstruction || dossier.numeroParquet || ''} />
                 )}
               </div>
@@ -1053,7 +1053,7 @@ export const InstructionDetailModal = ({
       />
 
       {/* Chat flottant de l'attaché sur ce dossier d'instruction — admin only. */}
-      {isAdmin() && (dossier.numeroInstruction || dossier.numeroParquet) && (
+      {estSuperAdmin() && (dossier.numeroInstruction || dossier.numeroParquet) && (
         <FloatingDossierChat
           numero={dossier.numeroInstruction || dossier.numeroParquet || ''}
           cadre="instruction"

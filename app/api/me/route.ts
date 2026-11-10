@@ -1,4 +1,4 @@
-import { getSession, jsonResponse, findAccount, accountTjs, handle } from '@/lib/server/auth'
+import { getSession, jsonResponse, findAccount, accountTjs, handle, isTjAdmin } from '@/lib/server/auth'
 import { findTj, listTjs } from '@/lib/server/tj'
 
 export const dynamic = 'force-dynamic'
@@ -17,6 +17,7 @@ export async function GET(req: Request) {
       username: session.u,
       displayName: account?.displayName || session.u,
       role: session.r,
+      tjAdmin: isTjAdmin(account, session.tj),
       tj: { id: session.tj, name: activeTj?.name || session.tj },
       tjs: myTjs.map((id) => ({ id, name: nameOf(id) })),
     })

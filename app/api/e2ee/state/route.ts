@@ -5,8 +5,9 @@
  *  - hasKeyring   : MON trousseau individuel existe
  *  - hasGrant     : une invitation m'attend
  *  - anyKeyrings  : au moins un trousseau existe dans ce TJ
+ *  - canInitialize: je suis l'administrateur de ce TJ (création des clés)
  */
-import { requireTjSession, handle, jsonResponse } from '@/lib/server/auth'
+import { requireTjSession, handle, jsonResponse, findAccount, isTjAdmin } from '@/lib/server/auth'
 import { tjDataDir, readJson, listVaults, readVault } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
@@ -25,6 +26,8 @@ export async function GET(req: Request) {
       hasGrant: !!grant,
       grantKdf: grant ? { salt: grant.kdfSalt, iterations: grant.kdfIterations, grantedBy: grant.savedBy } : null,
       anyKeyrings: vaults.some((v) => v.startsWith('keyring-')),
+      // TJ vierge : seul son administrateur peut en créer les clés
+      canInitialize: isTjAdmin(findAccount(session.u), session.tj),
     })
   })
 }

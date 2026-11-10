@@ -2,7 +2,7 @@ import crypto from 'crypto'
 import {
   handle, jsonResponse, createSessionCookie, sessionCookieHeader,
   findAccount, listAccounts, saveAccount, isValidUsername,
-  getSession, rateLimit, clientIp, Account,
+  getSession, rateLimit, clientIp, Account, initialTjAdmins,
 } from '@/lib/server/auth'
 import { hashPassword, isAcceptablePassword } from '@/lib/server/password'
 import { resolveRegistrationTj } from '@/lib/server/tj'
@@ -51,6 +51,7 @@ export async function POST(req: Request) {
         role: listAccounts().length === 0 ? 'admin' : 'member',
         tribunal: tj.name,
         tjs: [tj.id],
+        tjAdmins: listAccounts().length === 0 ? undefined : initialTjAdmins(tj.id),
         credentials: [],
         passwordHash: hashPassword(password),
         createdAt: new Date().toISOString(),

@@ -3,8 +3,8 @@
  * version (l'ancienne est archivée automatiquement, historique immuable).
  * Tous les accès sont cloisonnés dans l'espace du TJ actif de la session.
  */
-import { requireTjSession, handle, jsonResponse } from '@/lib/server/auth'
-import { readVault, writeVault, deleteVault, isSafeName, appendLog } from '@/lib/server/store'
+import { requireTjSession, handle, jsonResponse, findAccount, isTjAdmin } from '@/lib/server/auth'
+import { readVault, writeVault, deleteVault, isSafeName, appendLog, listVaults } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,14 +32,33 @@ export async function PUT(req: Request, { params }: { params: { name: string } }
     const session = requireTjSession(req)
     if (!isSafeName(params.name)) return jsonResponse({ error: 'Nom invalide' }, { status: 400 })
     // Coffres d'ACCÈS : un trousseau n'est modifiable que par son titulaire,
-    // une invitation n'est déposable que par un admin — sinon tout membre
-    // pourrait écraser le trousseau d'autrui ou empoisonner une invitation.
+    // une invitation n'est déposable que par l'administrateur du TJ — sinon
+    // tout membre pourrait écraser le trousseau d'autrui ou empoisonner une
+    // invitation.
     const access = /^(keyring|grant)-(.+)$/.exec(params.name)
     if (access) {
+      const tjAdmin = isTjAdmin(findAccount(session.u), session.tj)
       const ownKeyring = access[1] === 'keyring' && access[2] === session.u
-      const adminGrant = access[1] === 'grant' && session.r === 'admin'
+      const adminGrant = access[1] === 'grant' && tjAdmin
       if (!ownKeyring && !adminGrant) {
         return jsonResponse({ error: 'Écriture non autorisée sur ce coffre d’accès' }, { status: 403 })
+      }
+      // Premier trousseau d'un compte : seulement en activant une invitation,
+      // ou — TJ encore vierge — par son administrateur (création des clés).
+      // Sinon le premier venu créerait les clés d'un TJ neuf et plus personne
+      // ne pourrait y être invité.
+      if (ownKeyring) {
+        const vaults = listVaults(session.tj)
+        const first = !vaults.includes(params.name) && !vaults.includes(`grant-${session.u}`)
+        if (first) {
+          const virgin = !vaults.some((v) => v.startsWith('keyring-'))
+          if (!virgin) {
+            return jsonResponse({ error: 'Ce tribunal est déjà initialisé : demandez une invitation à son administrateur' }, { status: 403 })
+          }
+          if (!tjAdmin) {
+            return jsonResponse({ error: 'Seul l’administrateur de ce tribunal peut en initialiser les clés' }, { status: 403 })
+          }
+        }
       }
     }
     const envelope = await req.json().catch(() => ({}))
@@ -56,7 +75,7 @@ export async function PUT(req: Request, { params }: { params: { name: string } }
 }
 
 /**
- * Suppression restreinte aux coffres d'accès individuels : un admin peut
+ * Suppression restreinte aux coffres d'accès individuels : l'admin du TJ peut
  * révoquer le trousseau/l'invitation de n'importe qui ; chacun peut supprimer
  * sa propre invitation consommée. Les coffres de données ne sont JAMAIS
  * supprimables par l'API.
@@ -68,7 +87,7 @@ export async function DELETE(req: Request, { params }: { params: { name: string 
     if (!isSafeName(name)) return jsonResponse({ error: 'Nom invalide' }, { status: 400 })
     const isAccessVault = /^(keyring|grant)-/.test(name)
     const ownGrant = name === `grant-${session.u}` || name === `keyring-${session.u}`
-    if (!isAccessVault || (session.r !== 'admin' && !ownGrant)) {
+    if (!isAccessVault || (!isTjAdmin(findAccount(session.u), session.tj) && !ownGrant)) {
       return jsonResponse({ error: 'Suppression non autorisée' }, { status: 403 })
     }
     const deleted = await deleteVault(session.tj, name)

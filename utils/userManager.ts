@@ -4,6 +4,7 @@
 // identifie l'utilisateur courant par son Windows username,
 // et fournit les méthodes CRUD pour l'admin.
 
+import { identiteSession, estAdminTj } from '@/lib/web/identite';
 import { SiralBridge } from './siralBridge';
 import {
   UsersConfig,
@@ -103,6 +104,21 @@ export class UserManager {
         this.currentUser = this.autoRegisterUser(systemUser.displayName);
         this.config.users.push(this.currentUser);
         await this.saveConfig();
+      }
+
+      // 4 bis. Le rôle « administrateur » de ce TJ est tenu par le SERVEUR
+      // (administrateur local désigné, contrôlé à chaque appel) : la config
+      // d'habilitations s'y aligne — ni promotion ni rétrogradation locale.
+      const me = identiteSession();
+      if (me) {
+        const serverAdmin = estAdminTj();
+        if (serverAdmin && this.currentUser.globalRole !== 'admin') {
+          this.currentUser.globalRole = 'admin';
+          this.currentUser.updatedAt = new Date().toISOString();
+          await this.saveConfig();
+        } else if (!serverAdmin && this.currentUser.globalRole === 'admin') {
+          this.currentUser = { ...this.currentUser, globalRole: null };
+        }
       }
 
       // 5. Construire les permissions
@@ -238,7 +254,7 @@ export class UserManager {
    * @returns true si la config a été modifiée (et persistée).
    */
   public async reconcileWithAccounts(
-    accounts: Array<{ username: string; displayName: string; role: 'admin' | 'member' }>,
+    accounts: Array<{ username: string; displayName: string; role: 'admin' | 'member'; tjAdmin?: boolean }>,
   ): Promise<boolean> {
     if (!this.config || !this.isCurrentUserAdmin()) return false;
 
@@ -253,7 +269,7 @@ export class UserManager {
         this.config.users.push({
           windowsUsername: acc.username,
           displayName: acc.displayName || acc.username,
-          globalRole: acc.role === 'admin' ? 'admin' : null,
+          globalRole: (acc.tjAdmin ?? acc.role === 'admin') ? 'admin' : null,
           contentieux: [],
           modules: [],
           approved: true, // l'enrôlement serveur fait foi : pas de double validation
@@ -273,6 +289,16 @@ export class UserManager {
       if (profile.approved !== true) {
         profile.approved = true;
         changed = true;
+      }
+      // Rôle administrateur : miroir de l'administration locale côté serveur.
+      if (acc.tjAdmin !== undefined) {
+        if (acc.tjAdmin && profile.globalRole !== 'admin') {
+          profile.globalRole = 'admin';
+          changed = true;
+        } else if (!acc.tjAdmin && profile.globalRole === 'admin') {
+          profile.globalRole = null;
+          changed = true;
+        }
       }
     }
 

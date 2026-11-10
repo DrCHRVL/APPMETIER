@@ -1,5 +1,6 @@
 'use client';
 
+import { estSuperAdmin } from '@/lib/web/identite';
 import React, { useState } from 'react';
 import { X, Bell, Tags, Save, Users, Settings, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark, Scale, WifiOff } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
@@ -61,6 +62,8 @@ interface TabDef {
   section: TabSection;
   /** Réservé aux admins (admin = isAdmin()) */
   isAdmin?: boolean;
+  /** Réservé à l'administrateur du SERVEUR (pas à l'admin local d'un TJ) */
+  superAdmin?: boolean;
   /** Module requis pour voir cet onglet (l'utilisateur doit l'avoir activé) */
   requiresModule?: ModuleId;
 }
@@ -82,13 +85,13 @@ const TABS: TabDef[] = [
 
   // Administration (admin uniquement)
   { id: 'admin_users',       label: 'Utilisateurs & accès', icon: Users,     section: 'admin', isAdmin: true },
-  { id: 'admin_tjs',         label: 'Tribunaux',        icon: Landmark,      section: 'admin', isAdmin: true },
+  { id: 'admin_tjs',         label: 'Tribunaux',        icon: Landmark,      section: 'admin', isAdmin: true, superAdmin: true },
   { id: 'admin_contentieux', label: 'Contentieux',      icon: Layers,        section: 'admin', isAdmin: true },
   { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      section: 'admin', isAdmin: true },
   { id: 'admin_tag_history', label: 'Historique tags',  icon: ClipboardList, section: 'admin', isAdmin: true },
-  { id: 'admin_natinf',      label: 'Référentiel NATINF', icon: Gavel,       section: 'admin', isAdmin: true },
-  { id: 'admin_update',      label: 'Mise à jour',      icon: Upload,        section: 'admin', isAdmin: true },
-  { id: 'admin_attache',     label: 'Attaché',          icon: Scale,         section: 'admin', isAdmin: true },
+  { id: 'admin_natinf',      label: 'Référentiel NATINF', icon: Gavel,       section: 'admin', isAdmin: true, superAdmin: true },
+  { id: 'admin_update',      label: 'Mise à jour',      icon: Upload,        section: 'admin', isAdmin: true, superAdmin: true },
+  { id: 'admin_attache',     label: 'Attaché',          icon: Scale,         section: 'admin', isAdmin: true, superAdmin: true },
 ];
 
 const SECTION_LABELS: Record<TabSection, string> = {
@@ -146,6 +149,7 @@ export const SettingsModal = ({
   // Filtrer les onglets selon les droits + modules activés
   const visibleTabs = TABS.filter(t => {
     if (t.isAdmin && !userIsAdmin) return false;
+    if (t.superAdmin && !estSuperAdmin()) return false;
     if (t.requiresModule && !hasModule(t.requiresModule)) return false;
     // L'attaché IA n'apparaît que si la fonctionnalité est activée côté serveur
     if (t.id === 'admin_attache' && !adminAttacheContent) return false;

@@ -17,7 +17,7 @@ import crypto from 'crypto'
 import {
   Account, StoredCredential, findAccount, listAccounts, saveAccount,
   storeChallenge, takeChallenge, rpFromRequest, isValidUsername,
-  getSession, rateLimit, clientIp,
+  getSession, rateLimit, clientIp, initialTjAdmins,
 } from './auth'
 import { resolveRegistrationTj, findTj } from './tj'
 import { DEFAULT_TJ_ID } from './store'
@@ -108,6 +108,7 @@ export async function registrationVerify(req: Request, username: string, display
       role: listAccounts().length === 0 ? 'admin' : 'member',
       tribunal: tj?.name,
       tjs: [tjId],
+      tjAdmins: listAccounts().length === 0 ? undefined : initialTjAdmins(tjId),
       credentials: [cred],
       createdAt: new Date().toISOString(),
     }

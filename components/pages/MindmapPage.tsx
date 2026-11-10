@@ -1,3 +1,4 @@
+import { estSuperAdmin } from '@/lib/web/identite';
 // components/pages/MindmapPage.tsx
 // Module Cartographie : graphe biparti MEC ↔ Dossier en vue unique.
 // La recherche est celle de l'application (barre globale du header) : choisir
@@ -201,7 +202,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const updateCamp = useCartographieOverlayStore(s => s.updateCamp);
 
   const { showToast } = useToast();
-  const { user, isAdmin } = useUser();
+  const { user } = useUser();
   const { getByCode: getNatinfByCode } = useNatinf();
   // Sources distantes : projection des dossiers de TOUTE l'équipe (tous
   // contentieux confondus), rapatriée par le service de contributions. Rend la
@@ -1264,7 +1265,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             onRename={onRenameMec ? handleRenameMec : undefined}
             renamePending={renamePending}
             onSaveFiche={handleSaveMecFiche}
-            onEnrichRequest={isAdmin() && !iaMasquee ? handleEnrichMec : undefined}
+            onEnrichRequest={estSuperAdmin() && !iaMasquee ? handleEnrichMec : undefined}
             onDeleteLien={removeLien}
           />
         )}
@@ -1273,14 +1274,14 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
             de la carte s'estompe), un second clic annule. Le crayon ouvre
             l'édition du camp entier (nom, couleur). Pour l'admin, la légende
             porte aussi la détection automatique par l'attaché (gros amas). */}
-        {(campsSummary.length > 0 || (isAdmin() && !iaMasquee)) && (
+        {(campsSummary.length > 0 || (estSuperAdmin() && !iaMasquee)) && (
           <CampsLegend
             camps={campsSummary}
             highlight={campHighlight}
             onToggleHighlight={(label) =>
               setCampHighlight(prev => (prev === label ? undefined : label))}
             onUpdateCamp={handleUpdateCamp}
-            onDetect={isAdmin() && !iaMasquee ? handleDetectCamps : undefined}
+            onDetect={estSuperAdmin() && !iaMasquee ? handleDetectCamps : undefined}
           />
         )}
 
@@ -1390,14 +1391,14 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
 
       {/* Chat carto de l'attaché — admin only : analyse du réseau, propose
           les liens de renseignement manquants (auto-masqué si inactif). */}
-      {isAdmin() && <FloatingDossierChat numero="carto" carto label="Cartographie" prefill={enrichPrefill} />}
+      {estSuperAdmin() && <FloatingDossierChat numero="carto" carto label="Cartographie" prefill={enrichPrefill} />}
 
       {/* Revue des propositions de renseignement de l'attaché : liens
           personne↔personne, personnes ex nihilo (surnoms/2nd plan) et
           dossiers ex nihilo issus de l'analyse transversale — validés ✓ ou
           refusés ✗ un à un, tracés sur la carte à la validation. Panneau
           flottant bas-gauche, admin only, auto-masqué si vide. */}
-      {isAdmin() && (
+      {estSuperAdmin() && (
         <div className="pointer-events-none fixed bottom-4 left-4 z-40 w-[380px] max-w-[calc(100vw-2rem)]">
           <div className="pointer-events-auto">
             <NouveauxDossiersPropositions kinds={CARTO_REVIEW_KINDS} title="Proposition de renseignement" />

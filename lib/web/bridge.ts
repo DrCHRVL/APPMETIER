@@ -14,7 +14,7 @@ import { idb, exportKv, importKv, getAllEntries } from './idb'
 import { ScopedKeys, scopeOfVault, SCOPE_GLOBAL, generateInvitationCode, deriveRawKey, importAesKey, newKdfParams } from './keyring'
 import { encodeDocSegment } from './folderUpload'
 
-export interface BridgeIdentity { username: string, displayName: string, role: string }
+export interface BridgeIdentity { username: string, displayName: string, role: string, tjAdmin?: boolean }
 
 interface BuildOptions { keys: ScopedKeys, me: BridgeIdentity }
 

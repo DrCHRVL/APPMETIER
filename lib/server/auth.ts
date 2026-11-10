@@ -37,6 +37,13 @@ export interface Account {
   tjs?: string[]
   /** Dernier TJ actif (repris à la connexion suivante s'il est toujours autorisé). */
   lastTj?: string
+  /**
+   * TJ dont ce compte est l'ADMINISTRATEUR LOCAL : il y gère les accès
+   * (comptes, invitations, révocations) et y initialise les clés. Distinct du
+   * rôle `admin` (administrateur du serveur : création des TJ, attaché, mises
+   * à jour, supervision globale).
+   */
+  tjAdmins?: string[]
   credentials: StoredCredential[]
   /** Hachage scrypt du mot de passe (optionnel — complément aux passkeys). */
   passwordHash?: string
@@ -53,6 +60,20 @@ export function accountTjs(account: Account): string[] {
 export function initialTj(account: Account): string {
   const tjs = accountTjs(account)
   return account.lastTj && tjs.includes(account.lastTj) ? account.lastTj : tjs[0]
+}
+
+/**
+ * Administration locale d'un TJ : l'administrateur du serveur l'exerce sur les
+ * TJ auxquels il est rattaché ; un membre, sur ceux où il a été désigné.
+ */
+export function isTjAdmin(account: Account | null, tj: string): boolean {
+  if (!account || !accountTjs(account).includes(tj)) return false
+  return account.role === 'admin' || (account.tjAdmins || []).includes(tj)
+}
+
+/** Premier compte rattaché à un TJ → il en devient l'administrateur local. */
+export function initialTjAdmins(tj: string): string[] | undefined {
+  return listAccounts().some((a) => accountTjs(a).includes(tj)) ? undefined : [tj]
 }
 
 function accountsPath() { return dataDir('accounts.json') }
@@ -186,6 +207,30 @@ export function requireTjSession(req: Request): SessionPayload {
   const account = findAccount(s.u)
   if (!account || !accountTjs(account).includes(s.tj)) {
     throw new Response(JSON.stringify({ error: 'Accès à ce tribunal révoqué — reconnectez-vous' }), {
+      status: 403,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+  return s
+}
+
+/** Garde : administrateur local du TJ actif (ou administrateur du serveur rattaché). */
+export function requireTjAdmin(req: Request): SessionPayload {
+  const s = requireTjSession(req)
+  if (!isTjAdmin(findAccount(s.u), s.tj)) {
+    throw new Response(JSON.stringify({ error: 'Réservé à l’administrateur de ce tribunal' }), {
+      status: 403,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+  return s
+}
+
+/** Garde : administrateur du serveur (création des TJ, attaché, mises à jour, supervision). */
+export function requireSuperAdmin(req: Request): SessionPayload {
+  const s = requireSession(req)
+  if (s.r !== 'admin') {
+    throw new Response(JSON.stringify({ error: 'Réservé à l’administrateur du serveur' }), {
       status: 403,
       headers: { 'content-type': 'application/json' },
     })
