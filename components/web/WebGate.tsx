@@ -204,6 +204,11 @@ export function WebGate({ children }: { children: React.ReactNode }) {
         method: 'PUT', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body), credentials: 'same-origin',
       })).status,
+    }).then((r) => {
+      if (r === 'cle-changee') {
+        window.alert('Sécurité : la clé d’administration générale présentée par le serveur n’est plus celle connue de ce tribunal. '
+          + 'Le séquestre n’a PAS été mis à jour. Prévenez l’administrateur général avant toute autre action.')
+      }
     }).catch((e) => {
       console.warn('Séquestre administrateur général non mis à jour', e)
     })
@@ -265,7 +270,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       <div class="lines"><div></div><div></div><div></div></div>
       <p class="foot">Cette phrase déverrouille le trousseau de <b>${entry.identity.username}</b>. Elle est irrécupérable :
       personne — ni l'hébergeur, ni le développeur — ne peut la réinitialiser. En cas de perte du kit ET de la phrase,
-      un administrateur de SIRAL peut générer une nouvelle invitation (Paramètres → Accès &amp; clés) : l'accès est alors
+      l'administrateur de votre tribunal (Paramètres → Utilisateurs &amp; accès) ou l'administrateur général (Gestion des TJ → Débloquer) peut générer une nouvelle invitation : l'accès est alors
       recréé, sans perte de données. Détruire ce kit si le trousseau est révoqué.</p>
       <script>window.print()<\/script></body></html>`)
     w.document.close()
@@ -275,7 +280,9 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   const routeByState = useCallback((state: E2eeState) => {
     if (state.hasKeyring) setPhase('unlock')
     else if (state.hasGrant) setPhase('redeem')
-    else if (state.legacyKdf && !state.anyKeyrings) setPhase('migrate')
+    // ancien serveur « phrase de service » : la migration revient à qui peut
+    // initialiser le TJ ; les autres attendent (écran sans accès)
+    else if (state.legacyKdf && !state.anyKeyrings && state.canInitialize) setPhase('migrate')
     // TJ vierge : son administrateur local crée les clés. L'administrateur
     // général, hors TJ d'origine, choisit (écran d'attente) de le faire lui-même.
     else if (!state.legacyKdf && !state.anyKeyrings && state.canInitialize
@@ -679,8 +686,8 @@ export function WebGate({ children }: { children: React.ReactNode }) {
             <div className="siral-title">Enrôlement</div>
             <div className="siral-text">Réservé aux membres munis du <b>code d&apos;accès de leur tribunal</b> (remis par l&apos;administrateur — il identifie
               votre TJ et n&apos;est demandé qu&apos;à cette première inscription). Utilisez votre identifiant habituel.</div>
-            <input className="siral-input" placeholder="Identifiant (ex. a.chevalier)" value={regUsername} onChange={(e) => setRegUsername(e.target.value)} autoCapitalize="none" />
-            <input className="siral-input" placeholder="Nom affiché (ex. A. Chevalier)" value={regDisplay} onChange={(e) => setRegDisplay(e.target.value)} />
+            <input className="siral-input" placeholder="Identifiant (ex. p.nom)" value={regUsername} onChange={(e) => setRegUsername(e.target.value)} autoCapitalize="none" />
+            <input className="siral-input" placeholder="Nom affiché (ex. P. Nom)" value={regDisplay} onChange={(e) => setRegDisplay(e.target.value)} />
             <input className="siral-input" placeholder="Code d'accès du tribunal" value={regCode} onChange={(e) => setRegCode(e.target.value)} autoCapitalize="characters" />
             <input className="siral-input" type="password" placeholder="Mot de passe (10 caractères minimum)" value={regPassword}
               onChange={(e) => setRegPassword(e.target.value)} />
@@ -821,6 +828,12 @@ export function WebGate({ children }: { children: React.ReactNode }) {
             ) : e2ee && !e2ee.anyKeyrings && !e2ee.legacyKdf ? (
               <div className="siral-text">Ce tribunal n&apos;est pas encore initialisé. Son <b>administrateur</b> doit s&apos;y
                 connecter en premier pour créer ses clés de chiffrement, puis vous inviter.</div>
+            ) : e2ee?.legacyKdf && !e2ee.anyKeyrings ? (
+              <div className="siral-text">Ce tribunal doit d&apos;abord passer aux clés individuelles : c&apos;est à
+                l&apos;<b>administrateur général</b> de le faire à sa prochaine connexion, puis de vous inviter.</div>
+            ) : me?.tjAdmin ? (
+              <div className="siral-text">Vous êtes administrateur de ce tribunal, mais ses clés ont été créées par
+                l&apos;<b>administrateur général</b> : demandez-lui de vous inviter (Gestion des TJ → Débloquer), puis revenez ici.</div>
             ) : (
               <div className="siral-text">Votre compte est créé mais aucun trousseau de clés ne vous a encore été remis.
                 Demandez à l&apos;<b>administrateur de votre tribunal</b> de vous inviter (Paramètres → Utilisateurs &amp; accès),

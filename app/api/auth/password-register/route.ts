@@ -1,8 +1,8 @@
 import crypto from 'crypto'
 import {
   handle, jsonResponse, createSessionCookie, sessionCookieHeader,
-  findAccount, listAccounts, saveAccount, isValidUsername,
-  getSession, rateLimit, clientIp, Account, initialTjAdmins,
+  findAccount, listAccounts, isValidUsername,
+  getSession, rateLimit, clientIp, Account, updateAccount, createAccount,
 } from '@/lib/server/auth'
 import { hashPassword, isAcceptablePassword } from '@/lib/server/password'
 import { resolveRegistrationTj } from '@/lib/server/tj'
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     const password = String(body.password || '')
     const code = String(body.setupCode || '')
 
-    let tj
+    let tj: ReturnType<typeof resolveRegistrationTj>
     try {
       tj = resolveRegistrationTj(code, listAccounts().length === 0)
     } catch (e) {
@@ -36,28 +36,34 @@ export async function POST(req: Request) {
     if (!isValidUsername(username)) return jsonResponse({ error: "Nom d'utilisateur invalide (lettres, chiffres, . _ -)" }, { status: 400 })
     if (!isAcceptablePassword(password)) return jsonResponse({ error: 'Mot de passe trop court (10 caractères minimum)' }, { status: 400 })
 
-    let account = findAccount(username)
-    if (account) {
+    const existant = findAccount(username)
+    let account: Account | null
+    if (existant) {
       const session = getSession(req)
-      if (!session || session.u !== account.username) {
+      if (!session || session.u !== existant.username) {
         return jsonResponse({ error: 'Ce compte existe déjà — connectez-vous, ou demandez à un admin' }, { status: 403 })
       }
-      account.passwordHash = hashPassword(password)
+      if (existant.suspendu) return jsonResponse({ error: 'Compte suspendu — voyez l’administrateur' }, { status: 403 })
+      account = await updateAccount(existant.username, (a) => { a.passwordHash = hashPassword(password) })
+      if (!account) return jsonResponse({ error: 'Compte introuvable' }, { status: 404 })
     } else {
-      account = {
-        id: crypto.randomUUID(),
-        username,
-        displayName,
-        role: listAccounts().length === 0 ? 'admin' : 'member',
-        tribunal: tj.name,
-        tjs: [tj.id],
-        tjAdmins: listAccounts().length === 0 ? undefined : initialTjAdmins(tj.id),
-        credentials: [],
-        passwordHash: hashPassword(password),
-        createdAt: new Date().toISOString(),
-      } as Account
+      try {
+        account = await createAccount(({ premierDuServeur, adminLocal }) => ({
+          id: crypto.randomUUID(),
+          username,
+          displayName,
+          role: premierDuServeur ? 'admin' : 'member',
+          tribunal: tj.name,
+          tjs: [tj.id],
+          tjAdmins: adminLocal(tj.id),
+          credentials: [],
+          passwordHash: hashPassword(password),
+          createdAt: new Date().toISOString(),
+        }))
+      } catch (e) {
+        return jsonResponse({ error: e instanceof Error ? e.message : 'Création impossible' }, { status: 409 })
+      }
     }
-    await saveAccount(account)
     await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: account.username, action: 'auth.register.password', details: { role: account.role, tj: tj.id } })
 
     const cookie = createSessionCookie(account)

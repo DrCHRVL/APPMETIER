@@ -88,14 +88,14 @@ export const AdminUsersPanel = () => {
 
   // ── État d'enrôlement / trousseau ─────────────────────────────────
   // username (minuscule) → état du compte serveur correspondant.
-  type AccountState = { exists: boolean; hasKeyring: boolean; hasGrant: boolean };
+  type AccountState = { exists: boolean; hasKeyring: boolean; hasGrant: boolean; suspendu?: boolean };
   const [accountStates, setAccountStates] = useState<Record<string, AccountState>>({});
 
   const loadAccountStates = useCallback(async () => {
     const api = (typeof window !== 'undefined' ? (window as any).siralBridge : null);
     if (!api?.e2ee_listAccounts) return;
     try {
-      const list: Array<{ username: string; displayName: string; role: 'admin' | 'member'; tjAdmin?: boolean; hasKeyring: boolean; hasGrant: boolean }> = await api.e2ee_listAccounts();
+      const list: Array<{ username: string; displayName: string; role: 'admin' | 'member'; tjAdmin?: boolean; suspendu?: boolean; hasKeyring: boolean; hasGrant: boolean }> = await api.e2ee_listAccounts();
       // Unification : tout compte serveur enrôlé doit avoir un profil d'habilitations.
       const manager = UserManager.getInstance();
       const changed = await manager.reconcileWithAccounts(
@@ -103,7 +103,7 @@ export const AdminUsersPanel = () => {
       );
       if (changed) { loadUsers(); await refreshUsers(); }
       const map: Record<string, AccountState> = {};
-      for (const a of list) map[a.username.toLowerCase()] = { exists: true, hasKeyring: a.hasKeyring, hasGrant: a.hasGrant };
+      for (const a of list) map[a.username.toLowerCase()] = { exists: true, hasKeyring: a.hasKeyring, hasGrant: a.hasGrant, suspendu: a.suspendu };
       setAccountStates(map);
     } catch {
       // non bloquant : la liste des comptes peut être momentanément indisponible
@@ -424,7 +424,7 @@ export const AdminUsersPanel = () => {
 interface UserCardProps {
   user: UserProfile;
   contentieuxDefs: ContentieuxDefinition[];
-  accountState?: { exists: boolean; hasKeyring: boolean; hasGrant: boolean };
+  accountState?: { exists: boolean; hasKeyring: boolean; hasGrant: boolean; suspendu?: boolean };
   onUpdateGlobalRole: (username: string, role: GlobalRole) => void;
   onAssignContentieux: (username: string, cId: ContentieuxId, role: ContentieuxRole) => void;
   onUnassignContentieux: (username: string, cId: ContentieuxId) => void;
@@ -442,7 +442,10 @@ interface UserCardProps {
 }
 
 /** Pastille d'état du trousseau (édition web) — dépliez la carte pour agir. */
-const KeyringBadge = ({ state }: { state?: { exists: boolean; hasKeyring: boolean; hasGrant: boolean } }) => {
+const KeyringBadge = ({ state }: { state?: { exists: boolean; hasKeyring: boolean; hasGrant: boolean; suspendu?: boolean } }) => {
+  if (state?.suspendu) {
+    return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700" title="Compte suspendu par l'administrateur général : plus de connexion possible">Suspendu</span>;
+  }
   if (!state?.exists) {
     return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" title="Aucun compte serveur — la personne ne s'est pas encore enrôlée">Pas encore enrôlé</span>;
   }
@@ -534,7 +537,7 @@ const UserCard = ({
               value={user.globalRole || ''}
               onChange={e => onUpdateGlobalRole(user.windowsUsername, e.target.value ? e.target.value as GlobalRole : null)}
               disabled={user.globalRole === 'admin'}
-              title={user.globalRole === 'admin' ? 'Administrateur du tribunal : désigné par l’administrateur du serveur (Paramètres → Tribunaux)' : undefined}
+              title={user.globalRole === 'admin' ? 'Administrateur du tribunal : désigné par l’administrateur général (Paramètres → Gestion des TJ)' : undefined}
               className="px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white disabled:bg-gray-100"
             >
               <option value="">Aucun</option>
@@ -668,7 +671,8 @@ const UserCard = ({
                       <>
                         <button
                           onClick={() => onInvite?.(user)}
-                          disabled={keyBusy}
+                          disabled={keyBusy || accountState?.suspendu === true}
+                          title={accountState?.suspendu ? 'Compte suspendu par l’administrateur général' : undefined}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 disabled:opacity-50"
                         >
                           <UserPlus className="h-3.5 w-3.5" />

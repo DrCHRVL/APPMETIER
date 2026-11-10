@@ -112,3 +112,12 @@ d'origine) : la reprise du tableau Excel peut être rejouée sans doublon.
 Tests : `node scripts/entraide-core.test.mjs`,
 `node scripts/attache-entraide.test.mjs`,
 `node scripts/attache-entraide-lecture.test.mjs`.
+
+## Hors du tribunal d'origine
+
+Les trames T1 à T4 portent l'en-tête et le pied de page du parquet d'Amiens ;
+dans un autre tribunal, ils sont remplacés à la génération par ceux réglés dans
+Paramètres → En-têtes des documents. La grille des services de la Somme (cases
+commissariats / compagnies) est retirée des T1/T2 : l'unité choisie s'imprime
+sur la ligne « Autre unité ». Les services de départ d'Amiens ne sont pas
+proposés ailleurs.

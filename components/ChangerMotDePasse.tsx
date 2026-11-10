@@ -24,6 +24,8 @@ export const ChangerMotDePasse: React.FC = () => {
       if (!res.ok) { showToast(String(json.error || 'Changement refusé'), 'error'); return; }
       setAncien(''); setNouveau(''); setConfirmation('');
       showToast('Mot de passe changé', 'success');
+    } catch {
+      showToast('Serveur injoignable — réessayez', 'error');
     } finally { setBusy(false); }
   };
 

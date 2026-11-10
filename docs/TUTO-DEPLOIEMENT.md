@@ -123,29 +123,38 @@ Ouvrez **https://votre-domaine** : l'écran de connexion SIRAL apparaît.
 
 ### Ouvrir un autre tribunal
 
-Paramètres → **Tribunaux** → « Créer un tribunal » : un code d'accès
-s'affiche une seule fois. Remettez-le de vive voix à la personne qui
-administrera ce tribunal. **Le premier inscrit avec ce code devient
-l'administrateur local du TJ** : il en crée les clés, règle sa papeterie
-(Paramètres → En-têtes des documents), puis invite ses collègues, règle leurs contentieux
-et modules — sans l'administrateur général. Chaque compte relève d'un seul
-TJ ; l'administrateur général désigne ou retire un administrateur local
-(bouclier, dans Paramètres → Tribunaux).
+Paramètres → **Gestion des TJ** → « Créer un tribunal » : un code d'accès
+s'affiche une seule fois. Remettez-le à la personne qui administrera ce
+tribunal. **Le premier inscrit avec ce code devient l'administrateur local du
+TJ** : il en crée les clés, règle les en-têtes des documents (Paramètres →
+En-têtes des documents), puis invite ses collègues et règle leurs contentieux
+et modules — sans l'administrateur général. Chaque compte relève d'un seul TJ.
 
-**Accès de l'administrateur général** : à chaque connexion, l'administrateur
-local dépose une copie des clés de son TJ scellée pour la clé
+Vous pouvez aussi préparer le tribunal vous-même : « Ouvrir », puis
+« Initialiser ce tribunal moi-même », et créer les comptes depuis Gestion des
+TJ (il faudra alors inviter aussi son administrateur local).
+
+**Accès de l'administrateur général** : à chaque connexion, tout
+administrateur d'un TJ y dépose une copie des clés du TJ scellée pour la clé
 d'administration générale (créée automatiquement au déverrouillage du TJ
 d'origine, protégée par la phrase personnelle de l'administrateur général).
-Lui seul peut ensuite ouvrir ce TJ (Paramètres → Tribunaux → « Ouvrir ») avec
-sa phrase ; le serveur ne lit rien, chaque ouverture est journalisée.
+Chaque TJ **épingle** cette clé à son premier dépôt : si le serveur en
+présentait une autre, plus rien n'est déposé et l'administrateur local est
+alerté. La paire ne peut pas être remplacée par l'application. L'administrateur
+général ouvre ensuite un TJ (Gestion des TJ → « Ouvrir ») avec sa phrase ; le
+serveur ne lit rien, chaque ouverture est journalisée.
 L'attaché IA reste rattaché au seul TJ d'origine (`SIRAL_ATTACHE_TJ`).
 
 **Gestion des TJ** (Paramètres, administrateur général seul) : qui est dans
 quel tribunal, statut (membre, administrateur local, suspendu), accès aux
 données, indicateurs d'activité (comptés et scellés par les postes du TJ,
 illisibles pour le serveur) ; création directe d'un compte avec mot de passe
-provisoire, déplacement, nouveau mot de passe — en parallèle de
-l'administrateur local, qui reste la voie normale.
+provisoire, déplacement (l'ancien accès est retiré), nouveau mot de passe,
+**Débloquer** (nouvelle invitation, contentieux confirmés avant dépôt) et
+**cartographie inter-TJ** (personnes mises en cause dans plusieurs tribunaux,
+calculée à la demande, jamais enregistrée) — en parallèle de l'administrateur
+local, qui reste la voie normale. Un compte suspendu perd immédiatement
+connexion, accès aux données et rappels.
 
 Test de bout en bout du multi-TJ : `node scripts/multi-tj.test.mjs`.
 Guide utilisateur imprimable : [GUIDE-CREATION-COMPTE.pdf](GUIDE-CREATION-COMPTE.pdf).

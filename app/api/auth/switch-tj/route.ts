@@ -5,7 +5,7 @@
  * l'application : trousseau, coffres et cache local sont ceux du nouveau TJ.
  */
 import {
-  requireSession, handle, jsonResponse, findAccount, saveAccount, accountTjs,
+  requireSession, handle, jsonResponse, findAccount, updateAccount, accountTjs,
   createSessionCookie, sessionCookieHeader,
 } from '@/lib/server/auth'
 import { findTj } from '@/lib/server/tj'
@@ -24,8 +24,7 @@ export async function POST(req: Request) {
     if (!account || !accountTjs(account).includes(tj)) {
       return jsonResponse({ error: 'Votre compte n’est pas rattaché à ce tribunal' }, { status: 403 })
     }
-    account.lastTj = tj
-    await saveAccount(account)
+    await updateAccount(account.username, (a) => { a.lastTj = tj })
     await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: session.u, action: 'auth.switch-tj', details: { from: session.tj, to: tj } })
     const cookie = createSessionCookie(account, tj)
     return jsonResponse(

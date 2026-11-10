@@ -5,6 +5,7 @@
 // français et en anglais. Tout ce qui est propre au parquet (ville, ressort)
 // vient de PAPETERIE.
 
+import { estTjOrigine } from '@/lib/web/identite';
 import { PAPETERIE } from '@/lib/web/papeterie';
 import { dateFr, lignesMesures, autoritesJudiciairesDe } from './logique';
 import type {
@@ -136,6 +137,9 @@ export function demandeurTrame(a: AutoriteEtrangere | null, d: DemandeEntraide):
 export function autreUnite(s: ServiceEnqueteur | null, d: DemandeEntraide): string {
   if (d.serviceAutre) return d.serviceAutre;
   if (s && s.cases.includes('autre')) return s.libelle;
+  // Hors TJ d'origine, la grille des services de la Somme est retirée des
+  // trames : le service s'imprime toujours sur la ligne « Autre unité ».
+  if (s && !estTjOrigine()) return s.libelle;
   return '';
 }
 

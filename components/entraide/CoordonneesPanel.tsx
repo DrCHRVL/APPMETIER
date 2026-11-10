@@ -62,7 +62,7 @@ export const CoordonneesPanel: React.FC<{ api: EntraideApi }> = ({ api }) => {
       </label>
       <div className="grid grid-cols-2 gap-3">
         <label className="block text-xs text-gray-600">Téléphone
-          <input className={champ} value={f.telephone || ''} onChange={(e) => set({ telephone: e.target.value })} placeholder="03.22.82.47.07" />
+          <input className={champ} value={f.telephone || ''} onChange={(e) => set({ telephone: e.target.value })} placeholder="03 00 00 00 00" />
         </label>
         <label className="block text-xs text-gray-600">Mail
           <input className={champ} value={f.email || ''} onChange={(e) => set({ email: e.target.value })} />
@@ -70,7 +70,10 @@ export const CoordonneesPanel: React.FC<{ api: EntraideApi }> = ({ api }) => {
       </div>
       <div className="flex justify-end">
         <Button className="bg-[#2B5746] hover:bg-[#2B5746]/90" disabled={!f.prenomNom.trim()}
-          onClick={async () => { await api.enregistrerSignataire({ ...f, username: api.moi }); showToast('Coordonnées enregistrées', 'success'); }}>
+          onClick={async () => {
+            try { await api.enregistrerSignataire({ ...f, username: api.moi }); showToast('Coordonnées enregistrées', 'success'); }
+            catch { showToast('Enregistrement impossible — réessayez', 'error'); }
+          }}>
           Enregistrer
         </Button>
       </div>

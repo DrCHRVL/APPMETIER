@@ -15,9 +15,7 @@ import type {
 } from '@simplewebauthn/types'
 import crypto from 'crypto'
 import {
-  Account, StoredCredential, findAccount, listAccounts, saveAccount,
-  storeChallenge, takeChallenge, rpFromRequest, isValidUsername,
-  getSession, rateLimit, clientIp, initialTjAdmins,
+  Account, StoredCredential, findAccount, listAccounts, storeChallenge, takeChallenge, rpFromRequest, isValidUsername, getSession, rateLimit, clientIp, updateAccount, createAccount,
 } from './auth'
 import { resolveRegistrationTj, findTj } from './tj'
 import { DEFAULT_TJ_ID } from './store'
@@ -91,30 +89,29 @@ export async function registrationVerify(req: Request, username: string, display
     label: label || 'Passkey',
     createdAt: new Date().toISOString(),
   }
-  let account = findAccount(username)
-  if (account) {
+  const existant = findAccount(username)
+  if (existant) {
     // même garde que registrationOptions : seul le titulaire connecté ajoute une passkey
     const session = getSession(req)
-    if (!session || session.u !== account.username) {
+    if (!session || session.u !== existant.username) {
       throw new Error('Ce compte existe déjà — connectez-vous avec votre passkey, ou demandez à un admin')
     }
-    account.credentials.push(cred)
-  } else {
-    const tj = findTj(tjId)
-    account = {
-      id: crypto.randomUUID(),
-      username,
-      displayName: displayName || username,
-      role: listAccounts().length === 0 ? 'admin' : 'member',
-      tribunal: tj?.name,
-      tjs: [tjId],
-      tjAdmins: listAccounts().length === 0 ? undefined : initialTjAdmins(tjId),
-      credentials: [cred],
-      createdAt: new Date().toISOString(),
-    }
+    const maj = await updateAccount(existant.username, (a) => { a.credentials.push(cred) })
+    if (!maj) throw new Error('Compte introuvable')
+    return maj
   }
-  await saveAccount(account)
-  return account
+  const tj = findTj(tjId)
+  return createAccount(({ premierDuServeur, adminLocal }) => ({
+    id: crypto.randomUUID(),
+    username,
+    displayName: displayName || username,
+    role: premierDuServeur ? 'admin' : 'member',
+    tribunal: tj?.name,
+    tjs: [tjId],
+    tjAdmins: adminLocal(tjId),
+    credentials: [cred],
+    createdAt: new Date().toISOString(),
+  }))
 }
 
 export async function authenticationOptions(req: Request, username?: string) {
@@ -175,8 +172,13 @@ export async function authenticationVerify(req: Request, response: Authenticatio
     },
   })
   if (!verification.verified) throw new Error('Authentification échouée')
-  cred.counter = verification.authenticationInfo.newCounter
-  account.lastLoginAt = new Date().toISOString()
-  await saveAccount(account)
-  return account
+  const credId = cred.credID
+  const counter = verification.authenticationInfo.newCounter
+  const maj = await updateAccount(account.username, (a) => {
+    const c = a.credentials.find((x) => x.credID === credId)
+    if (c) c.counter = counter
+    a.lastLoginAt = new Date().toISOString()
+  })
+  if (!maj || maj.suspendu) throw new Error('Compte indisponible')
+  return maj
 }

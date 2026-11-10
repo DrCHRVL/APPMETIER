@@ -2,7 +2,7 @@
  * Changement de son propre mot de passe (ex. mot de passe provisoire remis par
  * l'administrateur). POST { ancien, nouveau }.
  */
-import { requireSession, handle, jsonResponse, findAccount, saveAccount, rateLimit } from '@/lib/server/auth'
+import { requireSession, handle, jsonResponse, findAccount, updateAccount, rateLimit } from '@/lib/server/auth'
 import { hashPassword, isAcceptablePassword, verifyPasswordConstantTime } from '@/lib/server/password'
 import { appendLog } from '@/lib/server/store'
 
@@ -21,8 +21,7 @@ export async function POST(req: Request) {
     if (!isAcceptablePassword(String(nouveau || ''))) {
       return jsonResponse({ error: 'Nouveau mot de passe trop court (10 caractères minimum)' }, { status: 400 })
     }
-    account.passwordHash = hashPassword(String(nouveau))
-    await saveAccount(account)
+    await updateAccount(account.username, (a) => { a.passwordHash = hashPassword(String(nouveau)) })
     await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: account.username, action: 'auth.password.change', details: {} })
     return jsonResponse({ ok: true })
   })

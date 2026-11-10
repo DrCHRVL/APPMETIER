@@ -22,7 +22,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { estSuperAdmin } from '@/lib/web/identite';
 import { getClePriveeAdmin, ouvrirPourAdmin, type SealedEnvelope } from '@/lib/web/escrow';
 import { totaliser, type Indicateurs } from '@/lib/web/indicateurs';
-import { debloquerCompte, type AdminHttp } from '@/lib/web/adminGeneral';
+import { debloquerCompte, perimetresDeblocage, type AdminHttp } from '@/lib/web/adminGeneral';
 import { CartographieInterTj } from '@/components/admin/CartographieInterTj';
 import { identiteSession } from '@/lib/web/identite';
 
@@ -57,12 +57,17 @@ type Totaux = ReturnType<typeof totaliser>;
 type Statut = 'membre' | 'admin' | 'suspendu';
 
 async function apiJson(path: string, body?: unknown, method?: string): Promise<{ status: number, json: Record<string, unknown> }> {
-  const res = await fetch(path, {
+  let res: Response;
+  try {
+    res = await fetch(path, {
     method: method || (body !== undefined ? 'POST' : 'GET'),
     headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    credentials: 'same-origin',
-  });
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      credentials: 'same-origin',
+    });
+  } catch {
+    return { status: 0, json: { error: 'Serveur injoignable' } };
+  }
   let json: Record<string, unknown> = {};
   try { json = await res.json(); } catch { /* réponse vide */ }
   return { status: res.status, json };
@@ -101,6 +106,13 @@ export const AdminTJPanel = () => {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [totaux, setTotaux] = useState<Record<string, Totaux | null>>({});
+  // clé d'administration : chargée en arrière-plan après le déverrouillage
+  const [cle, setCle] = useState<CryptoKey | null>(() => getClePriveeAdmin());
+  useEffect(() => {
+    const maj = () => setCle(getClePriveeAdmin());
+    window.addEventListener('siral-cle-admin', maj);
+    return () => window.removeEventListener('siral-cle-admin', maj);
+  }, []);
 
   // secret affiché une seule fois (code d'accès d'un TJ ou mot de passe provisoire)
   const [secret, setSecret] = useState<{ titre: string, valeur: string, aide: string } | null>(null);
@@ -132,7 +144,6 @@ export const AdminTJPanel = () => {
 
   // Indicateurs : ouverts ici, avec la clé d'administration en mémoire vive.
   useEffect(() => {
-    const cle = getClePriveeAdmin();
     if (!cle) return;
     let annule = false;
     (async () => {
@@ -148,7 +159,7 @@ export const AdminTJPanel = () => {
       if (!annule) setTotaux(out);
     })();
     return () => { annule = true; };
-  }, [tjs]);
+  }, [tjs, cle]);
 
   if (!checkIsAdmin() || !estSuperAdmin()) {
     return <div className="text-gray-500">Accès réservé à l&apos;administrateur général.</div>;
@@ -247,13 +258,16 @@ export const AdminTJPanel = () => {
   const handleDebloquer = async (a: AccountRow, tjId: string) => {
     const cleAdmin = getClePriveeAdmin();
     if (!cleAdmin) { showToast('Clé d’administration non chargée : reconnectez-vous avec votre phrase', 'error'); return; }
-    if (!confirm(`Débloquer l'accès de ${a.displayName} ? Une invitation à usage unique est créée${a.acces === 'actif' ? ' et son trousseau actuel est remplacé (phrase perdue)' : ''}.`)) return;
     setBusy(true);
     try {
-      const { code, scopes } = await debloquerCompte(tjId, a.username, cleAdmin, httpAdmin, identiteSession()?.username || 'admin');
-      const ctx = scopes.filter(s => s.startsWith('ctx-')).map(s => s.slice(4));
+      const proposes = await perimetresDeblocage(tjId, a.username, cleAdmin, httpAdmin);
+      const ctx = proposes.filter(s => s.startsWith('ctx-')).map(s => s.slice(4));
+      // Les habilitations sont modifiables par les membres : confirmation explicite.
+      if (!confirm(`Débloquer l'accès de ${a.displayName} ?\n\nContentieux transmis : ${ctx.length ? ctx.join(', ') : 'aucun (habilitations à régler dans le TJ)'}.`
+        + `${a.acces === 'actif' ? '\nSon trousseau actuel sera remplacé (phrase perdue).' : ''}\n\nVérifiez que ce périmètre est bien le sien.`)) return;
+      const { code } = await debloquerCompte(tjId, a.username, cleAdmin, httpAdmin, identiteSession()?.username || 'admin', proposes);
       montrerSecret(`Code d’invitation de ${a.displayName}`, code,
-        `À remettre à l’intéressé : à sa connexion, il le saisit puis choisit sa phrase personnelle. Périmètre : ${ctx.length ? ctx.join(', ') : 'aucun contentieux attribué (habilitations à régler dans le TJ)'}.`);
+        `À remettre à l’intéressé : à sa connexion, il le saisit puis choisit sa phrase personnelle. Contentieux : ${ctx.length ? ctx.join(', ') : 'aucun'}.`);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Déblocage impossible', 'error');
     } finally { setBusy(false); load(); }
@@ -277,7 +291,6 @@ export const AdminTJPanel = () => {
     navigator.clipboard?.writeText(secret.valeur).then(() => setCopied(true)).catch(() => {});
   };
 
-  const cle = getClePriveeAdmin();
   const membresDe = (tjId: string) => accounts.filter(a => a.role !== 'admin' && a.tjs[0] === tjId);
 
   return (
@@ -317,8 +330,9 @@ export const AdminTJPanel = () => {
       {!cle && (
         <div className="flex items-start gap-2 text-[11px] text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-3">
           <Lock className="h-3.5 w-3.5 text-gray-400 mt-0.5" />
-          <span>Indicateurs verrouillés : ils s&apos;ouvrent avec votre clé d&apos;administration, chargée lorsque vous
-            déverrouillez l&apos;application avec votre phrase personnelle (reconnectez-vous).</span>
+          <span>Clé d&apos;administration non chargée (indicateurs, déblocage, cartographie). Elle se charge quelques secondes
+            après le déverrouillage ; si ce message reste, reconnectez-vous avec la phrase personnelle de votre compte
+            au TJ d&apos;origine (c&apos;est elle qui protège cette clé).</span>
         </div>
       )}
 

@@ -103,9 +103,12 @@ const moi = async (c) => json(await me.GET(requete('/api/me', 'GET', undefined, 
 const http = (c) => ({
   getJson: async (p) => {
     const [chemin, qs] = p.split('?')
-    const mod = chemin === '/api/escrow' ? escrowApi : null
-    if (!mod) throw new Error('route non simulée ' + p)
-    const res = await mod.GET(requete(chemin + (qs ? `?${qs}` : ''), 'GET', undefined, c))
+    if (chemin.startsWith('/api/vaults/')) {
+      const res = await coffreGet(chemin.replace('/api/vaults/', ''), c)
+      return { status: res.status, json: await json(res) }
+    }
+    if (chemin !== '/api/escrow') throw new Error('route non simulée ' + p)
+    const res = await escrowApi.GET(requete(chemin + (qs ? `?${qs}` : ''), 'GET', undefined, c))
     return { status: res.status, json: await json(res) }
   },
   putJson: async (p, body) => {
@@ -453,6 +456,51 @@ verifier('les victimes et les noms d’un seul mot sont écartés', !carto.perso
 verifier('les dossiers sont cités par TJ', carto.personnes.find((p) => /dupont/i.test(p.nom)).tjs.find((t) => t.tj === tjDouai.id).dossiers[0].numero === 'DO-1')
 const audit2 = fs.readFileSync(path.join(process.env.SIRAL_DATA_DIR, 'audit.jsonl'), 'utf8')
 verifier('lectures et déblocages journalisés', audit2.includes('"tj.donnees.lecture"') && audit2.includes('"tj.donnees.invitation"') && audit2.includes('"tj.donnees.reinitialisation"'))
+
+// ════════════════════════════════════════════════════════════
+titre('8. Robustesse (relectures)')
+verifier('la clé d’administration ne peut pas être remplacée par l’application',
+  (await escrowApi.PUT(requete('/api/escrow', 'PUT', { publicSpki: 'x', publicId: 'y', remplacer: true,
+    privateEnvelope: { encrypted: true, ct: 'a', iv: 'b', kdfSalt: 'c', kdfIterations: 1 } }, sa.cookie))).status === 409)
+// substitution de la paire côté serveur (compromission simulée) : les postes refusent de re-sceller
+const fichierPaire = path.join(process.env.SIRAL_DATA_DIR, 'escrow-keypair.json')
+const paireOrigine = fs.readFileSync(fichierPaire, 'utf8')
+const intrus = await escrow.generateEscrowKeypair('phrase de l intrus')
+fs.writeFileSync(fichierPaire, JSON.stringify({ ...intrus, createdAt: '', createdBy: 'intrus' }))
+const sqAvant = fs.readFileSync(path.join(process.env.SIRAL_DATA_DIR, 'tj', tjDouai.id, 'vaults', 'escrow-keys.json'), 'utf8')
+e = await etat(da)
+verifier('clé substituée côté serveur : l’admin local refuse de re-sceller',
+  await escrow.maintenirSequestre(clesDouai.keys, { username: 'douai.admin', role: 'member' }, 'x', e, tjDouai.id, http(da)) === 'cle-changee'
+  && fs.readFileSync(path.join(process.env.SIRAL_DATA_DIR, 'tj', tjDouai.id, 'vaults', 'escrow-keys.json'), 'utf8') === sqAvant)
+fs.writeFileSync(fichierPaire, paireOrigine)
+verifier('un membre ne peut pas déposer les indicateurs d’un autre',
+  (await coffrePut('indicateurs-user-lille.admin', { encrypted: true, ct: 'x', iv: 'y' }, dm2)).status === 403)
+verifier('… ni épingler la clé d’administration', (await coffrePut('escrow-pin', { encrypted: true, ct: 'x', iv: 'y' }, dm2)).status === 403)
+// suspension effective partout, y compris hors données
+await patchCompte({ username: 'douai.magistrat', action: 'suspendre' })
+verifier('compte suspendu : /api/me et changement de mot de passe refusés',
+  (await me.GET(requete('/api/me', 'GET', undefined, dm2))).status !== 200
+  && (await pwChange.POST(requete('/api/auth/password-change', 'POST', { ancien: mdp2, nouveau: 'xxxxxxxxxxxx' }, dm2))).status === 403)
+await patchCompte({ username: 'douai.magistrat', action: 'reactiver' })
+verifier('déplacement : l’ancien accès est retiré du TJ quitté',
+  !fs.existsSync(path.join(process.env.SIRAL_DATA_DIR, 'tj', tjLille.id, 'vaults', 'keyring-lille.magistrat.json')))
+// inscriptions simultanées dans un TJ neuf : un seul administrateur local
+r = await tjsApi.POST(requete('/api/tjs', 'POST', { name: 'TJ Arras' }, sa.cookie))
+const { code: codeArras, tj: tjArras } = await json(r)
+const [i1, i2, i3] = await Promise.all([inscrire('arras.a', codeArras), inscrire('arras.b', codeArras), inscrire('arras.c', codeArras)])
+const adminsArras = (await Promise.all([i1, i2, i3].map((i) => moi(i.cookie)))).filter((x) => x.tjAdmin).length
+verifier('inscriptions simultanées : un seul administrateur local', adminsArras === 1)
+// initialisations simultanées d'un TJ vierge : un seul jeu de clés
+const adminArras = [i1, i2, i3][(await Promise.all([i1, i2, i3].map((i) => moi(i.cookie)))).findIndex((x) => x.tjAdmin)]
+const nomAdminArras = (await moi(adminArras.cookie)).username
+const swA = cookieDe(await switchTj.POST(requete('/api/auth/switch-tj', 'POST', { tj: tjArras.id }, sa.cookie)))
+const [k1, k2] = await Promise.all([
+  deposerTrousseau(nomAdminArras, keyring.freshKeyringPayload(), 'phrase arras', adminArras.cookie),
+  deposerTrousseau('audran', keyring.freshKeyringPayload(), PHRASE_ADMIN, swA),
+])
+verifier('initialisations simultanées : un seul jeu de clés créé', [k1.status, k2.status].filter((x) => x === 200).length === 1)
+verifier('un deuxième compte « premier du serveur » est impossible : un seul administrateur général',
+  JSON.parse(fs.readFileSync(path.join(process.env.SIRAL_DATA_DIR, 'accounts.json'), 'utf8')).filter((a) => a.role === 'admin').length === 1)
 
 console.log(`\n${ok} vérifications réussies, ${ko} en échec`)
 fs.rmSync(SCRATCH, { recursive: true, force: true })

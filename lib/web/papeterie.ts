@@ -240,5 +240,9 @@ export function adapterTrameOdt(xmlSource: string): string {
   ];
   let out = xmlSource;
   for (const [avant, apres] of remplacements) out = out.split(avant).join(apres);
+  // Le numéro du secrétariat d'Amiens est découpé différemment selon les trames
+  // (espace ou <text:s/> entre les mots) : retiré quelle que soit la forme.
+  out = out.replace(/secrétariat(?:\s|<text:s\/>)+procureur\s*:(?:\s|<text:s\/>)*0322823618/g, '');
+  out = out.replace(/standard\s*:(?:\s|<text:s\/>)*03228236500/g, tj.standard ? x(`standard : ${tj.standard}`) : '');
   return out;
 }

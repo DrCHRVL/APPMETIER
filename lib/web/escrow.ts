@@ -111,7 +111,13 @@ export async function openEscrow(privateKey: CryptoKey, env: EscrowEnvelope): Pr
 // en mémoire vive seulement (jamais stockée) : sert à lire les indicateurs.
 let clePriveeAdmin: CryptoKey | null = null
 export function getClePriveeAdmin(): CryptoKey | null { return clePriveeAdmin }
-export function setClePriveeAdmin(cle: CryptoKey | null): void { clePriveeAdmin = cle }
+export function setClePriveeAdmin(cle: CryptoKey | null): void {
+  clePriveeAdmin = cle
+  // les écrans ouverts (Gestion des TJ) se mettent à jour dès que la clé est prête
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('siral-cle-admin'))
+  }
+}
 
 /**
  * Faut-il (re)déposer le séquestre ? Oui s'il manque, si la paire de
@@ -148,7 +154,7 @@ export async function maintenirSequestre(
   state: { isTjAdmin?: boolean, escrow?: { publicId: string, fp: string, scopes: string[] } | null } | null,
   tjId: string,
   http: EscrowHttp,
-): Promise<'paire-creee' | 'depose' | 'a-jour' | 'rien'> {
+): Promise<'paire-creee' | 'depose' | 'a-jour' | 'rien' | 'cle-changee'> {
   const pub = await http.getJson('/api/escrow')
   if (identity.role === 'admin') {
     if (pub.status === 404 && tjId === 'default' && phrase) {
@@ -156,6 +162,7 @@ export async function maintenirSequestre(
       const st = await http.putJson('/api/escrow', pair)
       if (st !== 200) throw new Error(`Publication de la clé d'administration refusée (${st})`)
       setClePriveeAdmin(await openPrivateKey(pair.privateEnvelope, phrase))
+      await epingler(keys, pair.publicId, http)
       const env = await sealForEscrow(pair.publicSpki, keys, identity.username)
       await http.putJson('/api/vaults/escrow-keys', env)
       return 'paire-creee'
@@ -172,10 +179,45 @@ export async function maintenirSequestre(
   }
   if (!state?.isTjAdmin || pub.status !== 200) return 'rien'
   const publicSpki = String(pub.json.publicSpki)
-  const mine = { publicId: String(pub.json.publicId), fp: await keysFingerprint(keys), scopes: Object.keys(keys).sort() }
+  // Empreinte calculée ICI (jamais reprise du serveur), puis comparée à celle
+  // épinglée dans le TJ : une clé substituée côté serveur n'obtient rien.
+  const publicId = await publicIdOf(publicSpki)
+  const epinglee = await lireEpingle(keys, http)
+  if (epinglee === 'illisible' || (epinglee && epinglee !== publicId)) return 'cle-changee'
+  if (!epinglee) await epingler(keys, publicId, http)
+  const mine = { publicId, fp: await keysFingerprint(keys), scopes: Object.keys(keys).sort() }
   if (!escrowNeedsUpdate(state.escrow ?? null, mine)) return 'a-jour'
   const env = await sealForEscrow(publicSpki, keys, identity.username)
   const st = await http.putJson('/api/vaults/escrow-keys', env)
   if (st !== 200) throw new Error(`Dépôt du séquestre refusé (${st})`)
   return 'depose'
+}
+
+// ── Épinglage de la clé d'administration générale (par TJ) ──
+// Coffre `escrow-pin`, chiffré par la clé globale du TJ (le serveur ne peut ni
+// le lire ni le forger) ; écrit par un administrateur du TJ au premier dépôt
+// (confiance à la première rencontre), puis seulement comparé.
+const PIN = 'escrow-pin'
+
+async function cleGlobale(keys: Record<string, string>): Promise<CryptoKey | null> {
+  return keys.global ? importAesKey(b64.decode(keys.global)) : null
+}
+
+async function lireEpingle(keys: Record<string, string>, http: EscrowHttp): Promise<string | null | 'illisible'> {
+  const r = await http.getJson(`/api/vaults/${PIN}`)
+  if (r.status === 404) return null
+  if (r.status !== 200) return 'illisible'
+  const cle = await cleGlobale(keys)
+  if (!cle) return 'illisible'
+  try {
+    return (await decryptJson<{ publicId: string }>(cle, r.json.envelope as unknown as CipherEnvelope)).publicId || 'illisible'
+  } catch {
+    return 'illisible'
+  }
+}
+
+async function epingler(keys: Record<string, string>, publicId: string, http: EscrowHttp): Promise<void> {
+  const cle = await cleGlobale(keys)
+  if (!cle) return
+  await http.putJson(`/api/vaults/${PIN}`, await encryptJson(cle, { publicId, epingleLe: new Date().toISOString() }))
 }

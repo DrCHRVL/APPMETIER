@@ -84,9 +84,9 @@ export function isTjAdmin(account: Account | null, tj: string): boolean {
  * l'administrateur local. Le TJ d'origine reste administré par l'administrateur
  * général (désignation explicite seulement).
  */
-export function initialTjAdmins(tj: string): string[] | undefined {
+export function initialTjAdmins(tj: string, comptes: Account[] = listAccounts()): string[] | undefined {
   if (tj === DEFAULT_TJ_ID) return undefined
-  return listAccounts().some((a) => a.role !== 'admin' && accountTjs(a).includes(tj)) ? undefined : [tj]
+  return comptes.some((a) => a.role !== 'admin' && accountTjs(a).includes(tj)) ? undefined : [tj]
 }
 
 /**
@@ -119,6 +119,47 @@ export async function saveAccount(account: Account): Promise<void> {
     if (idx >= 0) all[idx] = account
     else all.push(account)
     writeJson(accountsPath(), all)
+  })
+}
+
+/**
+ * Modifie un compte DANS le verrou des comptes, sur sa version à jour : deux
+ * écritures concurrentes (connexion et suspension, par ex.) ne s'écrasent pas.
+ * `mutate` peut renvoyer false pour ne rien écrire. Rend le compte (ou null).
+ */
+export async function updateAccount(username: string, mutate: (a: Account) => void | false): Promise<Account | null> {
+  return withFileLock('accounts', async () => {
+    const all = listAccounts()
+    const u = username.trim().toLowerCase()
+    const idx = all.findIndex((a) => a.username.toLowerCase() === u)
+    if (idx < 0) return null
+    if (mutate(all[idx]) === false) return all[idx]
+    writeJson(accountsPath(), all)
+    return all[idx]
+  })
+}
+
+/**
+ * Crée un compte DANS le verrou des comptes : le rôle (premier compte du
+ * serveur = administrateur général, un seul) et la désignation d'administrateur
+ * local (premier compte d'un nouveau TJ) sont décidés sur l'état à jour —
+ * deux inscriptions simultanées ne peuvent pas obtenir toutes deux le rôle.
+ * Lève si l'identifiant est pris.
+ */
+export async function createAccount(
+  build: (ctx: { premierDuServeur: boolean, adminLocal: (tj: string) => string[] | undefined }) => Account,
+): Promise<Account> {
+  return withFileLock('accounts', async () => {
+    const all = listAccounts()
+    const premierDuServeur = all.length === 0
+    const account = build({ premierDuServeur, adminLocal: (tj) => (premierDuServeur ? undefined : initialTjAdmins(tj, all)) })
+    if (all.some((a) => a.username.toLowerCase() === account.username.toLowerCase())) {
+      throw new Error('Cet identifiant existe déjà')
+    }
+    if (account.role === 'admin' && !premierDuServeur) account.role = 'member'
+    all.push(account)
+    writeJson(accountsPath(), all)
+    return account
   })
 }
 
@@ -219,6 +260,14 @@ export function requireSession(req: Request): SessionPayload {
       headers: { 'content-type': 'application/json' },
     })
   }
+  // compte toujours actif : une suspension prend effet immédiatement
+  const account = findAccount(s.u)
+  if (!account || account.suspendu) {
+    throw new Response(JSON.stringify({ error: account ? 'Compte suspendu — voyez l’administrateur' : 'Compte inconnu' }), {
+      status: account ? 403 : 401,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
   return s
 }
 
@@ -254,7 +303,7 @@ export function requireTjAdmin(req: Request): SessionPayload {
 /** Garde : administrateur du serveur (création des TJ, attaché, mises à jour, supervision). */
 export function requireSuperAdmin(req: Request): SessionPayload {
   const s = requireSession(req)
-  if (s.r !== 'admin') {
+  if (s.r !== 'admin' || findAccount(s.u)?.role !== 'admin') {
     throw new Response(JSON.stringify({ error: 'Réservé à l’administrateur du serveur' }), {
       status: 403,
       headers: { 'content-type': 'application/json' },

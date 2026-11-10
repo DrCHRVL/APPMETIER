@@ -5,9 +5,9 @@
  * local. Changer de TJ n'ouvre aucune donnée : il faut ensuite une invitation
  * de l'administrateur du nouveau TJ.
  */
-import { requireSession, handle, jsonResponse, findAccount, saveAccount, accountTjs } from '@/lib/server/auth'
+import { requireSession, handle, jsonResponse, findAccount, updateAccount, accountTjs } from '@/lib/server/auth'
 import { findTj } from '@/lib/server/tj'
-import { appendLog } from '@/lib/server/store'
+import { appendLog, deleteVault } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,20 +33,29 @@ export async function POST(req: Request) {
     if (clean.length !== 1) {
       return jsonResponse({ error: 'Un compte relève d’un seul tribunal' }, { status: 400 })
     }
-    const before = accountTjs(account)
-    const adminsBefore = account.tjAdmins || []
-    account.tjs = clean
-    if (account.lastTj && !clean.includes(account.lastTj)) delete account.lastTj
-    // Administration locale : seulement sur des TJ de rattachement.
-    const admins = Array.isArray(tjAdmins) ? tjAdmins : adminsBefore
-    const cleanAdmins = admins.filter((id: unknown): id is string => typeof id === 'string' && clean.includes(id))
-    if (cleanAdmins.length) account.tjAdmins = [...new Set(cleanAdmins)]
-    else delete account.tjAdmins
-    await saveAccount(account)
+    let before: string[] = []
+    let adminsBefore: string[] = []
+    const maj = await updateAccount(account.username, (a) => {
+      before = accountTjs(a)
+      adminsBefore = a.tjAdmins || []
+      a.tjs = clean
+      if (a.lastTj && !clean.includes(a.lastTj)) delete a.lastTj
+      // Administration locale : seulement sur des TJ de rattachement.
+      const admins = Array.isArray(tjAdmins) ? tjAdmins : adminsBefore
+      const cleanAdmins = admins.filter((id: unknown): id is string => typeof id === 'string' && clean.includes(id))
+      if (cleanAdmins.length) a.tjAdmins = [...new Set(cleanAdmins)]
+      else delete a.tjAdmins
+    })
+    if (!maj) return jsonResponse({ error: 'Compte introuvable' }, { status: 404 })
+    // accès laissé dans un TJ quitté : retiré
+    for (const ancien of before.filter((t) => !clean.includes(t))) {
+      await deleteVault(ancien, `keyring-${maj.username}`).catch(() => false)
+      await deleteVault(ancien, `grant-${maj.username}`).catch(() => false)
+    }
     await appendLog('audit.jsonl', {
       timestamp: new Date().toISOString(), user: session.u, action: 'account.tjs',
-      details: { username, before, after: clean, tjAdminsBefore: adminsBefore, tjAdmins: account.tjAdmins || [] },
+      details: { username, before, after: clean, tjAdminsBefore: adminsBefore, tjAdmins: maj.tjAdmins || [] },
     })
-    return jsonResponse({ ok: true, username, tjs: clean, tjAdmins: account.tjAdmins || [] })
+    return jsonResponse({ ok: true, username, tjs: clean, tjAdmins: maj.tjAdmins || [] })
   })
 }

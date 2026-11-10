@@ -26,6 +26,7 @@ export async function GET(req: Request) {
         tjs: accountTjs(a),
         createdAt: a.createdAt,
         lastLoginAt: a.lastLoginAt || null,
+        suspendu: a.suspendu === true,
         hasKeyring: vaults.has(`keyring-${a.username}`),
         hasGrant: vaults.has(`grant-${a.username}`),
       }))

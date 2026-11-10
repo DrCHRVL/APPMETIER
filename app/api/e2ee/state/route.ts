@@ -34,7 +34,10 @@ export async function GET(req: Request) {
       // administrateur du TJ : dépose le séquestre pour l'administrateur général
       isTjAdmin: isTjAdmin(findAccount(session.u), session.tj),
       // séquestre (métadonnées non secrètes : quelle paire, quelles clés)
-      escrow: escrow ? { publicId: escrow.publicId, fp: escrow.fp, scopes: escrow.scopes || [], savedAt: escrow.savedAt || null } : null,
+      // (réservé aux administrateurs : un membre n'en a pas l'usage)
+      escrow: escrow && (session.r === 'admin' || isTjAdmin(findAccount(session.u), session.tj))
+        ? { publicId: escrow.publicId, fp: escrow.fp, scopes: escrow.scopes || [], savedAt: escrow.savedAt || null }
+        : null,
     })
   })
 }

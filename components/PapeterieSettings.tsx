@@ -63,8 +63,9 @@ export const PapeterieSettings: React.FC = () => {
     <div className="space-y-5 max-w-2xl">
       <p className="text-xs text-gray-600 leading-relaxed">
         Ce qui s&apos;imprime <b>en haut et en bas</b> des documents que SIRAL produit dans ce tribunal : essentiellement
-        les <b>courriers de l&apos;Entraide</b> (soit-transmis, retours et relances aux autorités étrangères) et l&apos;<b>export
-        PDF des statistiques</b>. Un champ vide reprend la valeur grisée.
+        les <b>courriers de l&apos;Entraide</b> (soit-transmis, retours et relances aux autorités étrangères) et les
+        <b>exports PDF</b> (statistiques, rapport AIR) — ainsi que les trames SAS / information JLD si vous les utilisez.
+        Un champ vide reprend la valeur grisée.
       </p>
 
       {/* Aperçu : ce que verra le destinataire */}

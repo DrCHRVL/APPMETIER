@@ -4,8 +4,12 @@
  *                   TJ en a besoin pour sceller le séquestre de son TJ).
  *  GET ?prive=1   : clé privée CHIFFRÉE par la phrase de l'administrateur
  *                   général — à lui seul.
- *  PUT            : publie la paire — administrateur général, une seule fois
- *                   (sauf `remplacer: true`).
+ *  PUT            : publie la paire — administrateur général, UNE SEULE FOIS.
+ *                   Aucun remplacement par l'API : un cookie volé ne doit pas
+ *                   permettre de substituer une autre clé (les postes des TJ
+ *                   épinglent d'ailleurs la première qu'ils voient). Changer de
+ *                   paire est une opération serveur délibérée (fichier
+ *                   escrow-keypair.json), suivie d'une confirmation dans chaque TJ.
  * Le serveur ne détient jamais la clé privée en clair.
  */
 import { requireTjSession, handle, jsonResponse } from '@/lib/server/auth'
@@ -31,6 +35,7 @@ export async function GET(req: Request) {
     const prive = new URL(req.url).searchParams.get('prive') === '1'
     if (prive) {
       if (session.r !== 'admin') return jsonResponse({ error: 'Réservé à l’administrateur général' }, { status: 403 })
+      await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: session.u, action: 'escrow.private.read', details: { publicId: pair.publicId } })
       return jsonResponse({ exists: true, publicId: pair.publicId, privateEnvelope: pair.privateEnvelope })
     }
     return jsonResponse({ exists: true, publicSpki: pair.publicSpki, publicId: pair.publicId })
@@ -49,8 +54,8 @@ export async function PUT(req: Request) {
       return jsonResponse({ error: 'Paire de clés invalide' }, { status: 400 })
     }
     return withFileLock('escrow-keypair', async () => {
-      if (readJson<EscrowKeypair | null>(fichier(), null) && body.remplacer !== true) {
-        return jsonResponse({ error: 'Une paire existe déjà' }, { status: 409 })
+      if (readJson<EscrowKeypair | null>(fichier(), null)) {
+        return jsonResponse({ error: 'Une paire existe déjà (remplacement impossible par l’application)' }, { status: 409 })
       }
       const pair: EscrowKeypair = {
         publicSpki: body.publicSpki, publicId: body.publicId, privateEnvelope: env,

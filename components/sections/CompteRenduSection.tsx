@@ -1,3 +1,4 @@
+import { cleLocaleTj } from '@/lib/web/identite';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -278,7 +279,7 @@ export const CompteRenduSection = memo(({
     if (!editingCR) return;
     isDirtyRef.current = false;
     setError(null);
-    const key = `cr-draft-${editingCR.id || 'new'}`;
+    const key = cleLocaleTj(`cr-draft-${editingCR.id || 'new'}`);
     const draft = localStorage.getItem(key);
     let initialHtml = '';
     if (draft) {
@@ -299,7 +300,7 @@ export const CompteRenduSection = memo(({
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     const crId = localCR.id;
     draftTimerRef.current = setTimeout(() => {
-      const key = `cr-draft-${crId || 'new'}`;
+      const key = cleLocaleTj(`cr-draft-${crId || 'new'}`);
       localStorage.setItem(key, JSON.stringify({
         description: editorRef.current?.innerHTML || ''
       }));
@@ -511,7 +512,7 @@ export const CompteRenduSection = memo(({
         }
       }
       // Effacer le brouillon après sauvegarde réussie
-      const key = `cr-draft-${localCR.id || 'new'}`;
+      const key = cleLocaleTj(`cr-draft-${localCR.id || 'new'}`);
       localStorage.removeItem(key);
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
       isDirtyRef.current = false;

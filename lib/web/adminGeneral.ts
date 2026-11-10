@@ -38,29 +38,44 @@ async function lireCoffre<T>(tj: string, coffre: string, cle: string | undefined
 }
 
 /**
- * Débloque l'accès d'un compte : (réinitialise son trousseau s'il en a un)
- * puis dépose une invitation à usage unique aux périmètres de ses
- * habilitations dans ce TJ (global + contentieux attribués). Rend le code.
+ * Périmètres proposés pour débloquer un compte : global + contentieux de ses
+ * habilitations dans ce TJ. Ces habilitations vivent dans un coffre que les
+ * membres peuvent écrire : l'administrateur général les CONFIRME avant dépôt.
  */
-export async function debloquerCompte(
-  tj: string, username: string, clePrivee: CryptoKey, http: AdminHttp, moi: string,
-): Promise<{ code: string, scopes: string[] }> {
+export async function perimetresDeblocage(
+  tj: string, username: string, clePrivee: CryptoKey, http: AdminHttp,
+): Promise<string[]> {
   const keys = await clesDuTj(tj, clePrivee, http)
   const config = await lireCoffre<{ users?: Array<{ windowsUsername: string, contentieux?: Array<{ contentieuxId: string }> }> }>(
     tj, 'users-config', keys[SCOPE_GLOBAL], http)
   const profil = config?.users?.find((u) => u.windowsUsername.toLowerCase() === username.toLowerCase())
-  const scopes = [SCOPE_GLOBAL, ...(profil?.contentieux || []).map((c) => `ctx-${c.contentieuxId}`)]
+  return [SCOPE_GLOBAL, ...(profil?.contentieux || []).map((c) => `ctx-${c.contentieuxId}`)]
     .filter((s, i, a) => keys[s] && a.indexOf(s) === i)
+}
+
+/**
+ * Débloque l'accès d'un compte : dépose d'abord une invitation à usage unique
+ * (périmètres confirmés, global toujours inclus), PUIS retire son trousseau
+ * actuel s'il en a un (phrase perdue) — jamais l'inverse : un échec ne laisse
+ * pas le compte sans accès. Rend le code.
+ */
+export async function debloquerCompte(
+  tj: string, username: string, clePrivee: CryptoKey, http: AdminHttp, moi: string, perimetres?: string[],
+): Promise<{ code: string, scopes: string[] }> {
+  const keys = await clesDuTj(tj, clePrivee, http)
+  const voulus = perimetres ?? await perimetresDeblocage(tj, username, clePrivee, http)
+  const scopes = [SCOPE_GLOBAL, ...voulus].filter((s, i, a) => keys[s] && a.indexOf(s) === i)
   const subset = Object.fromEntries(scopes.map((s) => [s, keys[s]]))
 
-  // un trousseau existant (phrase perdue) est remplacé : l'invitation le recrée
-  await http.del(chemin(tj, `keyring-${username}`))
   const code = generateInvitationCode()
   const kdf = newKdfParams()
   const codeKey = await importAesKey(await deriveRawKey(code, kdf.salt, kdf.iterations))
   const env = await encryptJson(codeKey, { v: 1, keys: subset, grantedBy: moi, grantedAt: new Date().toISOString() })
   const st = await http.put(chemin(tj, `grant-${username}`), { ...env, kdfSalt: kdf.salt, kdfIterations: kdf.iterations })
   if (st !== 200) throw new Error(`Dépôt de l’invitation refusé (${st})`)
+  // trousseau existant (phrase perdue) : retiré pour que l'invitation s'applique
+  const del = await http.del(chemin(tj, `keyring-${username}`))
+  if (del !== 200 && del !== 404) throw new Error(`Invitation déposée, mais l’ancien accès n’a pas pu être retiré (${del})`)
   return { code, scopes }
 }
 
