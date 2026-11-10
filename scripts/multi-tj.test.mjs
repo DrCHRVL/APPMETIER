@@ -12,7 +12,11 @@
  *     invitation, activation, lecture de ses données ;
  *  4. la supervision par l'administrateur général : tableau des TJ, bascule,
  *     ouverture du séquestre, lecture des données, journal, désignation ;
- *  5. l'étanchéité : aucun accès croisé entre TJ, un membre = un TJ.
+ *  5. l'étanchéité : aucun accès croisé entre TJ, un membre = un TJ ;
+ *  6. la gestion des TJ par l'administrateur général : création directe de
+ *     comptes, connexion par mot de passe provisoire, changement de mot de
+ *     passe, statuts (admin local, membre, suspendu), déplacement,
+ *     indicateurs scellés lus par lui seul.
  *
  *   node scripts/multi-tj.test.mjs
  */
@@ -58,14 +62,15 @@ window.siralBridge = {
 
 const imp = (rel) => import(pathToFileURL(path.join(REPO, rel)).href)
 const route = (p) => imp(`app/api/${p}/route.ts`)
-const [register, tjsApi, vault, accounts, accountsTjs, state, me, switchTj, escrowApi, versionFile] = await Promise.all([
+const [register, tjsApi, vault, accounts, accountsTjs, state, me, switchTj, escrowApi, versionFile, comptes, pwLogin, pwChange] = await Promise.all([
   route('auth/password-register'), route('tjs'), route('vaults/[name]'), route('accounts'),
   route('accounts/tjs'), route('e2ee/state'), route('me'), route('auth/switch-tj'), route('escrow'),
-  route('vaults/[name]/versions/[file]'),
+  route('vaults/[name]/versions/[file]'), route('tjs/comptes'), route('auth/password-login'), route('auth/password-change'),
 ])
 const { encryptJson, decryptJson } = await imp('lib/web/crypto.ts')
 const keyring = await imp('lib/web/keyring.ts')
 const escrow = await imp('lib/web/escrow.ts')
+const indic = await imp('lib/web/indicateurs.ts')
 const { UserManager } = await imp('utils/userManager.ts')
 const { PAPETERIE } = await imp('lib/web/papeterie.ts')
 
@@ -183,8 +188,7 @@ verifier('premier inscrit avec le code = administrateur local', m.tjAdmin === tr
 verifier('il ne voit que Lille', m.tjs.length === 1 && m.tjs[0].id === tjLille.id)
 const sw0 = cookieDe(await switchTj.POST(requete('/api/auth/switch-tj', 'POST', { tj: tjLille.id }, sa.cookie)))
 e = await etat(sw0)
-verifier('l’admin général ne peut pas initialiser Lille à sa place', e.canInitialize === false && !e.escrow)
-verifier('… le serveur le refuse aussi', (await deposerTrousseau('audran', keyring.freshKeyringPayload(), PHRASE_ADMIN, sw0)).status === 403)
+verifier('l’admin général pourrait initialiser Lille (au choix), il laisse faire l’admin local', e.canInitialize === true && !e.escrow)
 e = await etat(la.cookie)
 verifier('l’admin local peut initialiser', e.canInitialize === true && e.isTjAdmin === true)
 const clesLille = keyring.freshKeyringPayload()
@@ -309,7 +313,79 @@ verifier('retour à Amiens : sa papeterie d’origine', PAPETERIE.ville === 'Ami
 r = await tjsApi.POST(requete('/api/tjs', 'POST', { name: 'TJ Douai' }, sa.cookie))
 const tjDouai = (await json(r)).tj
 const swD = cookieDe(await switchTj.POST(requete('/api/auth/switch-tj', 'POST', { tj: tjDouai.id }, sa.cookie)))
-verifier('TJ vierge : l’admin général ne crée pas ses clés', (await deposerTrousseau('audran', keyring.freshKeyringPayload(), PHRASE_ADMIN, swD)).status === 403)
+const loginMdp = (username, password) => pwLogin.POST(requete('/api/auth/password-login', 'POST', { username, password }))
+r = await accountsTjs.POST(requete('/api/accounts/tjs', 'POST', { username: 'collegue.amiens', tjs: [tjDouai.id] }, sa.cookie))
+verifier('déplacé vers Douai : son ancienne session d’Amiens est coupée', r.status === 200 && (await coffreGet('ctx-crimorg', amiensColl.cookie)).status === 403)
+const collDouai = cookieDe(await loginMdp('collegue.amiens', 'motdepasse-12'))
+verifier('un membre lambda ne peut pas initialiser un TJ vierge',
+  (await etat(collDouai)).canInitialize === false
+  && (await deposerTrousseau('collegue.amiens', keyring.freshKeyringPayload(), 'phrase du collegue', collDouai)).status === 403)
+
+// ════════════════════════════════════════════════════════════
+titre('6. Gestion des TJ par l’administrateur général')
+r = await comptes.POST(requete('/api/tjs/comptes', 'POST', { username: 'douai.admin', displayName: 'D. Admin', tj: tjDouai.id, tjAdmin: true }, sa.cookie))
+const mdpDouai = (await json(r)).motDePasse
+verifier('création directe d’un administrateur local dans Douai (mot de passe provisoire)', r.status === 200 && typeof mdpDouai === 'string' && mdpDouai.length >= 15)
+verifier('l’admin local ne peut pas créer de compte par cette voie',
+  (await comptes.POST(requete('/api/tjs/comptes', 'POST', { username: 'x.y', tj: tjLille.id }, la.cookie))).status === 403)
+verifier('identifiant déjà pris : refusé',
+  (await comptes.POST(requete('/api/tjs/comptes', 'POST', { username: 'douai.admin', tj: tjDouai.id }, sa.cookie))).status === 409)
+r = await loginMdp('douai.admin', mdpDouai)
+const da = cookieDe(r)
+m = await moi(da)
+verifier('il se connecte avec le mot de passe provisoire, administrateur de Douai', r.status === 200 && m.tjAdmin === true && m.tj.id === tjDouai.id)
+verifier('il change son mot de passe', (await pwChange.POST(requete('/api/auth/password-change', 'POST', { ancien: mdpDouai, nouveau: 'mon-nouveau-mdp' }, da))).status === 200
+  && (await loginMdp('douai.admin', mdpDouai)).status === 401 && (await loginMdp('douai.admin', 'mon-nouveau-mdp')).status === 200)
+const clesDouai = keyring.freshKeyringPayload()
+verifier('TJ vierge : il en crée les clés', (await etat(da)).canInitialize === true
+  && (await deposerTrousseau('douai.admin', clesDouai, 'phrase admin douai', da)).status === 200)
+r = await comptes.POST(requete('/api/tjs/comptes', 'POST', { username: 'douai.magistrat', displayName: 'D. Magistrat', tj: tjDouai.id }, sa.cookie))
+const mdpMag = (await json(r)).motDePasse
+const dm = cookieDe(await loginMdp('douai.magistrat', mdpMag))
+let sup2 = await json(await tjsApi.GET(requete('/api/tjs', 'GET', undefined, sa.cookie)))
+let compte = (u) => sup2.accounts.find((a) => a.username === u)
+verifier('supervision : magistrat créé, membre, en attente d’invitation', compte('douai.magistrat')?.acces === 'en-attente'
+  && !(compte('douai.magistrat').tjAdmins || []).length && sup2.tjs.find((t) => t.id === tjDouai.id).pending === 2)
+verifier('supervision : l’admin local de Douai a un accès actif', compte('douai.admin')?.acces === 'actif')
+const patchCompte = (body) => comptes.PATCH(requete('/api/tjs/comptes', 'PATCH', body, sa.cookie))
+verifier('statut → administrateur local', (await patchCompte({ username: 'douai.magistrat', action: 'admin-local', valeur: true })).status === 200 && (await moi(dm)).tjAdmin === true)
+verifier('statut → membre', (await patchCompte({ username: 'douai.magistrat', action: 'admin-local', valeur: false })).status === 200 && (await moi(dm)).tjAdmin === false)
+verifier('statut → suspendu : plus de connexion ni d’accès aux données',
+  (await patchCompte({ username: 'douai.magistrat', action: 'suspendre' })).status === 200
+  && (await loginMdp('douai.magistrat', mdpMag)).status === 403 && (await coffreGet('ctx-crimorg', dm)).status === 403)
+verifier('réactivé : connexion rétablie', (await patchCompte({ username: 'douai.magistrat', action: 'reactiver' })).status === 200
+  && (await loginMdp('douai.magistrat', mdpMag)).status === 200)
+r = await patchCompte({ username: 'douai.magistrat', action: 'mot-de-passe' })
+const mdp2 = (await json(r)).motDePasse
+verifier('nouveau mot de passe provisoire : l’ancien ne fonctionne plus', (await loginMdp('douai.magistrat', mdpMag)).status === 401 && (await loginMdp('douai.magistrat', mdp2)).status === 200)
+verifier('le compte de l’admin général ne se modifie pas par cette voie', (await patchCompte({ username: 'audran', action: 'suspendre' })).status === 400)
+verifier('déplacement par la gestion des TJ', (await patchCompte({ username: 'douai.magistrat', action: 'tribunal', tj: tjLille.id })).status === 200
+  && (await moi(cookieDe(await loginMdp('douai.magistrat', mdp2)))).tj.id === tjLille.id)
+
+// indicateurs : comptés et scellés par un poste du TJ, lus par l'admin général seul
+const enquetesLille = [
+  { statut: 'en_cours', misEnCause: [{ nom: 'A' }, { nom: 'B' }, { nom: 'V', isVictime: true }] },
+  { statut: 'en_cours', misEnCause: [{ nom: 'C' }] },
+  { statut: 'archive', misEnCause: [{ nom: 'D' }] },
+  { statut: 'instruction', misEnCause: [] },
+]
+const entrees = [
+  { coffre: 'indicateurs-ctx-crimorg', valeur: indic.calculerIndicateursContentieux('crimorg', enquetesLille) },
+  { coffre: 'indicateurs-user-lille.admin', valeur: indic.calculerIndicateursUtilisateur(
+    [{ archived: false, misEnExamen: [1, 2] }, { archived: true, misEnExamen: [3] }], [{}, { dateCloture: '2026-01-01' }]) },
+]
+verifier('un poste de Lille publie ses indicateurs (scellés)', await indic.publierIndicateurs(entrees, 'lille.admin', http(la.cookie)) === 2)
+verifier('… sans republier l’identique', await indic.publierIndicateurs(entrees, 'lille.admin', http(la.cookie)) === 0)
+verifier('un membre ne lit pas les indicateurs', (await coffreGet('indicateurs-ctx-crimorg', la.cookie)).status === 403)
+const brut = fs.readFileSync(path.join(process.env.SIRAL_DATA_DIR, 'tj', tjLille.id, 'vaults', 'indicateurs-ctx-crimorg.json'), 'utf8')
+verifier('le serveur ne voit pas les nombres (contenu chiffré)', !brut.includes('misEnCause') && !brut.includes('enCours'))
+sup2 = await json(await tjsApi.GET(requete('/api/tjs', 'GET', undefined, sa.cookie)))
+const ouverts = []
+for (const env of sup2.tjs.find((t) => t.id === tjLille.id).indicateurs) ouverts.push(await escrow.ouvrirPourAdmin(pk, env))
+const tot = indic.totaliser(ouverts)
+verifier('l’admin général lit les indicateurs de Lille', tot.enCours === 2 && tot.misEnCause === 3 && tot.archives === 1
+  && tot.enInstruction === 1 && tot.instructionsEnCours === 1 && tot.misEnExamen === 2 && tot.mesuresAirActives === 1)
+verifier('sa clé d’administration est chargée en mémoire au déverrouillage', escrow.getClePriveeAdmin() !== null)
 
 console.log(`\n${ok} vérifications réussies, ${ko} en échec`)
 fs.rmSync(SCRATCH, { recursive: true, force: true })

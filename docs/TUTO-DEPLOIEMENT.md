@@ -127,7 +127,7 @@ Paramètres → **Tribunaux** → « Créer un tribunal » : un code d'accès
 s'affiche une seule fois. Remettez-le de vive voix à la personne qui
 administrera ce tribunal. **Le premier inscrit avec ce code devient
 l'administrateur local du TJ** : il en crée les clés, règle sa papeterie
-(Paramètres → Papeterie), puis invite ses collègues, règle leurs contentieux
+(Paramètres → En-têtes des documents), puis invite ses collègues, règle leurs contentieux
 et modules — sans l'administrateur général. Chaque compte relève d'un seul
 TJ ; l'administrateur général désigne ou retire un administrateur local
 (bouclier, dans Paramètres → Tribunaux).
@@ -139,6 +139,13 @@ d'origine, protégée par la phrase personnelle de l'administrateur général).
 Lui seul peut ensuite ouvrir ce TJ (Paramètres → Tribunaux → « Ouvrir ») avec
 sa phrase ; le serveur ne lit rien, chaque ouverture est journalisée.
 L'attaché IA reste rattaché au seul TJ d'origine (`SIRAL_ATTACHE_TJ`).
+
+**Gestion des TJ** (Paramètres, administrateur général seul) : qui est dans
+quel tribunal, statut (membre, administrateur local, suspendu), accès aux
+données, indicateurs d'activité (comptés et scellés par les postes du TJ,
+illisibles pour le serveur) ; création directe d'un compte avec mot de passe
+provisoire, déplacement, nouveau mot de passe — en parallèle de
+l'administrateur local, qui reste la voie normale.
 
 Test de bout en bout du multi-TJ : `node scripts/multi-tj.test.mjs`.
 Guide utilisateur imprimable : [GUIDE-CREATION-COMPTE.pdf](GUIDE-CREATION-COMPTE.pdf).
