@@ -16,12 +16,15 @@
  *  - créer, renommer un TJ, régénérer son code d'accès, et l'ouvrir.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Landmark, RefreshCw, Copy, Check, Edit2, X, KeyRound, Users, UserPlus, BarChart3, Lock } from 'lucide-react';
+import { Plus, Landmark, RefreshCw, Copy, Check, Edit2, X, KeyRound, Users, UserPlus, BarChart3, Lock, Unlock } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 import { estSuperAdmin } from '@/lib/web/identite';
 import { getClePriveeAdmin, ouvrirPourAdmin, type SealedEnvelope } from '@/lib/web/escrow';
 import { totaliser, type Indicateurs } from '@/lib/web/indicateurs';
+import { debloquerCompte, type AdminHttp } from '@/lib/web/adminGeneral';
+import { CartographieInterTj } from '@/components/admin/CartographieInterTj';
+import { identiteSession } from '@/lib/web/identite';
 
 interface TjRow {
   id: string;
@@ -74,6 +77,18 @@ const ACCES: Record<AccountRow['acces'], { label: string, cls: string }> = {
 
 const statutDe = (a: AccountRow, tjId: string): Statut =>
   a.suspendu ? 'suspendu' : (a.tjAdmins || []).includes(tjId) ? 'admin' : 'membre';
+
+/** Accès HTTP de l'administrateur général aux autres TJ (route /api/tjs/donnees). */
+const httpAdmin: AdminHttp = {
+  get: async (p) => {
+    const res = await fetch(p, { credentials: 'same-origin' });
+    return { status: res.status, json: await res.json().catch(() => ({})) as Record<string, unknown> };
+  },
+  put: async (p, body) => (await fetch(p, {
+    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), credentials: 'same-origin',
+  })).status,
+  del: async (p) => (await fetch(p, { method: 'DELETE', credentials: 'same-origin' })).status,
+};
 
 const date = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '—');
 
@@ -228,6 +243,22 @@ export const AdminTJPanel = () => {
     finally { setBusy(false); }
   };
 
+  /** Débloque l'accès aux données d'un compte : nouvelle invitation (et réinitialisation de son trousseau). */
+  const handleDebloquer = async (a: AccountRow, tjId: string) => {
+    const cleAdmin = getClePriveeAdmin();
+    if (!cleAdmin) { showToast('Clé d’administration non chargée : reconnectez-vous avec votre phrase', 'error'); return; }
+    if (!confirm(`Débloquer l'accès de ${a.displayName} ? Une invitation à usage unique est créée${a.acces === 'actif' ? ' et son trousseau actuel est remplacé (phrase perdue)' : ''}.`)) return;
+    setBusy(true);
+    try {
+      const { code, scopes } = await debloquerCompte(tjId, a.username, cleAdmin, httpAdmin, identiteSession()?.username || 'admin');
+      const ctx = scopes.filter(s => s.startsWith('ctx-')).map(s => s.slice(4));
+      montrerSecret(`Code d’invitation de ${a.displayName}`, code,
+        `À remettre de vive voix : à sa connexion, il le saisit puis choisit sa phrase personnelle. Périmètre : ${ctx.length ? ctx.join(', ') : 'aucun contentieux attribué (habilitations à régler dans le TJ)'}.`);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Déblocage impossible', 'error');
+    } finally { setBusy(false); load(); }
+  };
+
   const handleCreateUser = async (tjId: string) => {
     if (!newUser.username.trim()) { showToast('Identifiant requis', 'error'); return; }
     setBusy(true);
@@ -258,7 +289,7 @@ export const AdminTJPanel = () => {
         </h3>
         <p className="text-xs text-gray-500 mt-1 leading-relaxed">
           Chaque tribunal est un espace <b>strictement séparé</b>. Son administrateur local y gère comptes, habilitations et
-          invitations — c&apos;est la voie normale ; vous pouvez agir ici en parallèle. Vous seul ouvrez n&apos;importe quel
+          invitations — c&apos;est la voie normale ; vous pouvez tout faire ici en parallèle : créer, débloquer, ouvrir. Vous seul ouvrez n&apos;importe quel
           tribunal (« Ouvrir ») ; chaque ouverture est journalisée. Les indicateurs sont des compteurs scellés pour vous
           par les postes du TJ : le serveur ne les lit pas.
         </p>
@@ -415,6 +446,11 @@ export const AdminTJPanel = () => {
                             title="Nouveau mot de passe provisoire" onClick={() => handleResetPassword(a)}>
                             <KeyRound className="h-3.5 w-3.5 text-gray-500" />
                           </button>
+                          <button className="p-1 rounded hover:bg-gray-100 disabled:opacity-40" disabled={busy || !cle || !tj.escrow}
+                            title={!tj.escrow ? 'Séquestre du TJ absent : son administrateur doit se connecter une fois' : 'Débloquer l’accès aux données (nouvelle invitation)'}
+                            onClick={() => handleDebloquer(a, tj.id)}>
+                            <Unlock className="h-3.5 w-3.5 text-gray-500" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -457,6 +493,10 @@ export const AdminTJPanel = () => {
           </section>
         );
       })}
+
+      {!loading && (
+        <CartographieInterTj tjs={tjs.filter(t => t.escrow).map(t => ({ id: t.id, name: t.name }))} clePrivee={cle} http={httpAdmin} />
+      )}
 
       {/* Création de TJ */}
       {showAddTj ? (

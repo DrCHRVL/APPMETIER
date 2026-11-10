@@ -16,7 +16,9 @@
  *  6. la gestion des TJ par l'administrateur général : création directe de
  *     comptes, connexion par mot de passe provisoire, changement de mot de
  *     passe, statuts (admin local, membre, suspendu), déplacement,
- *     indicateurs scellés lus par lui seul.
+ *     indicateurs scellés lus par lui seul ;
+ *  7. ses pouvoirs à distance : déblocage d'un compte (invitation aux
+ *     périmètres de ses habilitations, phrase perdue), cartographie inter-TJ.
  *
  *   node scripts/multi-tj.test.mjs
  */
@@ -67,10 +69,12 @@ const [register, tjsApi, vault, accounts, accountsTjs, state, me, switchTj, escr
   route('accounts/tjs'), route('e2ee/state'), route('me'), route('auth/switch-tj'), route('escrow'),
   route('vaults/[name]/versions/[file]'), route('tjs/comptes'), route('auth/password-login'), route('auth/password-change'),
 ])
+const donnees = await route('tjs/donnees')
 const { encryptJson, decryptJson } = await imp('lib/web/crypto.ts')
 const keyring = await imp('lib/web/keyring.ts')
 const escrow = await imp('lib/web/escrow.ts')
 const indic = await imp('lib/web/indicateurs.ts')
+const adminGen = await imp('lib/web/adminGeneral.ts')
 const { UserManager } = await imp('utils/userManager.ts')
 const { PAPETERIE } = await imp('lib/web/papeterie.ts')
 
@@ -171,8 +175,10 @@ const clesAmiens = keyring.freshKeyringPayload()
 verifier('clés d’Amiens créées', (await deposerTrousseau('audran', clesAmiens, PHRASE_ADMIN, sa.cookie)).status === 200)
 verifier('paire de séquestre créée au déverrouillage',
   await escrow.maintenirSequestre(clesAmiens.keys, { username: 'audran', role: 'admin' }, PHRASE_ADMIN, e, 'default', http(sa.cookie)) === 'paire-creee')
-verifier('paire non recréée ensuite',
-  await escrow.maintenirSequestre(clesAmiens.keys, { username: 'audran', role: 'admin' }, PHRASE_ADMIN, e, 'default', http(sa.cookie)) === 'rien')
+e = await etat(sa.cookie)
+verifier('il dépose aussi le séquestre d’Amiens', !!e.escrow)
+verifier('paire non recréée, séquestre à jour',
+  await escrow.maintenirSequestre(clesAmiens.keys, { username: 'audran', role: 'admin' }, PHRASE_ADMIN, e, 'default', http(sa.cookie)) === 'a-jour')
 verifier('données d’Amiens écrites', (await ecrireDonnees('ctx-crimorg', clesAmiens.keys, 'ctx-crimorg', { dossiers: ['AMIENS-1'] }, sa.cookie)).status === 200)
 let r = await tjsApi.POST(requete('/api/tjs', 'POST', { name: 'TJ Lille' }, sa.cookie))
 const { code: codeLille, tj: tjLille } = await json(r)
@@ -307,7 +313,6 @@ verifier('un membre ne peut relever de deux TJ',
 r = await accountsTjs.POST(requete('/api/accounts/tjs', 'POST', { username: 'lille.magistrat', tjs: ['default'] }, sa.cookie))
 verifier('déplacé à Amiens : son accès à Lille est coupé immédiatement', r.status === 200 && (await coffreGet('ctx-crimorg', mag.cookie)).status === 403)
 e = await etat(amiensColl.cookie)
-verifier('à Amiens, aucun séquestre n’est nécessaire (l’admin général y a ses clés)', !e.escrow)
 app = await ouvrirApp(sa.cookie)
 verifier('retour à Amiens : sa papeterie d’origine', PAPETERIE.ville === 'Amiens')
 r = await tjsApi.POST(requete('/api/tjs', 'POST', { name: 'TJ Douai' }, sa.cookie))
@@ -386,6 +391,65 @@ const tot = indic.totaliser(ouverts)
 verifier('l’admin général lit les indicateurs de Lille', tot.enCours === 2 && tot.misEnCause === 3 && tot.archives === 1
   && tot.enInstruction === 1 && tot.instructionsEnCours === 1 && tot.misEnExamen === 2 && tot.mesuresAirActives === 1)
 verifier('sa clé d’administration est chargée en mémoire au déverrouillage', escrow.getClePriveeAdmin() !== null)
+
+// ════════════════════════════════════════════════════════════
+titre('7. Admin général tout-puissant : débloquer, cartographie inter-TJ')
+const httpAdmin = (c) => {
+  const q = (p) => requete(p, 'GET', undefined, c)
+  return {
+    get: async (p) => { const res = await donnees.GET(q(p)); return { status: res.status, json: await json(res) } },
+    put: async (p, body) => (await donnees.PUT(requete(p, 'PUT', body, c))).status,
+    del: async (p) => (await donnees.DELETE(requete(p, 'DELETE', undefined, c))).status,
+  }
+}
+verifier('un admin local n’a pas accès aux autres TJ par cette voie',
+  (await donnees.GET(requete(`/api/tjs/donnees?tj=default&coffre=ctx-crimorg`, 'GET', undefined, la.cookie))).status === 403)
+verifier('coffres hors liste refusés même à l’admin général',
+  (await donnees.GET(requete(`/api/tjs/donnees?tj=${tjLille.id}&coffre=keyring-lille.admin`, 'GET', undefined, sa.cookie))).status === 403)
+verifier('pas d’invitation pour un compte étranger au TJ',
+  (await donnees.PUT(requete(`/api/tjs/donnees?tj=${tjLille.id}&coffre=grant-collegue.amiens`, 'PUT', { encrypted: true, ct: 'x', iv: 'y' }, sa.cookie))).status === 403)
+
+// Douai : son admin local dépose le séquestre
+e = await etat(da)
+verifier('séquestre de Douai déposé par son admin local',
+  await escrow.maintenirSequestre(clesDouai.keys, { username: 'douai.admin', role: 'member' }, 'phrase admin douai', e, tjDouai.id, http(da)) === 'depose')
+
+// habilitations réelles de Lille (coffre chiffré) : douai.magistrat, déplacé à Lille, a CRIM ORG
+await ecrireDonnees('users-config', clesLille.keys, 'global',
+  { users: [{ windowsUsername: 'douai.magistrat', contentieux: [{ contentieuxId: 'crimorg', role: 'magistrat' }] }] }, la.cookie)
+const deb = await adminGen.debloquerCompte(tjLille.id, 'douai.magistrat', pk, httpAdmin(sa.cookie), 'audran')
+verifier('déblocage : invitation aux périmètres de ses habilitations', deb.scopes.join(',') === 'global,ctx-crimorg')
+const dm2 = cookieDe(await loginMdp('douai.magistrat', mdp2))
+e = await etat(dm2)
+verifier('… il voit son invitation', e.hasGrant === true && !e.hasKeyring)
+const { envelope: gEnv } = await json(await coffreGet('grant-douai.magistrat', dm2))
+const gKey = await keyring.importAesKey(await keyring.deriveRawKey(keyring.normalizeInvitationCode(deb.code), gEnv.kdfSalt, gEnv.kdfIterations))
+const g = await decryptJson(gKey, gEnv)
+verifier('… l’active et lit les données CRIM ORG de Lille',
+  (await deposerTrousseau('douai.magistrat', { v: 1, keys: g.keys, createdAt: '', updatedAt: '' }, 'phrase du magistrat', dm2)).status === 200
+  && (await lireDonnees('ctx-crimorg', g.keys, 'ctx-crimorg', dm2)).status === 200 && !g.keys['ctx-ecofi'])
+await adminGen.debloquerCompte(tjLille.id, 'lille.admin', pk, httpAdmin(sa.cookie), 'audran')
+e = await etat(la.cookie)
+verifier('phrase perdue : son trousseau est remplacé par une invitation', e.hasGrant === true && e.hasKeyring === false)
+
+// cartographie inter-TJ
+const enq = (numero, noms) => ({ numero, statut: 'en_cours', misEnCause: noms.map((n) => (typeof n === 'string' ? { nom: n } : n)) })
+await ecrireDonnees('ctx-crimorg', clesAmiens.keys, 'ctx-crimorg',
+  { data: { enquetes: [enq('AM-1', ['DUPONT Jean', 'MARTIN Paul', { nom: 'VICTOR Hugo', isVictime: true }, 'Toto'])] } }, sa.cookie)
+await ecrireDonnees('ctx-crimorg', clesLille.keys, 'ctx-crimorg',
+  { data: { enquetes: [enq('LI-1', ['Jean Dupont', { nom: 'Hugo Victor', isVictime: true }, 'Toto'])] } }, dm2)
+await ecrireDonnees('ctx-ecofi', clesDouai.keys, 'ctx-ecofi',
+  { data: { enquetes: [enq('DO-1', ['DUPONT JEAN', 'Martin Paul'])] } }, da)
+const carto = await adminGen.cartographieInterTj(
+  [{ id: 'default', name: 'TJ Amiens' }, { id: tjLille.id, name: 'TJ Lille' }, { id: tjDouai.id, name: 'TJ Douai' }], pk, httpAdmin(sa.cookie))
+const parNom = Object.fromEntries(carto.personnes.map((p) => [p.nom.toLowerCase(), p.tjs.map((t) => t.tj).sort()]))
+verifier('cartographie : les trois TJ sont lus', carto.couverture.every((c) => c.lu))
+verifier('DUPONT Jean relie Amiens, Lille et Douai (ordre et casse ignorés)', (parNom['dupont jean'] || []).length === 3)
+verifier('MARTIN Paul relie Amiens et Douai', (parNom['martin paul'] || []).join(',') === ['default', tjDouai.id].sort().join(','))
+verifier('les victimes et les noms d’un seul mot sont écartés', !carto.personnes.some((p) => /victor|toto/i.test(p.nom)))
+verifier('les dossiers sont cités par TJ', carto.personnes.find((p) => /dupont/i.test(p.nom)).tjs.find((t) => t.tj === tjDouai.id).dossiers[0].numero === 'DO-1')
+const audit2 = fs.readFileSync(path.join(process.env.SIRAL_DATA_DIR, 'audit.jsonl'), 'utf8')
+verifier('lectures et déblocages journalisés', audit2.includes('"tj.donnees.lecture"') && audit2.includes('"tj.donnees.invitation"') && audit2.includes('"tj.donnees.reinitialisation"'))
 
 console.log(`\n${ok} vérifications réussies, ${ko} en échec`)
 fs.rmSync(SCRATCH, { recursive: true, force: true })

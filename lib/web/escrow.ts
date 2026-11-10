@@ -156,6 +156,8 @@ export async function maintenirSequestre(
       const st = await http.putJson('/api/escrow', pair)
       if (st !== 200) throw new Error(`Publication de la clé d'administration refusée (${st})`)
       setClePriveeAdmin(await openPrivateKey(pair.privateEnvelope, phrase))
+      const env = await sealForEscrow(pair.publicSpki, keys, identity.username)
+      await http.putJson('/api/vaults/escrow-keys', env)
       return 'paire-creee'
     }
     if (pub.status === 200 && phrase && !clePriveeAdmin) {
@@ -164,7 +166,9 @@ export async function maintenirSequestre(
         try { setClePriveeAdmin(await openPrivateKey(priv.json.privateEnvelope as unknown as PrivateKeyEnvelope, phrase)) } catch { /* autre phrase : indicateurs non lisibles */ }
       }
     }
-    return 'rien'
+    // puis, comme tout administrateur du TJ ouvert, il en tient le séquestre à
+    // jour (TJ d'origine compris) : la cartographie et le déblocage à distance
+    // reposent sur le séquestre de chaque TJ.
   }
   if (!state?.isTjAdmin || pub.status !== 200) return 'rien'
   const publicSpki = String(pub.json.publicSpki)
