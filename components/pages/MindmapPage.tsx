@@ -1,4 +1,3 @@
-import { estSuperAdmin } from '@/lib/web/identite';
 // components/pages/MindmapPage.tsx
 // Module Cartographie : graphe biparti MEC ↔ Dossier en vue unique.
 // La recherche est celle de l'application (barre globale du header) : choisir
@@ -8,6 +7,7 @@ import { estSuperAdmin } from '@/lib/web/identite';
 
 'use client';
 
+import { estSuperAdmin } from '@/lib/web/identite';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, FileDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pencil, Pin, PinOff, Plus, RefreshCw, Save, Shrink, Sparkles, Trophy, User, X } from 'lucide-react';
 import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';

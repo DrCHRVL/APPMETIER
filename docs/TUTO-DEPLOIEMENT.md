@@ -121,6 +121,17 @@ Ouvrez **https://votre-domaine** : l'écran de connexion SIRAL apparaît.
    d'invitation et choisit SA phrase personnelle. Révoquer un membre se fait
    au même endroit.
 
+### Ouvrir un autre tribunal
+
+Paramètres → **Tribunaux** → « Créer un tribunal » : un code d'accès
+s'affiche une seule fois. Remettez-le de vive voix à la personne qui
+administrera ce tribunal. **Le premier inscrit avec ce code devient
+l'administrateur local du TJ** : il en crée les clés, règle sa papeterie
+(Paramètres → Papeterie), puis invite ses collègues. L'administrateur du
+serveur ne détient pas les clés des autres TJ ; il peut désigner ou retirer
+un administrateur local (bouclier, dans Paramètres → Tribunaux).
+Guide utilisateur imprimable : [GUIDE-CREATION-COMPTE.pdf](GUIDE-CREATION-COMPTE.pdf).
+
 ---
 
 ## 5. Installer l'app sur les appareils (~2 min chacun)
