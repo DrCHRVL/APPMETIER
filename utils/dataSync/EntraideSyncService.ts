@@ -1,3 +1,4 @@
+import { estTjOrigine } from '@/lib/web/identite';
 // utils/dataSync/EntraideSyncService.ts
 //
 // Registre PARTAGÉ du module Entraide internationale : un seul coffre chiffré
@@ -197,8 +198,9 @@ class EntraideSyncService {
     this.serverVersion = serveur?.version ?? 0;
     const distant = normaliser(serveur);
     let fusion = fusionnerEntraide(this.data, distant);
-    // Premier usage du module : services enquêteurs de départ.
-    if (!serveur && fusion.services.length === 0) {
+    // Premier usage du module : services enquêteurs de départ (ceux de la
+    // Somme, cochés sur les trames T1/T2 d'Amiens) — TJ d'origine seulement.
+    if (!serveur && fusion.services.length === 0 && estTjOrigine()) {
       const maintenant = new Date().toISOString();
       fusion = { ...fusion, services: SERVICES_DEPART.map((s) => ({ ...s, dateMiseAJour: maintenant })) };
     }

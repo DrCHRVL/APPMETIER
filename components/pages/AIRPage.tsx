@@ -1,3 +1,4 @@
+import { estTjOrigine } from '@/lib/web/identite';
 // components/pages/AIRPage.tsx - Version mise à jour avec tri par colonnes
 
 import React, { useState, useMemo } from 'react';
@@ -672,16 +673,17 @@ export const AIRPage = ({
   }, [mesures]);
 
   // Listes d'options pour les selects
-  const secteurOptions = useMemo(() => [
-    { value: '', label: 'Non défini' },
-    { value: 'Amiens', label: 'Amiens' },
-    { value: 'Abbeville', label: 'Abbeville' },
-    { value: 'Montdidier', label: 'Montdidier' },
-    { value: 'Péronne', label: 'Péronne' },
-    { value: 'Doullens', label: 'Doullens' },
-    { value: 'Albert', label: 'Albert' },
-    { value: 'Autres', label: 'Autres' }
-  ], []);
+  // Secteurs : ceux de la Somme au TJ d'origine ; ailleurs, ceux déjà saisis.
+  const secteurOptions = useMemo(() => {
+    const base = estTjOrigine() ? ['Amiens', 'Abbeville', 'Montdidier', 'Péronne', 'Doullens', 'Albert'] : [];
+    const saisis = mesures.map(m => m.secteurGeographique).filter((s): s is string => Boolean(s) && s !== 'Autres');
+    const secteurs = Array.from(new Set([...base, ...saisis]));
+    return [
+      { value: '', label: 'Non défini' },
+      ...secteurs.map(s => ({ value: s, label: s })),
+      { value: 'Autres', label: 'Autres' },
+    ];
+  }, [mesures]);
 
   const referentOptions = useMemo(() => {
     const refs = new Set(mesures.map(m => m.referent).filter((r): r is string => Boolean(r)));
