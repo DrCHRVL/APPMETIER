@@ -1,7 +1,9 @@
 import { estTjOrigine } from '@/lib/web/identite';
+import { AIRConfigManager } from '@/utils/airConfigManager';
+import { SECTEURS_AIR_ORIGINE } from '@/types/airConfigTypes';
 // components/pages/AIRPage.tsx - Version mise à jour avec tri par colonnes
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AIRImportData, AIRStatus } from '@/types/interfaces';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -673,9 +675,15 @@ export const AIRPage = ({
   }, [mesures]);
 
   // Listes d'options pour les selects
-  // Secteurs : ceux de la Somme au TJ d'origine ; ailleurs, ceux déjà saisis.
+  // Secteurs : ceux réglés par l'administrateur du TJ (Paramètres → Suivi AIR) ;
+  // à défaut, ceux de la Somme au TJ d'origine ; plus ceux déjà saisis.
+  const [secteursTj, setSecteursTj] = useState<string[] | undefined>(undefined);
+  useEffect(() => {
+    AIRConfigManager.load().then(c => setSecteursTj(c.secteurs)).catch(() => {});
+    return AIRConfigManager.subscribe(c => setSecteursTj(c.secteurs));
+  }, []);
   const secteurOptions = useMemo(() => {
-    const base = estTjOrigine() ? ['Amiens', 'Abbeville', 'Montdidier', 'Péronne', 'Doullens', 'Albert'] : [];
+    const base = secteursTj ?? (estTjOrigine() ? SECTEURS_AIR_ORIGINE : []);
     const saisis = mesures.map(m => m.secteurGeographique).filter((s): s is string => Boolean(s) && s !== 'Autres');
     const secteurs = Array.from(new Set([...base, ...saisis]));
     return [
@@ -683,7 +691,7 @@ export const AIRPage = ({
       ...secteurs.map(s => ({ value: s, label: s })),
       { value: 'Autres', label: 'Autres' },
     ];
-  }, [mesures]);
+  }, [mesures, secteursTj]);
 
   const referentOptions = useMemo(() => {
     const refs = new Set(mesures.map(m => m.referent).filter((r): r is string => Boolean(r)));
