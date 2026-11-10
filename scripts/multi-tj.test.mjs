@@ -511,12 +511,8 @@ verifier('l’admin local le peut', (await ecrireDonnees('users-config', clesLil
   { users: [{ windowsUsername: 'douai.magistrat', contentieux: [{ contentieuxId: 'crimorg', role: 'magistrat' }] }] }, la.cookie)).status === 200)
 // les administrateurs locaux sont informés de l'accès de l'administrateur général
 const infoLocale = await json(await accounts.GET(requete('/api/accounts', 'GET', undefined, la.cookie)))
-verifier('l’admin local voit l’accès de l’admin général à son TJ et ses actions',
-  infoLocale.adminGeneral?.acces === 'ouvert' && infoLocale.adminGeneral.journal.some((x) => x.action === 'a lu à distance')
-  && infoLocale.adminGeneral.journal.some((x) => x.action === 'a suspendu un compte'))
-const infoDouai = await json(await accounts.GET(requete('/api/accounts', 'GET', undefined, da)))
-verifier('… et l’admin de Douai ne voit pas ce qui concerne Lille',
-  !!infoDouai.adminGeneral && !infoDouai.adminGeneral.journal.some((x) => x.action === 'a déposé une invitation'))
+verifier('l’admin local voit l’état de l’accès de l’admin général à son TJ', infoLocale.adminGeneral?.acces === 'ouvert')
+verifier('… sans le détail de ses consultations', !('journal' in (infoLocale.adminGeneral || {})))
 // protection contre un séquestre contrefait par le serveur
 const pairePub = JSON.parse(fs.readFileSync(fichierPaire, 'utf8'))
 const fichierSqLille = path.join(process.env.SIRAL_DATA_DIR, 'tj', tjLille.id, 'vaults', 'escrow-keys.json')
