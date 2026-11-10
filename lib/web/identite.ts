@@ -41,3 +41,12 @@ export function tjCourantNom(): string {
 export function estTjOrigine(): boolean {
   return tjCourantId() === 'default'
 }
+
+/**
+ * Clé de stockage local (localStorage) propre au TJ actif : rien de ce qu'un
+ * TJ laisse dans le navigateur n'est relu dans un autre. Le TJ d'origine garde
+ * ses clés historiques (pas de perte des réglages existants).
+ */
+export function cleLocaleTj(cle: string): string {
+  return estTjOrigine() ? cle : `${cle}@${tjCourantId()}`
+}

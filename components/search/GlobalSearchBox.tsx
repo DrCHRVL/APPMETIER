@@ -1,5 +1,6 @@
 'use client';
 
+import { cleLocaleTj } from '@/lib/web/identite';
 // components/search/GlobalSearchBox.tsx
 //
 // LA barre de recherche du header, devenue omnibox : on tape depuis n'importe
@@ -38,7 +39,7 @@ type RecentDoc = Pick<GlobalSearchDoc, 'key' | 'kind' | 'title' | 'subtitle' | '
 
 function loadRecents(): RecentDoc[] {
   try {
-    const raw = localStorage.getItem(RECENTS_KEY);
+    const raw = localStorage.getItem(cleLocaleTj(RECENTS_KEY));
     const arr = raw ? JSON.parse(raw) : [];
     return Array.isArray(arr) ? arr.filter(r => r && r.key && r.title) : [];
   } catch {
@@ -47,7 +48,7 @@ function loadRecents(): RecentDoc[] {
 }
 
 function persistRecents(recents: RecentDoc[]) {
-  try { localStorage.setItem(RECENTS_KEY, JSON.stringify(recents)); } catch {}
+  try { localStorage.setItem(cleLocaleTj(RECENTS_KEY), JSON.stringify(recents)); } catch {}
 }
 
 // ── Aides d'affichage ──────────────────────────
