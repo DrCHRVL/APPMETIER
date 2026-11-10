@@ -16,7 +16,7 @@
  *  - créer, renommer un TJ, régénérer son code d'accès, et l'ouvrir.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Landmark, RefreshCw, Copy, Check, Edit2, X, KeyRound, Users, UserPlus, BarChart3, Lock, Unlock } from 'lucide-react';
+import { Plus, Landmark, RefreshCw, Copy, Check, Edit2, X, KeyRound, Users, UserPlus, Lock, Unlock, ChevronRight, Search, HelpCircle, Network, AlertTriangle } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/contexts/ToastContext';
 import { estSuperAdmin } from '@/lib/web/identite';
@@ -125,6 +125,12 @@ export const AdminTJPanel = () => {
   const [confirmRegenId, setConfirmRegenId] = useState<string | null>(null);
   // création de compte
   const [addUserTj, setAddUserTj] = useState<string | null>(null);
+  // affichage : filtre par TJ, recherche transversale, cartes repliées
+  const [filtre, setFiltre] = useState<string>('tous');
+  const [recherche, setRecherche] = useState('');
+  const [ouverts, setOuverts] = useState<Record<string, boolean>>({});
+  const [aide, setAide] = useState(false);
+  const [cartoOuverte, setCartoOuverte] = useState(false);
   const [newUser, setNewUser] = useState({ username: '', displayName: '', tjAdmin: false });
 
   const load = useCallback(async () => {
@@ -292,21 +298,129 @@ export const AdminTJPanel = () => {
   };
 
   const membresDe = (tjId: string) => accounts.filter(a => a.role !== 'admin' && a.tjs[0] === tjId);
+  const membres = accounts.filter(a => a.role !== 'admin');
+  const enAttente = membres.filter(a => !a.suspendu && a.acces === 'en-attente').length;
+  const suspendus = membres.filter(a => a.suspendu).length;
+  const q = recherche.trim().toLowerCase();
+  const resultats = q
+    ? membres.filter(a => a.displayName.toLowerCase().includes(q) || a.username.toLowerCase().includes(q))
+    : [];
+  const tjsVisibles = filtre === 'tous' ? tjs : tjs.filter(t => t.id === filtre);
+  const estOuvert = (id: string) => filtre === id || !!ouverts[id];
+  const basculer = (id: string) => setOuverts(o => ({ ...o, [id]: !estOuvert(id) }));
+
+  const pastille = (texte: React.ReactNode, ton: 'gris' | 'vert' | 'ambre' | 'rouge' = 'gris', titre?: string) => {
+    const cls = { gris: 'bg-gray-100 text-gray-600', vert: 'bg-emerald-50 text-emerald-700', ambre: 'bg-amber-50 text-amber-700', rouge: 'bg-red-50 text-red-700' }[ton];
+    return <span title={titre} className={`text-[11px] font-medium rounded-full px-2 py-0.5 whitespace-nowrap ${cls}`}>{texte}</span>;
+  };
+
+  /** Ligne d'un compte (dans la carte d'un TJ, ou dans les résultats de recherche avec la colonne Tribunal). */
+  const ligneCompte = (a: AccountRow, avecTj: boolean) => {
+    const tjId = a.tjs[0];
+    const tj = tjs.find(t => t.id === tjId);
+    return (
+      <tr key={a.username} className={a.suspendu ? 'opacity-60' : ''}>
+        <td className="px-3 py-1.5">
+          <div className="font-medium text-gray-800">{a.displayName}</div>
+          <div className="text-xs font-mono text-gray-600" title="Identifiant de connexion">{a.username}</div>
+        </td>
+        {avecTj && <td className="px-3 py-1.5 text-xs text-gray-700 whitespace-nowrap">{nameOf(tjId)}</td>}
+        <td className="px-3 py-1.5">
+          <select className="border border-gray-300 rounded px-1.5 py-1 text-xs bg-white" disabled={busy}
+            value={statutDe(a, tjId)} onChange={e => handleStatut(a, e.target.value as Statut)}>
+            <option value="membre">Membre</option>
+            <option value="admin">Administrateur local</option>
+            <option value="suspendu">Suspendu</option>
+          </select>
+        </td>
+        <td className="px-3 py-1.5">
+          <span className={`text-[10px] font-semibold border rounded-full px-1.5 py-0.5 whitespace-nowrap ${ACCES[a.acces].cls}`}>{ACCES[a.acces].label}</span>
+        </td>
+        <td className="px-3 py-1.5 text-[11px] text-gray-500 whitespace-nowrap">{date(a.lastLoginAt)}</td>
+        <td className="px-3 py-1.5">
+          <div className="flex items-center gap-1.5">
+            <select className="border border-gray-300 rounded px-1.5 py-1 text-xs bg-white" disabled={busy}
+              value="" onChange={e => { if (e.target.value) handleMove(a, e.target.value); }} title="Déplacer vers un autre tribunal">
+              <option value="">Déplacer…</option>
+              {tjs.filter(x => x.id !== tjId).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+            </select>
+            <button className="p-1 rounded hover:bg-gray-100 disabled:opacity-40" disabled={busy}
+              title="Nouveau mot de passe provisoire" onClick={() => handleResetPassword(a)}>
+              <KeyRound className="h-3.5 w-3.5 text-gray-500" />
+            </button>
+            <button className="p-1 rounded hover:bg-gray-100 disabled:opacity-40" disabled={busy || !cle || !tj?.escrow}
+              title={!tj?.escrow ? 'Séquestre du TJ absent : son administrateur doit se connecter une fois' : 'Débloquer l’accès aux données (nouvelle invitation)'}
+              onClick={() => handleDebloquer(a, tjId)}>
+              <Unlock className="h-3.5 w-3.5 text-gray-500" />
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
+  const enteteTableau = (avecTj: boolean) => (
+    <thead>
+      <tr className="text-left text-[10px] uppercase tracking-wide text-gray-400">
+        <th className="px-3 py-1.5 font-semibold">Compte</th>
+        {avecTj && <th className="px-3 py-1.5 font-semibold">Tribunal</th>}
+        <th className="px-3 py-1.5 font-semibold">Statut</th>
+        <th className="px-3 py-1.5 font-semibold">Données</th>
+        <th className="px-3 py-1.5 font-semibold">Vu le</th>
+        <th className="px-3 py-1.5 font-semibold">Actions</th>
+      </tr>
+    </thead>
+  );
+
+  const tuile = (valeur: number, libelle: string, ton?: 'ambre' | 'rouge') => (
+    <div className={`rounded-lg border px-3 py-2 ${ton === 'ambre' && valeur ? 'border-amber-200 bg-amber-50' : ton === 'rouge' && valeur ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-white'}`}>
+      <div className={`text-lg font-semibold tabular-nums ${ton === 'ambre' && valeur ? 'text-amber-700' : ton === 'rouge' && valeur ? 'text-red-700' : 'text-gray-800'}`}>{valeur}</div>
+      <div className="text-[11px] text-gray-500">{libelle}</div>
+    </div>
+  );
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      <div>
-        <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-          <Landmark className="h-4 w-4 text-emerald-600" />
-          Gestion des TJ
-        </h3>
-        <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-          Chaque tribunal est un espace <b>strictement séparé</b>. Son administrateur local y gère comptes, habilitations et
-          invitations — c&apos;est la voie normale ; vous pouvez tout faire ici en parallèle : créer, débloquer, ouvrir. Vous seul ouvrez n&apos;importe quel
-          tribunal (« Ouvrir ») ; chaque ouverture est journalisée. Les indicateurs sont des compteurs scellés pour vous
-          par les postes du TJ : le serveur ne les lit pas.
-        </p>
+    <div className="space-y-4 max-w-5xl">
+      {/* En-tête */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+            <Landmark className="h-4 w-4 text-emerald-600" />
+            Gestion des TJ
+            <button className="p-0.5 rounded hover:bg-gray-100" title="Comment ça marche" onClick={() => setAide(v => !v)}>
+              <HelpCircle className="h-3.5 w-3.5 text-gray-400" />
+            </button>
+          </h3>
+          {aide && (
+            <p className="text-xs text-gray-500 mt-1 leading-relaxed max-w-3xl">
+              Chaque tribunal est un espace <b>strictement séparé</b>. Son administrateur local y gère comptes, habilitations et
+              invitations — c&apos;est la voie normale ; vous pouvez tout faire ici en parallèle : créer, débloquer, ouvrir.
+              « Ouvrir » bascule l&apos;application sur un tribunal (journalisé). Les indicateurs sont des compteurs scellés pour
+              vous par les postes du TJ : le serveur ne les lit pas.
+            </p>
+          )}
+        </div>
+        <button className="flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-3 py-1.5"
+          onClick={() => setShowAddTj(v => !v)}>
+          <Plus className="h-3.5 w-3.5" /> Créer un tribunal
+        </button>
       </div>
+
+      {showAddTj && (
+        <div className="border border-emerald-200 bg-emerald-50/40 rounded-lg p-3 space-y-2">
+          <div className="flex gap-2">
+            <input className="border border-gray-300 rounded px-2 py-1.5 text-sm flex-1" placeholder="Nom du tribunal (ex. TJ Lille)" value={newTjName} autoFocus
+              onChange={e => setNewTjName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleCreateTj(); }} />
+            <button className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-3 py-1.5 disabled:opacity-50"
+              onClick={handleCreateTj} disabled={busy || newTjName.trim().length < 2}>Créer</button>
+            <button className="text-xs text-gray-500 hover:text-gray-700 px-2" onClick={() => setShowAddTj(false)}>Annuler</button>
+          </div>
+          <p className="text-[11px] text-gray-500">
+            Un code d&apos;accès s&apos;affichera <b>une seule fois</b> : la première personne inscrite avec ce code devient
+            l&apos;administratrice locale. Vous pouvez aussi l&apos;ouvrir, l&apos;initialiser vous-même et créer les comptes.
+          </p>
+        </div>
+      )}
 
       {secret && (
         <div className="border-2 border-amber-400 bg-amber-50 rounded-lg p-4">
@@ -328,215 +442,204 @@ export const AdminTJPanel = () => {
       )}
 
       {!cle && (
-        <div className="flex items-start gap-2 text-[11px] text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-3">
+        <div className="flex items-start gap-2 text-[11px] text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
           <Lock className="h-3.5 w-3.5 text-gray-400 mt-0.5" />
-          <span>Clé d&apos;administration non chargée (indicateurs, déblocage, cartographie). Elle se charge quelques secondes
-            après le déverrouillage ; si ce message reste, reconnectez-vous avec la phrase personnelle de votre compte
-            au TJ d&apos;origine (c&apos;est elle qui protège cette clé).</span>
+          <span>Clé d&apos;administration non chargée (indicateurs, déblocage, cartographie) : elle se charge quelques secondes
+            après le déverrouillage ; sinon, reconnectez-vous avec votre phrase personnelle.</span>
         </div>
       )}
 
       {loading && <div className="text-sm text-gray-400">Chargement…</div>}
 
-      {!loading && tjs.map(tj => {
-        const t = totaux[tj.id];
-        const membres = membresDe(tj.id);
-        return (
-          <section key={tj.id} className="border border-gray-200 rounded-lg">
-            {/* En-tête du TJ */}
-            <div className="p-3 flex items-center gap-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
-              <Landmark className={`h-4 w-4 flex-shrink-0 ${tj.id === activeTj ? 'text-emerald-600' : 'text-gray-400'}`} />
-              <div className="min-w-0 flex-1">
+      {!loading && (<>
+        {/* Synthèse */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {tuile(tjs.length, tjs.length > 1 ? 'tribunaux' : 'tribunal')}
+          {tuile(membres.length, 'comptes (hors vous)')}
+          {tuile(enAttente, 'en attente d’invitation', 'ambre')}
+          {tuile(suspendus, suspendus > 1 ? 'suspendus' : 'suspendu', 'rouge')}
+        </div>
+
+        {/* Filtre par TJ + recherche */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap gap-1.5">
+            {[{ id: 'tous', name: 'Tous' }, ...tjs].map(t => {
+              // pendant une recherche, les résultats couvrent tous les TJ : aucun filtre en surbrillance
+              const actif = !q && filtre === t.id;
+              const nb = t.id === 'tous' ? membres.length : membresDe(t.id).length;
+              const alerte = t.id !== 'tous' && membresDe(t.id).some(a => !a.suspendu && a.acces === 'en-attente');
+              return (
+                <button key={t.id} onClick={() => { setFiltre(t.id); setRecherche(''); }}
+                  className={`flex items-center gap-1.5 text-xs rounded-full border px-2.5 py-1 ${actif ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}>
+                  {t.name}
+                  <span className={`tabular-nums text-[10px] ${actif ? 'text-emerald-100' : 'text-gray-400'}`}>{nb}</span>
+                  {alerte && <span className={`h-1.5 w-1.5 rounded-full ${actif ? 'bg-white' : 'bg-amber-500'}`} title="Inscrits en attente d’invitation" />}
+                </button>
+              );
+            })}
+          </div>
+          <div className="relative ml-auto">
+            <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
+            <input className="border border-gray-300 rounded-full pl-7 pr-3 py-1 text-xs w-60" placeholder="Rechercher un compte, tous TJ…"
+              value={recherche} onChange={e => setRecherche(e.target.value)} />
+          </div>
+        </div>
+
+        {/* Résultats de recherche (tous tribunaux) */}
+        {q ? (
+          <section className="border border-gray-200 rounded-lg overflow-x-auto">
+            <div className="px-3 py-2 text-xs text-gray-600 border-b border-gray-100 bg-gray-50/60">
+              {resultats.length} compte{resultats.length > 1 ? 's' : ''} pour « {recherche.trim()} »
+            </div>
+            <table className="w-full text-sm">
+              {enteteTableau(true)}
+              <tbody className="divide-y divide-gray-50">
+                {resultats.map(a => ligneCompte(a, true))}
+                {resultats.length === 0 && <tr><td className="px-3 py-2 text-[11px] text-gray-400" colSpan={6}>Aucun compte</td></tr>}
+              </tbody>
+            </table>
+          </section>
+        ) : tjsVisibles.map(tj => {
+          const t = totaux[tj.id];
+          const liste = membresDe(tj.id);
+          const ouvert = estOuvert(tj.id);
+          return (
+            <section key={tj.id} className="border border-gray-200 rounded-lg bg-white">
+              {/* En-tête du TJ (cliquable : déplier / replier) */}
+              <div className={`px-3 py-2.5 flex items-center gap-2 ${ouvert ? 'border-b border-gray-100 bg-gray-50/60 rounded-t-lg' : 'rounded-lg'}`}>
+                <button className="flex items-center gap-2 min-w-0 flex-1 text-left" onClick={() => basculer(tj.id)} disabled={editingId === tj.id}>
+                  <ChevronRight className={`h-4 w-4 flex-shrink-0 text-gray-400 transition-transform ${ouvert ? 'rotate-90' : ''}`} />
+                  <Landmark className={`h-4 w-4 flex-shrink-0 ${tj.id === activeTj ? 'text-emerald-600' : 'text-gray-400'}`} />
+                  {editingId === tj.id ? null : (
+                    <span className="text-sm font-semibold text-gray-800 truncate">{tj.name}</span>
+                  )}
+                  {tj.id === activeTj && editingId !== tj.id && pastille('ouvert ici', 'vert')}
+                </button>
                 {editingId === tj.id ? (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-1">
                     <input className="border border-gray-300 rounded px-2 py-1 text-sm flex-1" value={editName} autoFocus
                       onChange={e => setEditName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleRename(tj.id); }} />
                     <button className="p-1 rounded hover:bg-emerald-50" onClick={() => handleRename(tj.id)} disabled={busy} aria-label="Valider"><Check className="h-4 w-4 text-emerald-600" /></button>
                     <button className="p-1 rounded hover:bg-gray-100" onClick={() => setEditingId(null)} aria-label="Annuler"><X className="h-4 w-4 text-gray-500" /></button>
                   </div>
                 ) : (
-                  <>
-                    <div className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                      <span className="truncate">{tj.name}</span>
-                      {tj.id === activeTj && <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">ouvert</span>}
-                    </div>
-                    <div className="text-[11px] text-gray-600 flex flex-wrap items-center gap-x-1.5">
-                      <span>Admin local : <b>{tj.admins.length ? tj.admins.join(', ') : (tj.id === 'default' ? 'vous' : 'aucun')}</b></span>
-                      <span className="text-gray-300">·</span>
-                      <span><Users className="inline h-3 w-3 mr-0.5" />{tj.members} compte{tj.members > 1 ? 's' : ''}{tj.suspendus ? ` (${tj.suspendus} suspendu${tj.suspendus > 1 ? 's' : ''})` : ''}</span>
-                      <span className="text-gray-300">·</span>
-                      <span>{tj.initialized ? 'clés créées' : <span className="text-amber-700">clés non créées</span>}</span>
-                      {tj.pending > 0 && (<><span className="text-gray-300">·</span><span className="text-amber-700">{tj.pending} en attente d&apos;invitation</span></>)}
-                      {tj.id !== 'default' && (<>
-                        <span className="text-gray-300">·</span>
-                        <span>{tj.myAccess ? 'votre accès : ouvert' : tj.escrow ? 'votre accès : prêt' : <span className="text-amber-700">votre accès : pas encore déposé</span>}</span>
-                      </>)}
-                    </div>
-                  </>
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    {pastille(<>Admin : {tj.admins.length ? tj.admins.join(', ') : (tj.id === 'default' ? 'vous' : 'aucun')}</>, tj.admins.length || tj.id === 'default' ? 'gris' : 'ambre')}
+                    {pastille(<><Users className="inline h-3 w-3 mr-0.5 -mt-0.5" />{tj.members}</>, 'gris', 'Comptes')}
+                    {tj.pending > 0 && pastille(`${tj.pending} en attente`, 'ambre')}
+                    {tj.suspendus > 0 && pastille(`${tj.suspendus} suspendu${tj.suspendus > 1 ? 's' : ''}`, 'rouge')}
+                    {!tj.initialized && pastille('clés non créées', 'ambre')}
+                    {tj.id !== 'default' && pastille(tj.myAccess ? 'accès ouvert' : tj.escrow ? 'accès prêt' : 'accès non déposé',
+                      tj.myAccess || tj.escrow ? 'vert' : 'ambre', 'Votre accès à ce tribunal')}
+                    {tj.id !== activeTj && (
+                      <button className="text-[11px] font-semibold text-emerald-700 border border-emerald-200 hover:bg-emerald-50 rounded px-2 py-0.5 disabled:opacity-50"
+                        title="Basculer l'application sur ce tribunal" onClick={() => handleSwitch(tj.id)} disabled={busy}>
+                        Ouvrir
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
-              {editingId !== tj.id && (
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  {tj.id !== activeTj && (
-                    <button className="text-[11px] font-semibold text-emerald-700 border border-emerald-200 hover:bg-emerald-50 rounded px-2 py-1 disabled:opacity-50"
-                      title="Basculer sur ce tribunal (l'application se recharge : rien n'est partagé entre TJ)" onClick={() => handleSwitch(tj.id)} disabled={busy}>
-                      Ouvrir
-                    </button>
-                  )}
-                  <button className="p-1.5 rounded hover:bg-gray-100" title="Renommer" onClick={() => { setEditingId(tj.id); setEditName(tj.name); }}>
-                    <Edit2 className="h-3.5 w-3.5 text-gray-500" />
-                  </button>
-                  {confirmRegenId === tj.id ? (
-                    <span className="flex items-center gap-1 text-[11px]">
-                      <span className="text-red-600 font-semibold">Nouveau code ?</span>
-                      <button className="p-1 rounded hover:bg-red-50" onClick={() => handleRegenCode(tj.id)} disabled={busy} aria-label="Confirmer"><Check className="h-3.5 w-3.5 text-red-600" /></button>
-                      <button className="p-1 rounded hover:bg-gray-100" onClick={() => setConfirmRegenId(null)} aria-label="Annuler"><X className="h-3.5 w-3.5 text-gray-500" /></button>
-                    </span>
-                  ) : (
-                    <button className="p-1.5 rounded hover:bg-gray-100" title={tj.hasCode ? "Régénérer le code d'accès" : "Générer un code d'accès"} onClick={() => setConfirmRegenId(tj.id)}>
-                      <RefreshCw className="h-3.5 w-3.5 text-gray-500" />
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
 
-            {/* Indicateurs */}
-            <div className="px-3 py-2 border-b border-gray-100 text-[11px] text-gray-600 flex flex-wrap items-center gap-x-4 gap-y-1">
-              <BarChart3 className="h-3.5 w-3.5 text-gray-400" />
-              {!cle ? <span className="text-gray-400">verrouillés</span>
-                : !t ? <span className="text-gray-400">aucun indicateur publié pour l&apos;instant</span>
-                  : (<>
-                    <span><b>{t.enCours}</b> enquêtes en cours</span>
-                    <span><b>{t.misEnCause}</b> mis en cause</span>
-                    <span><b>{t.archives}</b> archivées</span>
-                    <span><b>{t.enInstruction}</b> passées à l&apos;instruction</span>
-                    <span><b>{t.instructionsEnCours}</b> instructions en cours</span>
-                    <span><b>{t.misEnExamen}</b> mis en examen</span>
-                    <span><b>{t.mesuresAirActives}</b> mesures AIR actives</span>
-                    <span className="text-gray-400">maj {date(t.maj)}</span>
-                  </>)}
-            </div>
-
-            {/* Membres */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-[10px] uppercase tracking-wide text-gray-400">
-                    <th className="px-3 py-1.5 font-semibold">Compte</th>
-                    <th className="px-3 py-1.5 font-semibold">Statut</th>
-                    <th className="px-3 py-1.5 font-semibold">Données</th>
-                    <th className="px-3 py-1.5 font-semibold">Vu le</th>
-                    <th className="px-3 py-1.5 font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {membres.map(a => (
-                    <tr key={a.username} className={a.suspendu ? 'opacity-60' : ''}>
-                      <td className="px-3 py-1.5">
-                        <div className="font-medium text-gray-800">{a.displayName}</div>
-                        <div className="text-xs font-mono text-gray-600" title="Identifiant de connexion">{a.username}</div>
-                      </td>
-                      <td className="px-3 py-1.5">
-                        <select className="border border-gray-300 rounded px-1.5 py-1 text-xs bg-white" disabled={busy}
-                          value={statutDe(a, tj.id)} onChange={e => handleStatut(a, e.target.value as Statut)}>
-                          <option value="membre">Membre</option>
-                          <option value="admin">Administrateur local</option>
-                          <option value="suspendu">Suspendu</option>
-                        </select>
-                      </td>
-                      <td className="px-3 py-1.5">
-                        <span className={`text-[10px] font-semibold border rounded-full px-1.5 py-0.5 whitespace-nowrap ${ACCES[a.acces].cls}`}>{ACCES[a.acces].label}</span>
-                      </td>
-                      <td className="px-3 py-1.5 text-[11px] text-gray-500">{date(a.lastLoginAt)}</td>
-                      <td className="px-3 py-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <select className="border border-gray-300 rounded px-1.5 py-1 text-xs bg-white" disabled={busy}
-                            value="" onChange={e => { if (e.target.value) handleMove(a, e.target.value); }} title="Déplacer vers un autre tribunal">
-                            <option value="">Déplacer…</option>
-                            {tjs.filter(x => x.id !== tj.id).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-                          </select>
-                          <button className="p-1 rounded hover:bg-gray-100 disabled:opacity-40" disabled={busy}
-                            title="Nouveau mot de passe provisoire" onClick={() => handleResetPassword(a)}>
-                            <KeyRound className="h-3.5 w-3.5 text-gray-500" />
-                          </button>
-                          <button className="p-1 rounded hover:bg-gray-100 disabled:opacity-40" disabled={busy || !cle || !tj.escrow}
-                            title={!tj.escrow ? 'Séquestre du TJ absent : son administrateur doit se connecter une fois' : 'Débloquer l’accès aux données (nouvelle invitation)'}
-                            onClick={() => handleDebloquer(a, tj.id)}>
-                            <Unlock className="h-3.5 w-3.5 text-gray-500" />
-                          </button>
+              {ouvert && (<>
+                {/* Indicateurs */}
+                <div className="px-3 py-2.5 border-b border-gray-100">
+                  {!cle ? <div className="text-[11px] text-gray-400">Indicateurs verrouillés</div>
+                    : !t ? <div className="text-[11px] text-gray-400">Aucun indicateur publié pour l&apos;instant</div>
+                      : (
+                        <div className="grid grid-cols-3 sm:grid-cols-7 gap-1.5">
+                          {[
+                            [t.enCours, 'enquêtes en cours'], [t.misEnCause, 'mis en cause'], [t.archives, 'archivées'],
+                            [t.enInstruction, 'à l’instruction'], [t.instructionsEnCours, 'instructions'], [t.misEnExamen, 'mis en examen'],
+                            [t.mesuresAirActives, 'mesures AIR'],
+                          ].map(([v, l]) => (
+                            <div key={String(l)} className="rounded bg-gray-50 px-2 py-1.5 text-center">
+                              <div className="text-sm font-semibold tabular-nums text-gray-800">{v}</div>
+                              <div className="text-[10px] text-gray-500 leading-tight">{l}</div>
+                            </div>
+                          ))}
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {membres.length === 0 && (
-                    <tr><td className="px-3 py-2 text-[11px] text-gray-400" colSpan={5}>Aucun compte{tj.id === 'default' ? ' (hors vous)' : ''}</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Création de compte */}
-            <div className="p-3 border-t border-gray-100">
-              {addUserTj === tj.id ? (
-                <div className="flex flex-wrap items-end gap-2">
-                  <label className="text-[11px] text-gray-500">Identifiant
-                    <input className="block border border-gray-300 rounded px-2 py-1 text-sm w-40" placeholder="p.nom" value={newUser.username}
-                      onChange={e => setNewUser({ ...newUser, username: e.target.value })} autoFocus />
-                  </label>
-                  <label className="text-[11px] text-gray-500">Nom affiché
-                    <input className="block border border-gray-300 rounded px-2 py-1 text-sm w-44" placeholder="P. Nom" value={newUser.displayName}
-                      onChange={e => setNewUser({ ...newUser, displayName: e.target.value })} />
-                  </label>
-                  <label className="text-[11px] text-gray-600 flex items-center gap-1 pb-1.5">
-                    <input type="checkbox" className="accent-emerald-600" checked={newUser.tjAdmin}
-                      onChange={e => setNewUser({ ...newUser, tjAdmin: e.target.checked })} />
-                    administrateur local
-                  </label>
-                  <button className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-3 py-1.5 disabled:opacity-50"
-                    onClick={() => handleCreateUser(tj.id)} disabled={busy || !newUser.username.trim()}>Créer</button>
-                  <button className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5" onClick={() => setAddUserTj(null)}>Annuler</button>
+                      )}
+                  {cle && t && <div className="text-[10px] text-gray-400 mt-1">mis à jour le {date(t.maj)}</div>}
                 </div>
-              ) : (
-                <button className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800"
-                  onClick={() => { setAddUserTj(tj.id); setNewUser({ username: '', displayName: '', tjAdmin: false }); }}>
-                  <UserPlus className="h-3.5 w-3.5" /> Créer un compte dans ce TJ
-                </button>
-              )}
+
+                {/* Comptes */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    {enteteTableau(false)}
+                    <tbody className="divide-y divide-gray-50">
+                      {liste.map(a => ligneCompte(a, false))}
+                      {liste.length === 0 && (
+                        <tr><td className="px-3 py-2 text-[11px] text-gray-400" colSpan={5}>Aucun compte{tj.id === 'default' ? ' (hors vous)' : ''}</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pied : création de compte + gestion du TJ */}
+                <div className="px-3 py-2.5 border-t border-gray-100 flex flex-wrap items-center gap-3">
+                  {addUserTj === tj.id ? (
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="text-[11px] text-gray-500">Identifiant
+                        <input className="block border border-gray-300 rounded px-2 py-1 text-sm w-40" placeholder="p.nom" value={newUser.username}
+                          onChange={e => setNewUser({ ...newUser, username: e.target.value })} autoFocus />
+                      </label>
+                      <label className="text-[11px] text-gray-500">Nom affiché
+                        <input className="block border border-gray-300 rounded px-2 py-1 text-sm w-44" placeholder="P. Nom" value={newUser.displayName}
+                          onChange={e => setNewUser({ ...newUser, displayName: e.target.value })} />
+                      </label>
+                      <label className="text-[11px] text-gray-600 flex items-center gap-1 pb-1.5">
+                        <input type="checkbox" className="accent-emerald-600" checked={newUser.tjAdmin}
+                          onChange={e => setNewUser({ ...newUser, tjAdmin: e.target.checked })} />
+                        administrateur local
+                      </label>
+                      <button className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-3 py-1.5 disabled:opacity-50"
+                        onClick={() => handleCreateUser(tj.id)} disabled={busy || !newUser.username.trim()}>Créer</button>
+                      <button className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5" onClick={() => setAddUserTj(null)}>Annuler</button>
+                    </div>
+                  ) : (
+                    <button className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800"
+                      onClick={() => { setAddUserTj(tj.id); setNewUser({ username: '', displayName: '', tjAdmin: false }); }}>
+                      <UserPlus className="h-3.5 w-3.5" /> Créer un compte dans ce TJ
+                    </button>
+                  )}
+                  <div className="ml-auto flex items-center gap-1 text-[11px] text-gray-500">
+                    <button className="flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-100" onClick={() => { setEditingId(tj.id); setEditName(tj.name); }}>
+                      <Edit2 className="h-3 w-3" /> Renommer
+                    </button>
+                    {confirmRegenId === tj.id ? (
+                      <span className="flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3 text-red-600" /><span className="text-red-600 font-semibold">L&apos;ancien code ne marchera plus</span>
+                        <button className="p-1 rounded hover:bg-red-50" onClick={() => handleRegenCode(tj.id)} disabled={busy} aria-label="Confirmer"><Check className="h-3.5 w-3.5 text-red-600" /></button>
+                        <button className="p-1 rounded hover:bg-gray-100" onClick={() => setConfirmRegenId(null)} aria-label="Annuler"><X className="h-3.5 w-3.5 text-gray-500" /></button>
+                      </span>
+                    ) : (
+                      <button className="flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-100" onClick={() => setConfirmRegenId(tj.id)}>
+                        <RefreshCw className="h-3 w-3" /> {tj.hasCode ? 'Nouveau code d’accès' : 'Générer un code d’accès'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </>)}
+            </section>
+          );
+        })}
+
+        {/* Cartographie inter-TJ (repliée par défaut) */}
+        <section className="border border-gray-200 rounded-lg bg-white">
+          <button className="w-full px-3 py-2.5 flex items-center gap-2 text-left" onClick={() => setCartoOuverte(v => !v)}>
+            <ChevronRight className={`h-4 w-4 text-gray-400 transition-transform ${cartoOuverte ? 'rotate-90' : ''}`} />
+            <Network className="h-4 w-4 text-emerald-600" />
+            <span className="text-sm font-semibold text-gray-800">Cartographie inter-TJ</span>
+            <span className="text-[11px] text-gray-400">personnes mises en cause dans plusieurs tribunaux</span>
+          </button>
+          {cartoOuverte && (
+            <div className="px-3 pb-3">
+              <CartographieInterTj tjs={tjs.filter(t => t.escrow).map(t => ({ id: t.id, name: t.name }))} clePrivee={cle} http={httpAdmin} sansCadre />
             </div>
-          </section>
-        );
-      })}
-
-      {!loading && (
-        <CartographieInterTj tjs={tjs.filter(t => t.escrow).map(t => ({ id: t.id, name: t.name }))} clePrivee={cle} http={httpAdmin} />
-      )}
-
-      {/* Création de TJ */}
-      {showAddTj ? (
-        <div className="border border-gray-200 rounded-lg p-3 space-y-2">
-          <div className="text-sm font-semibold text-gray-700">Nouveau tribunal</div>
-          <input className="border border-gray-300 rounded px-2 py-1.5 text-sm w-full" placeholder="Nom (ex. TJ Lille)" value={newTjName} autoFocus
-            onChange={e => setNewTjName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleCreateTj(); }} />
-          <p className="text-[11px] text-gray-500 leading-relaxed">
-            Un code d&apos;accès sera affiché <b>une seule fois</b>. La première personne inscrite avec ce code devient
-            l&apos;administratrice locale et crée les clés du tribunal. Vous pouvez aussi l&apos;ouvrir et l&apos;initialiser
-            vous-même, puis y créer les comptes.
-          </p>
-          <div className="flex gap-2">
-            <button className="flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-3 py-1.5 disabled:opacity-50"
-              onClick={handleCreateTj} disabled={busy || newTjName.trim().length < 2}>
-              <Plus className="h-3.5 w-3.5" /> Créer le tribunal
-            </button>
-            <button className="text-xs font-medium text-gray-500 hover:text-gray-700 px-2" onClick={() => setShowAddTj(false)}>Annuler</button>
-          </div>
-        </div>
-      ) : (
-        <button className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:text-emerald-800 border border-emerald-200 hover:bg-emerald-50 rounded px-3 py-1.5"
-          onClick={() => setShowAddTj(true)}>
-          <Plus className="h-3.5 w-3.5" /> Créer un tribunal
-        </button>
-      )}
+          )}
+        </section>
+      </>)}
     </div>
   );
 };

@@ -18,7 +18,9 @@ export const CartographieInterTj: React.FC<{
   tjs: Array<{ id: string, name: string }>;
   clePrivee: CryptoKey | null;
   http: AdminHttp;
-}> = ({ tjs, clePrivee, http }) => {
+  /** Intégrée dans une section qui porte déjà le titre : ni cadre ni titre. */
+  sansCadre?: boolean;
+}> = ({ tjs, clePrivee, http, sansCadre }) => {
   const [carto, setCarto] = useState<Carto | null>(null);
   const [busy, setBusy] = useState(false);
   const [erreur, setErreur] = useState('');
@@ -54,11 +56,13 @@ export const CartographieInterTj: React.FC<{
   }, [carto]);
 
   return (
-    <section className="border border-gray-200 rounded-lg p-3 space-y-3">
+    <section className={sansCadre ? 'space-y-3' : 'border border-gray-200 rounded-lg p-3 space-y-3'}>
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-          <Network className="h-4 w-4 text-emerald-600" /> Cartographie inter-TJ
-        </h4>
+        {sansCadre ? <span /> : (
+          <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+            <Network className="h-4 w-4 text-emerald-600" /> Cartographie inter-TJ
+          </h4>
+        )}
         <button className="flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-3 py-1.5 disabled:opacity-50"
           onClick={calculer} disabled={busy || !clePrivee}>
           {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{carto ? 'Recalculer' : 'Calculer'}
