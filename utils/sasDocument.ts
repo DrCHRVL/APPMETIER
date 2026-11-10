@@ -1,4 +1,4 @@
-import { PAPETERIE, signatairePapeterie } from '@/lib/web/papeterie';
+import { PAPETERIE } from '@/lib/web/papeterie';
 // utils/sasDocument.ts
 //
 // Génération de la trame « SAS » — autorisation de poursuite d'actes en cours
@@ -42,9 +42,8 @@ export interface SasTemplate {
   dispositif: string;
   beforeEcoutes: string;
   beforeGeolocs: string;
-  // Signature
+  // Lieu
   lieu: string;
-  signataire: string;
 }
 
 /** Trame par défaut, construite sur la papeterie du TJ et du magistrat. */
@@ -76,7 +75,6 @@ export const defaultSasTemplate = (): SasTemplate => ({
     + 'communications électroniques sur les lignes et/ou IMEI suivants :',
   beforeGeolocs: '— les géolocalisations en temps réel des objets suivants :',
   lieu: PAPETERIE.ville,
-  signataire: signatairePapeterie(),
 });
 
 /**
@@ -200,9 +198,6 @@ export const buildSasText = (
     geolocsLines,
     '',
     `Fait à ${template.lieu}, le ${dateStr}`,
-    '',
-    'P/le procureur de la République,',
-    template.signataire,
   ].join('\n');
 };
 
@@ -263,9 +258,6 @@ export const buildSasHtml = (
     '<p>&nbsp;</p>',
     '<div style="text-align:right">',
     `<p>Fait à ${escapeHtml(template.lieu)}, le ${escapeHtml(dateStr)}</p>`,
-    '<p>&nbsp;</p>',
-    '<p>P/le procureur de la République,</p>',
-    `<p>${escapeHtml(template.signataire)}</p>`,
     '</div>',
   ].join('');
 };

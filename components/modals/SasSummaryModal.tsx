@@ -59,10 +59,9 @@ const FIELD_GROUPS: { title: string; fields: TemplateField[] }[] = [
     ],
   },
   {
-    title: 'Signature',
+    title: 'Lieu',
     fields: [
       { key: 'lieu', label: 'Lieu' },
-      { key: 'signataire', label: 'Signataire' },
     ],
   },
 ];

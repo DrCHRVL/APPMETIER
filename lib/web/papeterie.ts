@@ -5,7 +5,7 @@
  * (coffre `users-config`, chiffré) :
  *  - le TRIBUNAL (juridiction, ville, adresse, standard, mail du service) —
  *    réglé par l'administrateur du TJ ;
- *  - le MAGISTRAT (nom, qualité, section, signature, mail) — réglé par chacun
+ *  - le MAGISTRAT (nom, qualité, section, mail) — d'après son compte
  *    dans « Mon profil ».
  * `appliquerPapeterie` fusionne ces réglages dans l'objet PAPETERIE au
  * chargement des habilitations ; tout le code lit PAPETERIE au moment de
@@ -29,15 +29,13 @@ export interface Papeterie {
   magistrat: {
     /** Forme « NOM Prénom » (en-tête, « Nous, … »). */
     nomQualite: string;
-    /** Forme « Prénom NOM » (signature). */
+    /** Forme « Prénom NOM ». */
     prenomNom: string;
     /** Qualité (« substitut du Procureur de la République »). */
     qualite: string;
     /** Rattachement (« près le tribunal judiciaire d'AMIENS »). */
     ressort: string;
   };
-  /** Bloc signature, ligne à ligne (calé à droite). */
-  signature: string[];
   /** Bloc coordonnées du pied de page (courriers). */
   coordonnees: {
     adresse: string[];
@@ -60,11 +58,6 @@ const PAPETERIE_AMIENS: Papeterie = {
     qualite: 'substitut du Procureur de la République',
     ressort: "près le tribunal judiciaire d'AMIENS",
   },
-  signature: [
-    'P/ Le Procureur de la République',
-    'Audran CHEVALIER',
-    'Substitut',
-  ],
   coordonnees: {
     adresse: [
       "Tribunal Judiciaire d'Amiens",
@@ -99,8 +92,6 @@ export interface PapeteriePerso {
   prenomNom?: string;
   /** « substitut du procureur de la République » */
   qualite?: string;
-  /** Mention courte sous la signature (« Substitut »). */
-  fonctionCourte?: string;
   section?: string;
   sectionDetail?: string;
   thematiques?: string;
@@ -146,13 +137,13 @@ export function papeteriePersoParDefaut(nomAffiche: string, historique: boolean)
     const a = PAPETERIE_AMIENS;
     return {
       nomQualite: a.magistrat.nomQualite, prenomNom: a.magistrat.prenomNom, qualite: a.magistrat.qualite,
-      fonctionCourte: a.signature[2], section: a.section, sectionDetail: a.sectionDetail,
+      section: a.section, sectionDetail: a.sectionDetail,
       thematiques: a.coordonnees.thematiques, mail: 'audran.chevalier@justice.fr',
     };
   }
   return {
     nomQualite: nomAffiche, prenomNom: nomAffiche,
-    qualite: 'substitut du procureur de la République', fonctionCourte: 'Substitut',
+    qualite: 'substitut du procureur de la République',
     section: '', sectionDetail: '', thematiques: '', mail: '',
   };
 }
@@ -199,7 +190,6 @@ export function appliquerPapeterie(opts: {
     sectionDetail: m.sectionDetail || m.section,
     ville: t.ville,
     magistrat: { nomQualite: m.nomQualite, prenomNom: m.prenomNom, qualite: m.qualite, ressort: t.ressort },
-    signature: ['P/ Le Procureur de la République', m.prenomNom, m.fonctionCourte],
     coordonnees: {
       adresse: t.adresse,
       mails: [m.mail, ...t.mailsService].filter(Boolean),
@@ -210,11 +200,6 @@ export function appliquerPapeterie(opts: {
   Object.assign(PAPETERIE, next);
 }
 
-/** « Audran CHEVALIER, substitut, » — signataire des actes SAS / clôture. */
-export function signatairePapeterie(): string {
-  const fonction = (PAPETERIE.signature[2] || '').trim();
-  return `${PAPETERIE.magistrat.prenomNom}${fonction ? `, ${fonction.charAt(0).toLowerCase()}${fonction.slice(1)}` : ''},`;
-}
 
 /**
  * Trames ODT (Entraide) : elles portent l'en-tête et le pied de page du parquet

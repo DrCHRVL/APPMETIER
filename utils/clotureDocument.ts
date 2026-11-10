@@ -1,4 +1,4 @@
-import { PAPETERIE, signatairePapeterie } from '@/lib/web/papeterie';
+import { PAPETERIE } from '@/lib/web/papeterie';
 // utils/clotureDocument.ts
 //
 // Génération de la trame « soit-transmis » de contrôle JLD (art. 706-95 CPP)
@@ -32,9 +32,8 @@ export interface ClotureTemplate {
   beforeEcoutes: string;
   beforeGeolocs: string;
   footer: string;
-  // Signature
+  // Lieu
   lieu: string;
-  signataire: string;
 }
 
 /** Trame par défaut, construite sur la papeterie du TJ et du magistrat. */
@@ -54,7 +53,6 @@ export const defaultClotureTemplate = (): ClotureTemplate => ({
   footer:
     'Auprès de Monsieur le juge des libertés et de la détention et le prions de bien vouloir nous en faire retour revêtu de son visa.',
   lieu: PAPETERIE.ville,
-  signataire: signatairePapeterie(),
 });
 
 /**
@@ -134,9 +132,6 @@ export const buildClotureText = (
     template.footer,
     '',
     `Fait à ${template.lieu}, le ${dateStr}`,
-    '',
-    'P/le procureur de la République,',
-    template.signataire,
   ].join('\n');
 };
 
@@ -185,9 +180,6 @@ export const buildClotureHtml = (
     '<p>&nbsp;</p>',
     '<div style="text-align:right">',
     `<p>Fait à ${escapeHtml(template.lieu)}, le ${escapeHtml(dateStr)}</p>`,
-    '<p>&nbsp;</p>',
-    '<p>P/le procureur de la République,</p>',
-    `<p>${escapeHtml(template.signataire)}</p>`,
     '</div>',
   ].join('');
 };

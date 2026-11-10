@@ -357,15 +357,6 @@ function renderObjet(objet: string): string {
   return `<p style="margin:0 0 12pt 0;"><span style="font-weight:bold;text-decoration:underline;">Objet</span> : ${inlineMarkup(escapeHtml(objet))}</p>`
 }
 
-/** Bloc signature du courrier, calé à droite (P/ Le Procureur / Nom / Qualité). */
-function renderLetterSignature(): string {
-  const [l0, l1, l2] = PAPETERIE.signature
-  return '<div style="margin-top:18pt;">'
-    + `<div style="text-align:right;">${escapeHtml(l0 || '')}</div>`
-    + `<div style="text-align:right;font-weight:bold;">${escapeHtml(l1 || '')}</div>`
-    + `<div style="text-align:right;font-style:italic;">${escapeHtml(l2 || '')}</div>`
-    + '</div>'
-}
 
 /** Pied de page coordonnées du parquet (posé en pied de page Word réel). */
 export function letterFooterHtml(): string {
@@ -386,7 +377,6 @@ function letterHtml(p: ActeExportable, logo: string | undefined, footerInline: b
     renderLetterHeader(logo, addressee, dateStr),
     objet ? renderObjet(objet) : '',
     `<div>${acteBodyHtml(corps, graphiques)}</div>`,
-    renderLetterSignature(),
   ]
   if (footerInline) parts.push(letterFooterHtml())
   return `<div style="font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.5;color:#000;">

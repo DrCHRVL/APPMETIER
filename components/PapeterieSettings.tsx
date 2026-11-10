@@ -3,7 +3,7 @@
 /**
  * Paramètres → En-têtes des documents (administrateur du TJ).
  * Ce qui s'imprime en haut et en bas des documents produits par SIRAL dans ce
- * tribunal : actes, courriers, SAS, clôtures, trames Entraide, rapports PDF.
+ * tribunal : surtout les courriers de l'Entraide et l'export des statistiques.
  * Un champ laissé vide reprend la valeur grisée.
  */
 import React, { useMemo, useState } from 'react';
@@ -62,8 +62,9 @@ export const PapeterieSettings: React.FC = () => {
   return (
     <div className="space-y-5 max-w-2xl">
       <p className="text-xs text-gray-600 leading-relaxed">
-        Ce qui s&apos;imprime <b>en haut et en bas</b> des documents que SIRAL produit dans ce tribunal (actes, courriers,
-        SAS, clôtures, trames Entraide, rapports PDF). Un champ vide reprend la valeur grisée.
+        Ce qui s&apos;imprime <b>en haut et en bas</b> des documents que SIRAL produit dans ce tribunal : essentiellement
+        les <b>courriers de l&apos;Entraide</b> (soit-transmis, retours et relances aux autorités étrangères) et l&apos;<b>export
+        PDF des statistiques</b>. Un champ vide reprend la valeur grisée.
       </p>
 
       {/* Aperçu : ce que verra le destinataire */}
