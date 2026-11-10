@@ -13,6 +13,7 @@
 import fs from 'fs'
 import crypto from 'crypto'
 import { dataDir, ensureDir, readJson, writeJson, withFileLock, DEFAULT_TJ_ID } from './store'
+import { listTjs } from './tj'
 
 const SESSION_HOURS = 12
 const COOKIE_NAME = 'siral_session'
@@ -51,8 +52,13 @@ export interface Account {
   lastLoginAt?: string
 }
 
-/** TJ accessibles d'un compte — les comptes historiques relèvent du TJ par défaut. */
+/**
+ * TJ accessibles d'un compte. L'administrateur général les a TOUS (lui seul
+ * bascule de l'un à l'autre) ; un membre relève d'un seul TJ ; les comptes
+ * historiques relèvent du TJ par défaut.
+ */
 export function accountTjs(account: Account): string[] {
+  if (account.role === 'admin') return listTjs().map((t) => t.id)
   return account.tjs && account.tjs.length ? account.tjs : [DEFAULT_TJ_ID]
 }
 
@@ -71,9 +77,20 @@ export function isTjAdmin(account: Account | null, tj: string): boolean {
   return account.role === 'admin' || (account.tjAdmins || []).includes(tj)
 }
 
-/** Premier compte rattaché à un TJ → il en devient l'administrateur local. */
+/** Premier compte (hors administrateur général) d'un TJ → il en devient l'administrateur local. */
 export function initialTjAdmins(tj: string): string[] | undefined {
-  return listAccounts().some((a) => accountTjs(a).includes(tj)) ? undefined : [tj]
+  return listAccounts().some((a) => a.role !== 'admin' && accountTjs(a).includes(tj)) ? undefined : [tj]
+}
+
+/**
+ * Création des clés d'un TJ VIERGE : son administrateur local. L'administrateur
+ * général ne le fait que pour le TJ d'origine — ailleurs il accède par le
+ * séquestre, sans jamais détenir seul les clés d'un TJ.
+ */
+export function canInitializeTj(account: Account | null, tj: string): boolean {
+  if (!account || !accountTjs(account).includes(tj)) return false
+  if ((account.tjAdmins || []).includes(tj)) return true
+  return account.role === 'admin' && tj === DEFAULT_TJ_ID
 }
 
 function accountsPath() { return dataDir('accounts.json') }

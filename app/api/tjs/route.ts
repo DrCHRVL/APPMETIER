@@ -9,7 +9,7 @@
  */
 import { requireSession, handle, jsonResponse, listAccounts, accountTjs } from '@/lib/server/auth'
 import { listTjs, createTj, renameTj, regenerateTjCode, findTj } from '@/lib/server/tj'
-import { appendLog } from '@/lib/server/store'
+import { appendLog, listVaults, readVault } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,24 +26,43 @@ function requireAdmin(req: Request) {
 export async function GET(req: Request) {
   return handle(async () => {
     const session = requireAdmin(req)
-    const accounts = listAccounts()
-    const tjs = listTjs().map((t) => ({
-      id: t.id,
-      name: t.name,
-      hasCode: !!t.codeHash,
-      codeUpdatedAt: t.codeUpdatedAt || null,
-      createdAt: t.createdAt,
-      members: accounts.filter((a) => accountTjs(a).includes(t.id)).length,
-    }))
+    // Supervision : état de chaque TJ, sans aucun contenu (le serveur n'en a pas).
+    const membres = listAccounts().filter((a) => a.role !== 'admin')
+    const tjs = listTjs().map((t) => {
+      const vaults = listVaults(t.id)
+      const escrow = vaults.includes('escrow-keys')
+        ? readVault(t.id, 'escrow-keys') as unknown as { savedAt?: string, savedBy?: string }
+        : null
+      const duTj = membres.filter((a) => accountTjs(a).includes(t.id))
+      return {
+        id: t.id,
+        name: t.name,
+        hasCode: !!t.codeHash,
+        codeUpdatedAt: t.codeUpdatedAt || null,
+        createdAt: t.createdAt,
+        members: duTj.length,
+        admins: duTj.filter((a) => (a.tjAdmins || []).includes(t.id)).map((a) => a.displayName),
+        /** clés créées (au moins un trousseau) */
+        initialized: vaults.some((v) => v.startsWith('keyring-')),
+        /** comptes inscrits sans trousseau ni invitation : à traiter par l'admin local */
+        pending: duTj.filter((a) => !vaults.includes(`keyring-${a.username}`) && !vaults.includes(`grant-${a.username}`)).length,
+        /** séquestre déposé pour l'administrateur général */
+        escrow: escrow ? { savedAt: escrow.savedAt || null, savedBy: escrow.savedBy || null } : null,
+        /** l'administrateur général a son propre trousseau dans ce TJ */
+        myAccess: vaults.includes(`keyring-${session.u}`),
+      }
+    })
     return jsonResponse({
       tjs,
       activeTj: session.tj,
-      accounts: accounts.map((a) => ({
+      accounts: listAccounts().map((a) => ({
         username: a.username,
         displayName: a.displayName,
         role: a.role,
         tjs: accountTjs(a),
         tjAdmins: (a.tjAdmins || []).filter((id) => accountTjs(a).includes(id)),
+        lastLoginAt: a.lastLoginAt || null,
+        createdAt: a.createdAt,
       })),
     })
   })
@@ -56,9 +75,9 @@ export async function POST(req: Request) {
     if (typeof name !== 'string' || name.trim().length < 2) {
       return jsonResponse({ error: 'Nom de tribunal requis' }, { status: 400 })
     }
-    // Pas de rattachement d'office de l'administrateur du serveur : le premier
-    // inscrit avec le code devient l'administrateur local du TJ et en crée les
-    // clés — l'administrateur du serveur ne détient pas les clés des autres TJ.
+    // Le premier inscrit avec le code devient l'administrateur local du TJ et
+    // en crée les clés ; l'administrateur général y accède par le séquestre
+    // que cet administrateur local dépose.
     const { entry, code } = await createTj(name, session.u)
     await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: session.u, action: 'tj.create', details: { tj: entry.id, name: entry.name } })
     return jsonResponse({ ok: true, tj: { id: entry.id, name: entry.name }, code })

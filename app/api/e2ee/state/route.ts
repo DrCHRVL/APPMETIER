@@ -7,7 +7,7 @@
  *  - anyKeyrings  : au moins un trousseau existe dans ce TJ
  *  - canInitialize: je suis l'administrateur de ce TJ (création des clés)
  */
-import { requireTjSession, handle, jsonResponse, findAccount, isTjAdmin } from '@/lib/server/auth'
+import { requireTjSession, handle, jsonResponse, findAccount, isTjAdmin, canInitializeTj } from '@/lib/server/auth'
 import { tjDataDir, readJson, listVaults, readVault } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
@@ -19,6 +19,9 @@ export async function GET(req: Request) {
     const vaults = listVaults(session.tj)
     const grantName = `grant-${session.u}`
     const grant = vaults.includes(grantName) ? readVault(session.tj, grantName) : null
+    const escrow = vaults.includes('escrow-keys')
+      ? readVault(session.tj, 'escrow-keys') as unknown as { publicId?: string, fp?: string, scopes?: string[], savedAt?: string }
+      : null
     return jsonResponse({
       legacyKdf: !!kdf,
       legacyKdfParams: kdf,
@@ -26,8 +29,12 @@ export async function GET(req: Request) {
       hasGrant: !!grant,
       grantKdf: grant ? { salt: grant.kdfSalt, iterations: grant.kdfIterations, grantedBy: grant.savedBy } : null,
       anyKeyrings: vaults.some((v) => v.startsWith('keyring-')),
-      // TJ vierge : seul son administrateur peut en créer les clés
-      canInitialize: isTjAdmin(findAccount(session.u), session.tj),
+      // TJ vierge : seul son administrateur local peut en créer les clés
+      canInitialize: canInitializeTj(findAccount(session.u), session.tj),
+      // administrateur du TJ : dépose le séquestre pour l'administrateur général
+      isTjAdmin: isTjAdmin(findAccount(session.u), session.tj),
+      // séquestre (métadonnées non secrètes : quelle paire, quelles clés)
+      escrow: escrow ? { publicId: escrow.publicId, fp: escrow.fp, scopes: escrow.scopes || [], savedAt: escrow.savedAt || null } : null,
     })
   })
 }

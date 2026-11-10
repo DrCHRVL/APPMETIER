@@ -20,6 +20,10 @@ export async function GET(req: Request, { params }: { params: { name: string, fi
     if (keyring && keyring[1] !== session.u) {
       return jsonResponse({ error: 'Lecture non autorisée sur ce trousseau' }, { status: 403 })
     }
+    // Séquestre : administrateur général seul, historique compris.
+    if (params.name === 'escrow-keys' && session.r !== 'admin') {
+      return jsonResponse({ error: 'Réservé à l’administrateur général' }, { status: 403 })
+    }
     const envelope = readVaultVersion(session.tj, params.name, file)
     if (!envelope) return jsonResponse({ exists: false }, { status: 404 })
     return jsonResponse({ exists: true, envelope })

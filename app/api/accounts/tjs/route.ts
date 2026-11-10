@@ -1,13 +1,9 @@
 /**
- * Rattachement d'un compte à un ou plusieurs TJ — réservé à l'administrateur.
- * POST { username, tjs: string[], tjAdmins?: string[] } : remplace la liste
- * des TJ accessibles et, si fourni, celle des TJ dont le compte est
- * l'administrateur local (gestion des accès de ce TJ).
- *
- * C'est ici que l'admin autorise (rarissime) un utilisateur à accéder à un
- * second TJ. L'accès aux DONNÉES du TJ supplémentaire nécessite ensuite une
- * invitation E2EE déposée par l'admin depuis ce TJ (Accès & clés) : le
- * rattachement seul n'ouvre aucun coffre.
+ * Rattachement d'un compte à SON tribunal — réservé à l'administrateur général.
+ * POST { username, tjs: [tj], tjAdmins?: string[] } : fixe le TJ du compte
+ * (un seul : étanchéité entre TJ) et, si fourni, s'il en est l'administrateur
+ * local. Changer de TJ n'ouvre aucune donnée : il faut ensuite une invitation
+ * de l'administrateur du nouveau TJ.
  */
 import { requireSession, handle, jsonResponse, findAccount, saveAccount, accountTjs } from '@/lib/server/auth'
 import { findTj } from '@/lib/server/tj'
@@ -25,13 +21,17 @@ export async function POST(req: Request) {
     }
     const account = findAccount(username)
     if (!account) return jsonResponse({ error: 'Compte introuvable' }, { status: 404 })
+    if (account.role === 'admin') {
+      return jsonResponse({ error: 'L’administrateur général accède à tous les tribunaux' }, { status: 400 })
+    }
     const clean: string[] = []
     for (const id of tjs) {
       if (typeof id !== 'string' || !findTj(id)) return jsonResponse({ error: `Tribunal inconnu : ${id}` }, { status: 400 })
       if (!clean.includes(id)) clean.push(id)
     }
-    if (username === session.u && !clean.includes(session.tj)) {
-      return jsonResponse({ error: 'Basculez d’abord sur un autre tribunal avant de vous détacher de celui-ci' }, { status: 400 })
+    // Étanchéité : un membre relève d'un seul tribunal.
+    if (clean.length !== 1) {
+      return jsonResponse({ error: 'Un compte relève d’un seul tribunal' }, { status: 400 })
     }
     const before = accountTjs(account)
     const adminsBefore = account.tjAdmins || []

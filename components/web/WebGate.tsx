@@ -25,13 +25,49 @@ import {
 } from '@/lib/web/keyring'
 import { idb, setIdbNamespace } from '@/lib/web/idb'
 import * as offlineMode from '@/lib/web/offlineMode'
+import {
+  generateEscrowKeypair, openPrivateKey, openEscrow, sealForEscrow, keysFingerprint, escrowNeedsUpdate,
+  type EscrowEnvelope, type PrivateKeyEnvelope,
+} from '@/lib/web/escrow'
 import { NetworkStatusManager } from '@/utils/networkStatusManager'
 
-type Phase = 'boot' | 'login' | 'register' | 'unlock' | 'create-fresh' | 'migrate' | 'redeem' | 'no-access' | 'recovery-kit' | 'offline-unlock' | 'ready'
+type Phase = 'boot' | 'login' | 'register' | 'unlock' | 'create-fresh' | 'migrate' | 'redeem' | 'escrow-access' | 'no-access' | 'recovery-kit' | 'offline-unlock' | 'ready'
 
 export interface TjInfo { id: string, name: string }
 
 const KEYRING_STORE = '__siral_keyring__'
+
+/**
+ * Tient à jour le séquestre de l'administrateur général :
+ *  - lui-même, au TJ d'origine, crée sa paire de clés si elle manque ;
+ *  - l'administrateur LOCAL d'un TJ y dépose une copie des clés du TJ scellée
+ *    pour la clé publique de l'administrateur général.
+ */
+async function maintenirSequestre(keys: Record<string, string>, identity: BridgeIdentity, phrase: string, state: E2eeState | null): Promise<void> {
+  const tjId = window.__SIRAL_TJ__?.active?.id || 'default'
+  const pub = await apiJson('/api/escrow')
+  if (identity.role === 'admin') {
+    if (pub.status === 404 && tjId === 'default' && phrase) {
+      const pair = await generateEscrowKeypair(phrase)
+      await fetch('/api/escrow', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(pair), credentials: 'same-origin',
+      })
+    }
+    return
+  }
+  if (!state?.isTjAdmin || pub.status !== 200) return
+  const publicSpki = String(pub.json.publicSpki)
+  const publicId = String(pub.json.publicId)
+  const mine = { publicId, fp: await keysFingerprint(keys), scopes: Object.keys(keys).sort() }
+  if (!escrowNeedsUpdate(state.escrow ?? null, mine)) return
+  const env = await sealForEscrow(publicSpki, keys, identity.username)
+  await fetch('/api/vaults/escrow-keys', {
+    method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(env), credentials: 'same-origin',
+  })
+}
+
 const LEGACY_KEY_STORE = '__siral_cryptokey__'
 
 interface E2eeState {
@@ -41,8 +77,12 @@ interface E2eeState {
   hasGrant: boolean
   grantKdf: { salt: string, iterations: number, grantedBy?: string } | null
   anyKeyrings: boolean
-  /** Je suis l'administrateur de ce TJ : je peux en créer les clés s'il est vierge. */
+  /** Je suis l'administrateur local de ce TJ : je peux en créer les clés s'il est vierge. */
   canInitialize?: boolean
+  /** Je suis administrateur de ce TJ : je dépose le séquestre pour l'administrateur général. */
+  isTjAdmin?: boolean
+  /** Séquestre des clés du TJ pour l'administrateur général (métadonnées). */
+  escrow?: { publicId: string, fp: string, scopes: string[], savedAt: string | null } | null
 }
 
 declare global {
@@ -113,6 +153,9 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   const [servicePass, setServicePass] = useState('')
   const [inviteCode, setInviteCode] = useState('')
   const [pass1, setPass1] = useState('')
+  // identité et état E2EE courants, lus hors du cycle de rendu (routage, séquestre)
+  const meRef = useRef<BridgeIdentity | null>(null)
+  const e2eeRef = useRef<E2eeState | null>(null)
   const [pass2, setPass2] = useState('')
   // Code de déverrouillage hors-ligne (mode « poste préparé », cf. offlineMode)
   const [offlineCode, setOfflineCode] = useState('')
@@ -181,10 +224,14 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     if (!res.ok) throw new Error('Dépôt du trousseau refusé (' + res.status + ')')
   }, [])
 
-  const finishUnlock = useCallback(async (payload: KeyringPayload, identity: BridgeIdentity, offerKit = false) => {
+  const finishUnlock = useCallback(async (payload: KeyringPayload, identity: BridgeIdentity, offerKit = false, phrase = '') => {
     const scoped = await buildScopedKeys(payload)
     const ok = await verifyOrCreateCanary(scoped.global, identity)
     if (ok !== true) throw new Error(ok)
+    // Séquestre pour l'administrateur général (best-effort, jamais bloquant).
+    maintenirSequestre(payload.keys, identity, phrase, e2eeRef.current).catch((e) => {
+      console.warn('Séquestre administrateur général non mis à jour', e)
+    })
     // Mémoriser la session en mémoire vive : permet de « préparer ce poste »
     // (mode hors-ligne) sans redemander la phrase personnelle. Prolonge aussi
     // la fenêtre hors-ligne si un poste a déjà été préparé.
@@ -255,6 +302,8 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     else if (state.hasGrant) setPhase('redeem')
     else if (state.legacyKdf && !state.anyKeyrings) setPhase('migrate')
     else if (!state.legacyKdf && !state.anyKeyrings && state.canInitialize) setPhase('create-fresh')
+    // administrateur général : accès au TJ par le séquestre déposé par son admin local
+    else if (meRef.current?.role === 'admin' && state.anyKeyrings && state.escrow) setPhase('escrow-access')
     else setPhase('no-access')
   }, [])
 
@@ -262,6 +311,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     const { status, json } = await apiJson('/api/e2ee/state')
     if (status !== 200) { setError('État du serveur indisponible'); return null }
     const state = json as unknown as E2eeState
+    e2eeRef.current = state
     setE2ee(state)
     routeByState(state)
     return state
@@ -279,6 +329,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     setIdbNamespace(active.id)
     window.__SIRAL_TJ__ = { active, tjs: (json.tjs as TjInfo[] | undefined) || [active] }
     setTj(active)
+    meRef.current = identity
     setMe(identity)
     return identity
   }, [])
@@ -395,7 +446,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       } catch {
         throw new Error('Phrase personnelle incorrecte')
       }
-      await finishUnlock(payload, me)
+      await finishUnlock(payload, me, false, pass1)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Déverrouillage impossible')
     } finally { setBusy(false) }
@@ -432,7 +483,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       requirePersonalPhrase()
       const payload = freshKeyringPayload()
       await pushKeyring(payload, pass1, me)
-      await finishUnlock(payload, me, true)
+      await finishUnlock(payload, me, true, pass1)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Création impossible')
     } finally { setBusy(false) }
@@ -476,9 +527,39 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       const now = new Date().toISOString()
       const payload: KeyringPayload = { v: 1, keys, createdAt: now, updatedAt: now }
       await pushKeyring(payload, pass1, me)
-      await finishUnlock(payload, me, true)
+      await finishUnlock(payload, me, true, pass1)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Migration impossible')
+    } finally { setBusy(false) }
+  }
+
+  /**
+   * Administrateur général : ouvre le séquestre du TJ avec sa clé
+   * d'administration (protégée par sa phrase personnelle), puis range les clés
+   * dans son propre trousseau pour ce TJ (même phrase).
+   */
+  const doEscrowAccess = async () => {
+    if (!me) return
+    setBusy(true); setError('')
+    try {
+      if (!pass1) throw new Error('Saisissez votre phrase personnelle')
+      const priv = await apiJson('/api/escrow?prive=1')
+      if (priv.status !== 200) throw new Error('Clé d’administration générale absente : déverrouillez d’abord le tribunal d’origine')
+      const privateKey = await openPrivateKey(priv.json.privateEnvelope as unknown as PrivateKeyEnvelope, pass1)
+      const sq = await apiJson('/api/vaults/escrow-keys')
+      if (sq.status !== 200) throw new Error('Séquestre de ce tribunal introuvable')
+      let keys: Record<string, string>
+      try {
+        keys = await openEscrow(privateKey, sq.json.envelope as unknown as EscrowEnvelope)
+      } catch {
+        throw new Error('Séquestre scellé pour une autre clé d’administration : l’administrateur local doit se reconnecter')
+      }
+      const now = new Date().toISOString()
+      const payload: KeyringPayload = { v: 1, keys, createdAt: now, updatedAt: now }
+      await pushKeyring(payload, pass1, me)
+      await finishUnlock(payload, me, false, pass1)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Accès impossible')
     } finally { setBusy(false) }
   }
 
@@ -506,7 +587,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       await pushKeyring(payload, pass1, me)
       // invitation consommée : on la supprime (best effort)
       fetch(`/api/vaults/grant-${encodeURIComponent(me.username)}`, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {})
-      await finishUnlock(payload, me, true)
+      await finishUnlock(payload, me, true, pass1)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Invitation invalide')
     } finally { setBusy(false) }
@@ -726,11 +807,31 @@ export function WebGate({ children }: { children: React.ReactNode }) {
           </>
         )}
 
+        {phase === 'escrow-access' && (
+          <>
+            {me && <span className="siral-user">Connecté : {me.displayName}{tj?.name ? ` · ${tj.name}` : ''}</span>}
+            <div className="siral-title">Accès administrateur général</div>
+            <div className="siral-text">Vous ouvrez {tj?.name ? <b>{tj.name}</b> : 'ce tribunal'} en qualité d&apos;administrateur
+              général. Votre phrase personnelle ouvre votre clé d&apos;administration, puis la copie des clés de ce tribunal
+              déposée par son administrateur local. Cet accès est journalisé.</div>
+            <input className="siral-input" type="password" placeholder="Phrase personnelle" value={pass1}
+              onChange={(e) => setPass1(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') doEscrowAccess() }} />
+            <button className="siral-btn" onClick={doEscrowAccess} disabled={busy || !pass1}>
+              {busy ? 'Ouverture…' : 'Ouvrir l’accès'}
+            </button>
+            {error && <div className="siral-error">{error}</div>}
+          </>
+        )}
+
         {phase === 'no-access' && (
           <>
             {me && <span className="siral-user">Connecté : {me.displayName}{tj?.name ? ` · ${tj.name}` : ''}</span>}
             <div className="siral-title">Accès en attente</div>
-            {e2ee && !e2ee.anyKeyrings && !e2ee.legacyKdf ? (
+            {me?.role === 'admin' && e2ee?.anyKeyrings && !e2ee.escrow ? (
+              <div className="siral-text">Ce tribunal est initialisé, mais son administrateur local n&apos;a pas encore déposé
+                l&apos;accès de l&apos;administrateur général : il le sera automatiquement à sa prochaine connexion.</div>
+            ) : e2ee && !e2ee.anyKeyrings && !e2ee.legacyKdf ? (
               <div className="siral-text">Ce tribunal n&apos;est pas encore initialisé. Son <b>administrateur</b> doit s&apos;y
                 connecter en premier pour créer ses clés de chiffrement, puis vous inviter.</div>
             ) : (

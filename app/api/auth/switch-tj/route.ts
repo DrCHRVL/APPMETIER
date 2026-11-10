@@ -16,6 +16,8 @@ export const dynamic = 'force-dynamic'
 export async function POST(req: Request) {
   return handle(async () => {
     const session = requireSession(req)
+    // Basculer de TJ : administrateur général seulement (un membre relève d'un seul TJ).
+    if (session.r !== 'admin') return jsonResponse({ error: 'Réservé à l’administrateur général' }, { status: 403 })
     const { tj } = await req.json().catch(() => ({}))
     if (typeof tj !== 'string' || !findTj(tj)) return jsonResponse({ error: 'Tribunal inconnu' }, { status: 400 })
     const account = findAccount(session.u)

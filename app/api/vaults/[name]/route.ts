@@ -3,10 +3,12 @@
  * version (l'ancienne est archivée automatiquement, historique immuable).
  * Tous les accès sont cloisonnés dans l'espace du TJ actif de la session.
  */
-import { requireTjSession, handle, jsonResponse, findAccount, isTjAdmin } from '@/lib/server/auth'
+import { requireTjSession, handle, jsonResponse, findAccount, isTjAdmin, canInitializeTj } from '@/lib/server/auth'
 import { readVault, writeVault, deleteVault, isSafeName, appendLog, listVaults } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
+
+const ESCROW_VAULT = 'escrow-keys'
 
 export async function GET(req: Request, { params }: { params: { name: string } }) {
   return handle(async () => {
@@ -20,6 +22,11 @@ export async function GET(req: Request, { params }: { params: { name: string } }
     const keyring = /^keyring-(.+)$/.exec(params.name)
     if (keyring && keyring[1] !== session.u) {
       return jsonResponse({ error: 'Lecture non autorisée sur ce trousseau' }, { status: 403 })
+    }
+    // Séquestre des clés du TJ : lisible par l'administrateur général seul.
+    if (params.name === ESCROW_VAULT) {
+      if (session.r !== 'admin') return jsonResponse({ error: 'Réservé à l’administrateur général' }, { status: 403 })
+      await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: session.u, action: 'escrow.read', details: { tj: session.tj } })
     }
     const envelope = readVault(session.tj, params.name)
     if (!envelope) return jsonResponse({ exists: false }, { status: 404 })
@@ -35,6 +42,10 @@ export async function PUT(req: Request, { params }: { params: { name: string } }
     // une invitation n'est déposable que par l'administrateur du TJ — sinon
     // tout membre pourrait écraser le trousseau d'autrui ou empoisonner une
     // invitation.
+    // Séquestre : déposé par l'administrateur du TJ (pour l'administrateur général).
+    if (params.name === ESCROW_VAULT && !isTjAdmin(findAccount(session.u), session.tj)) {
+      return jsonResponse({ error: 'Réservé à l’administrateur de ce tribunal' }, { status: 403 })
+    }
     const access = /^(keyring|grant)-(.+)$/.exec(params.name)
     if (access) {
       const tjAdmin = isTjAdmin(findAccount(session.u), session.tj)
@@ -52,10 +63,12 @@ export async function PUT(req: Request, { params }: { params: { name: string } }
         const first = !vaults.includes(params.name) && !vaults.includes(`grant-${session.u}`)
         if (first) {
           const virgin = !vaults.some((v) => v.startsWith('keyring-'))
-          if (!virgin) {
+          // l'administrateur général tire son trousseau du séquestre
+          const viaEscrow = session.r === 'admin' && !virgin && vaults.includes(ESCROW_VAULT)
+          if (!virgin && !viaEscrow) {
             return jsonResponse({ error: 'Ce tribunal est déjà initialisé : demandez une invitation à son administrateur' }, { status: 403 })
           }
-          if (!tjAdmin) {
+          if (virgin && !canInitializeTj(findAccount(session.u), session.tj)) {
             return jsonResponse({ error: 'Seul l’administrateur de ce tribunal peut en initialiser les clés' }, { status: 403 })
           }
         }

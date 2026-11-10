@@ -28,6 +28,16 @@ interface TjRow {
   codeUpdatedAt: string | null;
   createdAt: string;
   members: number;
+  /** administrateurs locaux (noms) */
+  admins: string[];
+  /** clés du TJ créées */
+  initialized: boolean;
+  /** inscrits en attente d'invitation */
+  pending: number;
+  /** séquestre déposé pour l'administrateur général */
+  escrow: { savedAt: string | null, savedBy: string | null } | null;
+  /** l'administrateur général a déjà son trousseau dans ce TJ */
+  myAccess: boolean;
 }
 
 interface AccountRow {
@@ -37,6 +47,7 @@ interface AccountRow {
   tjs: string[];
   /** TJ dont le compte est l'administrateur local. */
   tjAdmins?: string[];
+  lastLoginAt?: string | null;
 }
 
 async function apiJson(path: string, body?: unknown, method?: string): Promise<{ status: number, json: Record<string, unknown> }> {
@@ -130,21 +141,24 @@ export const AdminTJPanel = () => {
     load();
   };
 
-  const handleToggleAccess = async (account: AccountRow, tjId: string) => {
-    const has = account.tjs.includes(tjId);
-    const next = has ? account.tjs.filter(t => t !== tjId) : [...account.tjs, tjId];
-    if (next.length === 0) { showToast('Un compte doit rester rattaché à au moins un tribunal', 'error'); return; }
+  /** Un membre relève d'un seul TJ : le déplacer retire l'accès à l'ancien. */
+  const handleMove = async (account: AccountRow, tjId: string) => {
+    if (account.tjs[0] === tjId) return;
+    if (!confirm(`Déplacer ${account.displayName} vers ${nameOf(tjId)} ? Son accès à ${nameOf(account.tjs[0])} sera coupé ; l'administrateur de ${nameOf(tjId)} devra l'inviter.`)) return;
     setBusy(true);
-    const { status, json } = await apiJson('/api/accounts/tjs', { username: account.username, tjs: next });
+    const { status, json } = await apiJson('/api/accounts/tjs', { username: account.username, tjs: [tjId], tjAdmins: [] });
     setBusy(false);
     if (status !== 200) { showToast(String(json.error || 'Modification refusée'), 'error'); return; }
-    showToast(
-      has
-        ? `Accès de ${account.displayName} au TJ retiré`
-        : `${account.displayName} rattaché — l'administrateur de ce TJ doit ensuite l'inviter`,
-      'success'
-    );
+    showToast(`${account.displayName} rattaché à ${nameOf(tjId)} — son administrateur doit l'inviter`, 'success');
     load();
+  };
+
+  /** Bascule l'administrateur général sur un autre TJ (rechargement complet : rien n'est partagé). */
+  const handleSwitch = async (tjId: string) => {
+    setBusy(true);
+    const { status, json } = await apiJson('/api/auth/switch-tj', { tj: tjId });
+    if (status !== 200) { setBusy(false); showToast(String(json.error || 'Bascule refusée'), 'error'); return; }
+    window.location.reload();
   };
 
   const handleToggleTjAdmin = async (account: AccountRow, tjId: string) => {
@@ -183,8 +197,9 @@ export const AdminTJPanel = () => {
           instruction, AIR, documents et clés de chiffrement. Aucun partage n&apos;est possible entre tribunaux
           (secret de l&apos;enquête). Le code d&apos;accès d&apos;un TJ n&apos;est demandé qu&apos;à la <b>première inscription</b> d&apos;un
           utilisateur. Chaque TJ a son <b>administrateur local</b> (le premier inscrit, ou celui que vous désignez
-          ci-dessous) : lui seul crée les clés du TJ, invite ses collègues, règle leurs habilitations et la papeterie.
-          Vous ne détenez pas les clés des TJ que vous créez.
+          ci-dessous) : lui seul crée les clés du TJ, invite ses collègues, règle leurs habilitations, modules et
+          papeterie — sans vous. À chaque connexion, il dépose pour vous une copie des clés du TJ scellée par votre clé
+          d&apos;administration : vous seul pouvez ouvrir un autre tribunal (« Ouvrir »), et chaque ouverture est journalisée.
         </p>
       </div>
 
@@ -251,6 +266,16 @@ export const AdminTJPanel = () => {
                       <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">actif</span>
                     )}
                   </div>
+                  <div className="text-[11px] text-gray-600 flex flex-wrap items-center gap-x-1.5">
+                    <span>Admin local : <b>{tj.admins.length ? tj.admins.join(', ') : (tj.id === 'default' ? 'vous' : 'aucun')}</b></span>
+                    <span className="text-gray-300">·</span>
+                    <span>{tj.initialized ? 'clés créées' : <span className="text-amber-700">clés non créées</span>}</span>
+                    {tj.pending > 0 && (<><span className="text-gray-300">·</span><span className="text-amber-700">{tj.pending} en attente d&apos;invitation</span></>)}
+                    {tj.id !== 'default' && (<>
+                      <span className="text-gray-300">·</span>
+                      <span>{tj.myAccess ? 'votre accès : ouvert' : tj.escrow ? 'votre accès : prêt' : <span className="text-amber-700">votre accès : pas encore déposé</span>}</span>
+                    </>)}
+                  </div>
                   <div className="text-[11px] text-gray-500 flex items-center gap-1.5">
                     <Users className="h-3 w-3" />
                     {tj.members} compte{tj.members > 1 ? 's' : ''}
@@ -264,6 +289,16 @@ export const AdminTJPanel = () => {
             </div>
             {editingId !== tj.id && (
               <div className="flex items-center gap-1 flex-shrink-0">
+                {tj.id !== activeTj && (
+                  <button
+                    className="text-[11px] font-semibold text-emerald-700 border border-emerald-200 hover:bg-emerald-50 rounded px-2 py-1 disabled:opacity-50"
+                    title="Basculer sur ce tribunal (l'application se recharge : aucune donnée n'est partagée entre TJ)"
+                    onClick={() => handleSwitch(tj.id)}
+                    disabled={busy}
+                  >
+                    Ouvrir
+                  </button>
+                )}
                 <button
                   className="p-1.5 rounded hover:bg-gray-100"
                   title="Renommer"
@@ -342,9 +377,9 @@ export const AdminTJPanel = () => {
           Rattachement des comptes aux tribunaux
         </h4>
         <p className="text-[11px] text-gray-500 mt-1 mb-2 leading-relaxed">
-          Case de gauche : rattachement au TJ. Bouclier : <b>administrateur local</b> de ce TJ. Autoriser un compte sur
-          plusieurs TJ est exceptionnel ; le rattachement seul n&apos;ouvre <b>aucune donnée</b> : l&apos;administrateur du TJ
-          doit ensuite l&apos;inviter. Retirer un rattachement bloque immédiatement l&apos;accès à ce TJ.
+          Chaque compte relève d&apos;<b>un seul</b> tribunal (bouton rond) ; bouclier : <b>administrateur local</b>. Le
+          déplacer coupe immédiatement son accès à l&apos;ancien TJ et n&apos;ouvre <b>aucune donnée</b> du nouveau : son
+          administrateur doit l&apos;inviter. Vous seul accédez à tous les tribunaux (bouton « Ouvrir »).
         </p>
         <div className="border border-gray-200 rounded-lg overflow-x-auto">
           <table className="w-full text-sm">
@@ -361,30 +396,38 @@ export const AdminTJPanel = () => {
                 <tr key={a.username}>
                   <td className="px-3 py-2">
                     <div className="font-medium text-gray-800">{a.displayName}</div>
-                    <div className="text-[11px] text-gray-400">{a.username}{a.role === 'admin' ? ' · admin' : ''}</div>
+                    <div className="text-[11px] text-gray-400">
+                      {a.username}{a.role === 'admin' ? ' · administrateur général' : ''}
+                      {a.lastLoginAt ? ` · vu le ${new Date(a.lastLoginAt).toLocaleDateString('fr-FR')}` : ''}
+                    </div>
                   </td>
                   {tjs.map(tj => (
                     <td key={tj.id} className="px-3 py-2">
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-emerald-600 disabled:opacity-40"
-                          checked={a.tjs.includes(tj.id)}
-                          disabled={busy}
-                          title="Rattachement à ce tribunal"
-                          onChange={() => handleToggleAccess(a, tj.id)}
-                        />
-                        {a.role !== 'admin' && a.tjs.includes(tj.id) && (
-                          <button
-                            className={`p-0.5 rounded hover:bg-gray-100 disabled:opacity-40 ${(a.tjAdmins || []).includes(tj.id) ? 'text-emerald-600' : 'text-gray-300'}`}
+                      {a.role === 'admin' ? (
+                        <span className="text-[11px] text-gray-400">accès général</span>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="radio"
+                            name={`tj-${a.username}`}
+                            className="h-4 w-4 accent-emerald-600 disabled:opacity-40"
+                            checked={a.tjs.includes(tj.id)}
                             disabled={busy}
-                            title={(a.tjAdmins || []).includes(tj.id) ? 'Administrateur de ce tribunal — cliquer pour retirer' : 'Désigner administrateur de ce tribunal'}
-                            onClick={() => handleToggleTjAdmin(a, tj.id)}
-                          >
-                            <ShieldCheck className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
+                            title="Tribunal de rattachement (un seul)"
+                            onChange={() => handleMove(a, tj.id)}
+                          />
+                          {a.tjs.includes(tj.id) && (
+                            <button
+                              className={`p-0.5 rounded hover:bg-gray-100 disabled:opacity-40 ${(a.tjAdmins || []).includes(tj.id) ? 'text-emerald-600' : 'text-gray-300'}`}
+                              disabled={busy}
+                              title={(a.tjAdmins || []).includes(tj.id) ? 'Administrateur de ce tribunal — cliquer pour retirer' : 'Désigner administrateur de ce tribunal'}
+                              onClick={() => handleToggleTjAdmin(a, tj.id)}
+                            >
+                              <ShieldCheck className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </td>
                   ))}
                 </tr>
@@ -400,9 +443,8 @@ export const AdminTJPanel = () => {
       <div className="flex items-start gap-2 text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-3 leading-relaxed">
         <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
         <span>
-          Rappel : les modules (cartographie, instruction, enquêtes/AIR) et leurs partages entre collègues restent
-          internes à chaque tribunal. Un utilisateur rattaché à deux TJ voit deux espaces totalement disjoints et
-          bascule de l&apos;un à l&apos;autre via le sélecteur de la barre latérale — jamais les deux à la fois.
+          Rappel : données, cartographie, statistiques, papeterie et documents restent internes à chaque tribunal.
+          En basculant, l&apos;application se recharge entièrement sur l&apos;espace du TJ ouvert — jamais deux TJ à la fois.
         </span>
       </div>
     </div>
