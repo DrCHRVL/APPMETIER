@@ -3,8 +3,8 @@
 // Génération des courriers T1–T4 (OpenDocument) à partir des modèles
 // public/modeles/entraide/<doc>_<langue>.odt — les trames du service,
 // balisées {{cle}}. Le modèle est rempli tel quel (mise en page et logo
-// intacts) ; la signature du magistrat n'est apposée que si le courrier a
-// été validé par lui (événement « signature »).
+// intacts) ; le courrier téléchargé est imprimé, signé et envoyé hors de
+// l'application.
 
 import PizZip from 'pizzip';
 import { PAPETERIE, adapterTrameOdt } from '@/lib/web/papeterie';
@@ -44,10 +44,8 @@ export interface ContexteDocument {
   langue: EntraideLangue;
   autorite: AutoriteEtrangere | null;
   service: ServiceEnqueteur | null;
-  /** Signataire dont le nom figure au bas du courrier. */
+  /** Magistrat dont les coordonnées et le nom figurent sur le courrier. */
   signataire: SignataireEntraide | null;
-  /** Apposer l'image de signature (courrier validé par ce signataire). */
-  avecSignature: boolean;
   /** Date portée sur le courrier (défaut : aujourd'hui). */
   date?: string;
 }
@@ -112,25 +110,6 @@ export function variablesDocument(ctx: ContexteDocument): Record<string, string>
   return v;
 }
 
-async function dimensionsImage(dataUrl: string): Promise<{ w: number; h: number }> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve({ w: img.naturalWidth || 400, h: img.naturalHeight || 150 });
-    img.onerror = () => resolve({ w: 400, h: 150 });
-    img.src = dataUrl;
-  });
-}
-
-function dataUrlVersOctets(dataUrl: string): { octets: Uint8Array; mime: string; ext: string } | null {
-  const m = /^data:(image\/(png|jpe?g));base64,(.+)$/i.exec(dataUrl || '');
-  if (!m) return null;
-  const bin = atob(m[3]);
-  const octets = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) octets[i] = bin.charCodeAt(i);
-  const ext = m[2].toLowerCase() === 'png' ? 'png' : 'jpg';
-  return { octets, mime: m[1].toLowerCase().replace('jpg', 'jpeg'), ext };
-}
-
 /** Remplit le modèle et rend le fichier .odt. */
 export async function genererDocument(ctx: ContexteDocument): Promise<Blob> {
   const res = await fetch(`/modeles/entraide/${ctx.doc}_${ctx.langue}.odt`, { credentials: 'same-origin' });
@@ -151,22 +130,9 @@ export async function genererDocument(ctx: ContexteDocument): Promise<Blob> {
   content = content.replace(/<text:list-item>((?:(?!<\/text:list-item>)[\s\S])*?)\{\{mesure\}\}([\s\S]*?)<\/text:list-item>/, (_m, avant, apres) =>
     lignes.map((l) => `<text:list-item>${avant}${xml(l)}${apres}</text:list-item>`).join(''));
 
-  // Signature : image du magistrat, uniquement sur un courrier qu'il a validé.
-  const image = ctx.avecSignature && ctx.signataire?.signature ? dataUrlVersOctets(ctx.signataire.signature) : null;
-  if (image) {
-    const { w, h } = await dimensionsImage(ctx.signataire!.signature!);
-    const largeur = 4.5;
-    const hauteur = Math.min(2.6, (largeur * h) / Math.max(1, w));
-    const chemin = `media/signature.${image.ext}`;
-    zip.file(chemin, image.octets, { binary: true });
-    const manifest = zip.file('META-INF/manifest.xml')!.asText()
-      .replace('</manifest:manifest>', `<manifest:file-entry manifest:full-path="${chemin}" manifest:media-type="${image.mime}"/></manifest:manifest>`);
-    zip.file('META-INF/manifest.xml', manifest);
-    content = content.replace(/(<text:p text:style-name="[^"]+">)\{\{signature\}\}(<\/text:p>)/,
-      `$1<draw:frame draw:name="signature" text:anchor-type="as-char" svg:width="${largeur}cm" svg:height="${hauteur.toFixed(2)}cm" draw:z-index="10"><draw:image xlink:href="${chemin}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/></draw:frame>$2`);
-  } else {
-    content = content.replace(/<text:p text:style-name="[^"]+">\{\{signature\}\}<\/text:p>/, '');
-  }
+  // Les courriers sont signés à la main, hors de l'application : la ligne
+  // {{signature}} des modèles (ancien emplacement de l'image) est retirée.
+  content = content.replace(/<text:p\b[^>]*>\{\{signature\}\}<\/text:p>/g, '');
 
   const vars = variablesDocument(ctx);
   content = content.replace(/\{\{([a-z_]+)\}\}/g, (_m, cle: string) => (cle in vars ? xmlLignes(vars[cle]) : ''));

@@ -23,7 +23,7 @@ chez qui est le dossier, l'échéance interne, les délais légaux et la
 | `retour_enqueteurs` (`partiel`) | avis du magistrat (ou attente maintenue si partiel) |
 | `envoi_autorite` | reçue : attente de l'AR ; émise : réponse attendue à 4 mois |
 | `relance_autorite`, `prorogation` | nouveau délai (`delaiMois` ou `echeance` fixe) |
-| `document_prepare` → `signature` → envoi | parapheur : à signer, signé, envoyé |
+| `document_prepare` → envoi | courrier préparé et téléchargé : « À envoyer », puis envoyé (signé à la main, hors de l'application ; un ancien événement `signature` est sans effet) |
 | `cloture` / `reouverture` | un dossier clôturé le reste jusqu'à réouverture |
 
 Chaque action passe par une fenêtre de confirmation qui dit ce qu'elle va
@@ -60,7 +60,8 @@ Coffre chiffré `entraide` (périmètre global du trousseau) : `demandes`
 (dont `natinf` : infraction ou son équivalent français, `drapeau`,
 `observations` en texte enrichi),
 `autorites` (mots-clés appris à la saisie, langue des courriers), `services`
-(cases cochées sur T1/T2), `signataires` (bloc signature de chaque magistrat),
+(cases cochées sur T1/T2), `signataires` (coordonnées de chaque magistrat, onglet « Mes coordonnées » ;
+une image de signature d'ancien format est écartée au chargement),
 `tombstones`. Fusion par id, la `dateMiseAJour` la plus récente gagne
 (`utils/dataSync/EntraideSyncService.ts`).
 
@@ -70,8 +71,8 @@ Modèles `public/modeles/entraide/<doc>_<langue>.odt` — les trames du service,
 balisées `{{cle}}` : T1 (soit-transmis aux enquêteurs), T2 (relance), T3
 (retour à l'autorité étrangère, FR/EN), T4 (relance de l'autorité, FR/EN).
 Remplis par `utils/entraide/documents.ts` (mise en page et logo intacts).
-L'image de signature n'est apposée que sur un courrier validé par son
-titulaire (« Valider et signer »). Mails : `utils/entraide/mails.ts`
+Aucune signature n'est apposée par l'application : le courrier téléchargé
+est imprimé, signé et envoyé, puis marqué envoyé. Mails : `utils/entraide/mails.ts`
 (Copier / Ouvrir dans Outlook).
 
 Trames T1/T2 : police = commissariats d'Amiens et d'Abbeville (la ligne DRPJ

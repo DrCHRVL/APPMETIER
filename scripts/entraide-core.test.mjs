@@ -2,7 +2,7 @@
  * SIRAL — module Entraide internationale : l'état d'une demande se DÉDUIT de
  * sa chronologie (lib/entraide/core.mjs).
  *
- * Vérifie le circuit d'une DEE reçue (T1 → signature → envoi → échéance à
+ * Vérifie le circuit d'une DEE reçue (T1 préparé → envoi → échéance à
  * 3 mois → relance → retour → T3 → AR → clôture), celui d'une demande émise
  * (4 mois, relance T4, prorogation à date fixe), les délais légaux DEE
  * (annexe B à 7 j, exécution à 120 j), les « prochaines actions », la
@@ -58,13 +58,15 @@ check('AR annexe B proposé', prochainesActions(d, e).some((a) => a.action === '
 
 evs.push(ev('ar_annexe_b', '2026-05-19'), ev('document_prepare', '2026-05-20', { doc: 't1' }))
 e = etatDemande(d, '2026-05-20')
-check('T1 préparé : à signer, chez le magistrat', [e.etape, e.chez, e.docEnAttente?.doc], ['a_signer', 'magistrat', 't1'])
+check('T1 préparé : à envoyer, chez le greffe', [e.etape, e.chez, e.docEnAttente?.doc, e.libelleEtape], ['a_envoyer', 'greffe', 't1', 'À envoyer — T1'])
 check('annexe B respectée', e.echeancesLegales[0].statut, 'respecte')
-check('prochaine action = signer', prochainesActions(d, e)[0].action, 'signer')
+check('prochaine action = marquer envoyé', prochainesActions(d, e)[0], { action: 'envoyer', libelle: 'Marquer envoyé', doc: 't1', primaire: true })
+check('plus aucune action de signature', prochainesActions(d, e).some((a) => a.action === 'signer'), false)
 
-evs.push(ev('signature', '2026-05-22', { doc: 't1', par: 'achevalier' }))
+// Ancien circuit : un événement « signature » stocké reste sans effet.
+evs.push(ev('signature', '2026-05-22', { doc: 't1', par: 'magistrat' }))
 e = etatDemande(d, '2026-05-22')
-check('signé : à envoyer', [e.etape, e.docEnAttente?.signePar], ['a_envoyer', 'achevalier'])
+check('ancien événement signature : toujours à envoyer', [e.etape, e.docEnAttente], ['a_envoyer', { doc: 't1', depuis: '2026-05-20' }])
 
 evs.push(ev('envoi_enqueteurs', '2026-05-27'))
 e = etatDemande(d, '2026-06-01')
@@ -187,9 +189,13 @@ check('apprentissage : seuls les mots nouveaux', apprendreMotsCles(autorites[0],
 {
   const dP = base('recue', 'dee', [ev('reception', '2026-10-06'), ev('transmission_magistrat', '2026-10-06')])
   check('avant correction : avis du magistrat', etatDemande(dP, '2026-10-30').etape, 'avis_magistrat')
-  dP.evenements.push(ev('repositionnement', '2026-10-30', { etape: 'a_signer', doc: 't1' }))
+  dP.evenements.push(ev('repositionnement', '2026-10-30', { etape: 'a_envoyer', doc: 't1' }))
   const eP = etatDemande(dP, '2026-10-30')
-  check('repositionné : ST (T1) à signer', [eP.etape, eP.docEnAttente?.doc, eP.chez], ['a_signer', 't1', 'magistrat'])
+  check('repositionné : ST (T1) à envoyer', [eP.etape, eP.docEnAttente?.doc, eP.chez], ['a_envoyer', 't1', 'greffe'])
+  // Ancien circuit : un repositionnement stocké vers « a_signer » vaut « a_envoyer ».
+  dP.evenements.push(ev('repositionnement', '2026-10-30', { etape: 'a_signer', doc: 't3' }))
+  const eL = etatDemande(dP, '2026-10-30')
+  check('ancien repositionnement a_signer → à envoyer', [eL.etape, eL.docEnAttente?.doc, eL.libelleEtape], ['a_envoyer', 't3', 'À envoyer — T3'])
   dP.evenements.push(ev('repositionnement', '2026-10-30', { etape: 'chez_enqueteurs' }))
   check('repositionné chez les enquêteurs : retour à 3 mois', etatDemande(dP, '2026-10-30').echeance?.date, '2027-01-30')
 }

@@ -35,7 +35,7 @@ const SIMPLES: Record<string, EntraideEvenementType> = {
 export interface ContexteAction {
   api: EntraideApi;
   demande: DemandeEntraide;
-  /** Signataire du magistrat connecté (pour « Valider et signer »). */
+  /** Coordonnées du magistrat connecté (mails de relance). */
   monSignataire: SignataireEntraide | null;
   notifier: (message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
 }
@@ -45,23 +45,20 @@ export function signataireDe(api: EntraideApi, demande: DemandeEntraide): Signat
   return (u && api.index.signataire.get(u)) || null;
 }
 
-/** Télécharge un courrier ; signé seulement si `signePar` a validé et a une signature. */
+/** Télécharge un courrier (à imprimer, signer et envoyer hors de l'application). */
 export async function telechargerCourrier(
   api: EntraideApi,
   demande: DemandeEntraide,
   doc: EntraideDocId,
   langue: EntraideLangue,
-  signePar?: string,
 ): Promise<void> {
-  const signataireSigne = signePar ? api.index.signataire.get(signePar.toLowerCase()) || null : null;
   const blob = await genererDocument({
     demande,
     doc,
     langue,
     autorite: (demande.autoriteId && api.index.autorite.get(demande.autoriteId)) || null,
     service: (demande.serviceId && api.index.service.get(demande.serviceId)) || null,
-    signataire: signataireSigne || signataireDe(api, demande),
-    avecSignature: !!signataireSigne?.signature,
+    signataire: signataireDe(api, demande),
   });
   telecharger(blob, nomFichier(demande, doc, langue));
 }
@@ -111,19 +108,12 @@ export async function executerAction(
       const autorite = (d.autoriteId && api.index.autorite.get(d.autoriteId)) || null;
       const langue: EntraideLangue = doc === 't3' || doc === 't4' ? (options.langue || autorite?.langue || 'fr') : 'fr';
       await api.ajouterEvenement(d.id, { type: 'document_prepare', date, doc, langue });
-      notifier(`${doc.toUpperCase()} préparé : il attend la signature du magistrat (onglet « À signer »).`, 'info');
-      return;
-    }
-    case 'signer': {
-      if (!ctx.monSignataire?.signature) {
-        notifier('Renseignez d’abord votre bloc signature (onglet « Ma signature »).', 'warning');
-        return;
+      try {
+        await telechargerCourrier(api, d, doc, langue);
+        notifier(`${doc.toUpperCase()} préparé et téléchargé : à imprimer et envoyer (onglet « À envoyer »).`, 'success');
+      } catch (e) {
+        notifier(`${doc.toUpperCase()} préparé, mais le téléchargement a échoué (${e instanceof Error ? e.message : String(e)}) : retéléchargez-le depuis la fiche ou l’onglet « À envoyer ».`, 'warning');
       }
-      const doc = a.doc || 't1';
-      await api.ajouterEvenement(d.id, { type: 'signature', date, doc });
-      const derniere = [...d.evenements].reverse().find((e) => e.type === 'document_prepare' && e.doc === doc);
-      await telechargerCourrier(api, d, doc, derniere?.langue || 'fr', ctx.monSignataire.username);
-      notifier('Courrier signé et téléchargé.', 'success');
       return;
     }
     case 'envoyer': {

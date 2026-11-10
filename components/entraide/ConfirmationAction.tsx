@@ -25,9 +25,7 @@ export function explicationAction(a: EntraideAction, d: DemandeEntraide): string
   const doc = a.doc ? DOC_LABELS[a.doc] : '';
   switch (a.action) {
     case 'preparer':
-      return `Prépare le courrier « ${doc} ». Il passe dans l’onglet « À signer » ; une fois signé puis marqué envoyé, ${APRES_ENVOI[a.doc || 't1']}.`;
-    case 'signer':
-      return `Appose votre signature sur « ${doc} » et télécharge le courrier signé. Il reste ensuite à l’envoyer, puis à le marquer envoyé.`;
+      return `Prépare et télécharge le courrier « ${doc} », à imprimer et envoyer. Il passe dans l’onglet « À envoyer » ; une fois marqué envoyé, ${APRES_ENVOI[a.doc || 't1']}.`;
     case 'envoyer':
       return `Note que « ${doc} » est parti : ${APRES_ENVOI[a.doc || 't1']}.`;
     case 'retour_enqueteurs':
@@ -58,7 +56,7 @@ export function explicationAction(a: EntraideAction, d: DemandeEntraide): string
     case 'repositionner': {
       const suite = a.etape === 'chez_enqueteurs' ? ` Le retour sera attendu à ${DELAIS.enqueteursMois} mois de la date indiquée (date d’envoi aux enquêteurs).`
         : a.etape === 'attente_etranger' ? ` La réponse de l’autorité sera attendue à ${DELAIS.emiseMois} mois de la date indiquée.`
-          : a.etape === 'a_signer' ? ' Le courrier passe dans l’onglet « À signer ».'
+          : a.etape === 'a_envoyer' ? ' Le courrier passe dans l’onglet « À envoyer ».'
             : ' L’échéance interne en cours est levée.';
       return `Corrige l’avancement affiché : le dossier est placé à cette étape.${suite} Rien n’est effacé : la correction est inscrite dans la chronologie et peut y être retirée (×).`;
     }
@@ -94,7 +92,7 @@ export const ConfirmationAction: React.FC<Props> = ({ action: a, demande: d, lan
   const [echeance, setEcheance] = useState('');
   const [enCours, setEnCours] = useState(false);
   const avecLangue = a.action === 'preparer' && (a.doc === 't3' || a.doc === 't4');
-  const avecDate = a.action !== 'signer' && a.action !== 'preparer';
+  const avecDate = a.action !== 'preparer';
 
   const valider = async () => {
     setEnCours(true);
