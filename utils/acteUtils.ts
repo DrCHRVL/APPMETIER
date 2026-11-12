@@ -75,6 +75,29 @@ export function isActeEnAttenteDePose(statut: ActeStatus): boolean {
 }
 
 /**
+ * Alertes d'échéance coupées sur cet acte ? Valable seulement pour la `dateFin`
+ * en vigueur lors de la coupure : après prolongation, les alertes reviennent.
+ */
+export function isAlerteCoupee(acte: { alertesCoupees?: string; dateFin?: string }): boolean {
+  return !!acte.alertesCoupees && acte.alertesCoupees === acte.dateFin;
+}
+
+/** Coupe / rétablit les alertes d'échéance de l'acte `id` dans `list`. */
+export function toggleAlertesCoupees<T extends { id: number; alertesCoupees?: string; dateFin?: string }>(
+  list: T[],
+  id: number
+): T[] {
+  return list.map(a => {
+    if (a.id !== id) return a;
+    if (isAlerteCoupee(a)) {
+      const { alertesCoupees: _omit, ...rest } = a;
+      return rest as T;
+    }
+    return { ...a, alertesCoupees: a.dateFin };
+  });
+}
+
+/**
  * Normalise le statut des actes/écoutes/géolocs d'une enquête au chargement :
  *  - un acte « en cours » dont la `dateFin` est dépassée est en réalité terminé.
  *    Comme le statut n'est jamais repassé automatiquement à « terminé » lors de
