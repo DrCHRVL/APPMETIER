@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Enquete, AlertRule } from '@/types/interfaces';
+import { isAlerteCoupee } from '@/utils/acteUtils';
 import { Calendar, FileText, Clock, AlertTriangle, Gavel } from 'lucide-react';
 import { getLastCR } from '@/utils/compteRenduUtils';
 import type { DossierInstruction } from '@/types/instructionTypes';
@@ -74,7 +75,7 @@ export const WeeklyRecapPopup = ({ isOpen, onClose, buckets, alertRules, instruc
         ];
         return list;
       })
-      .filter(a => a.statut === 'en_cours' && (a as any).dateFin)
+      .filter(a => a.statut === 'en_cours' && (a as any).dateFin && !isAlerteCoupee(a))
       .map((a, idx) => {
         const daysLeft = Math.ceil((new Date((a as any).dateFin).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
         return {
