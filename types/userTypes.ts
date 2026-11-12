@@ -1,3 +1,4 @@
+import type { PapeterieTj } from '@/lib/web/papeterie';
 // types/userTypes.ts — Types pour le système multi-utilisateurs et multi-contentieux
 
 // ──────────────────────────────────────────────
@@ -69,6 +70,8 @@ export interface UsersConfig {
   version: number;
   contentieux: ContentieuxDefinition[];
   users: UserProfile[];
+  /** Papeterie du tribunal (en-têtes, adresse, standard) — administrateur du TJ. */
+  papeterie?: PapeterieTj;
   updatedAt: string;          // ISO date
   updatedBy: string;          // windowsUsername de l'admin
 }

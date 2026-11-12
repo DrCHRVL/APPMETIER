@@ -1,3 +1,5 @@
+import { PAPETERIE } from '@/lib/web/papeterie';
+const escPap = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 /**
  * Génère le « Rapport AEM » : un PDF complet et professionnel qui reproduit le
  * Dashboard Statistiques AIR (composant AIRDashboardIntegrated).
@@ -182,7 +184,7 @@ function renderConvocationColumn(
 
 export function generateAIRPdfHtml(data: AIRPdfData, options: AIRPdfOptions = {}): string {
   const on = (k: string): boolean => (options.sections ? options.sections[k] !== false : true);
-  const redacteur = options.redacteur || data.redacteur || 'Audran CHEVALIER';
+  const redacteur = options.redacteur || data.redacteur || PAPETERIE.magistrat.prenomNom;
   const destinataire = options.destinataire || 'Procureur de la République';
   const dateEdition = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -254,7 +256,7 @@ export function generateAIRPdfHtml(data: AIRPdfData, options: AIRPdfOptions = {}
 <!-- Masthead institutionnel : filet tricolore, titre centré, mentions sobres -->
 <div class="page-header">
   <div class="tricolore"></div>
-  <div class="overline">Cour d'appel d'Amiens &middot; Tribunal judiciaire d'Amiens</div>
+  <div class="overline">${escPap(PAPETERIE.juridiction)}</div>
   <h1>Rapport d'activité — Mesures AIR / AEM</h1>
   <div class="rule"></div>
   <div class="subtitle">Parquet du procureur de la République &middot; suivi intégré des mesures, situation arrêtée au ${dateEdition}</div>
@@ -511,7 +513,7 @@ ${on('projections') ? `
 
 <div class="footer">
   <span class="tri"><i style="background:#16307A"></i><i style="background:#ffffff;border:1px solid #D5DAE6"></i><i style="background:#C01427"></i></span>
-  <span>Tribunal judiciaire d'Amiens — Parquet d'Amiens · Rapport AEM édité le ${new Date().toLocaleDateString('fr-FR')} · Document interne</span>
+  <span>${escPap(PAPETERIE.juridiction)} — ${escPap(PAPETERIE.parquet)} · Rapport AEM édité le ${new Date().toLocaleDateString('fr-FR')} · Document interne</span>
 </div>
 
 </body>

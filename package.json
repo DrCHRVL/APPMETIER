@@ -25,8 +25,6 @@
     "@radix-ui/react-tabs": "^1.0.4",
     "@radix-ui/react-toast": "^1.1.5",
     "@radix-ui/react-tooltip": "^1.0.7",
-    "@simplewebauthn/browser": "^9.0.1",
-    "@simplewebauthn/server": "^9.0.3",
     "@xyflow/react": "^12.3.5",
     "chart.js": "^4.4.1",
     "chartjs-plugin-datalabels": "^2.2.0",
@@ -35,7 +33,6 @@
     "d3-force": "^3.0.0",
     "date-fns": "^2.30.0",
     "docx": "^9.5.1",
-    "pizzip": "^3.1.7",
     "html-to-image": "^1.11.13",
     "html2pdf.js": "^0.10.1",
     "imapflow": "^1.0.164",
@@ -48,6 +45,7 @@
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "^5.4.449",
+    "pizzip": "^3.1.7",
     "react": "^18.2.0",
     "react-chartjs-2": "^5.2.0",
     "react-day-picker": "^8.10.0",
@@ -73,6 +71,7 @@
     "eslint-config-next": "13.5.4",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.3",
+    "tsx": "4.20.3",
     "typescript": "^5.2.2"
   }
 }

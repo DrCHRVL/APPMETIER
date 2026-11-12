@@ -582,7 +582,7 @@ export const MultiSideBar = ({
       )}
 
       <div className="copyright">
-        <div>Conçu par A. CHEVALIER — Parquet d&apos;Amiens · {new Date().getFullYear()}</div>
+        <div>SIRAL — propriété d&apos;Audran Chevalier · {new Date().getFullYear()}</div>
       </div>
     </div>
   );

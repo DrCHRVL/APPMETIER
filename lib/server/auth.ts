@@ -1,7 +1,7 @@
 /**
  * SIRAL — authentification serveur.
  *
- * - Comptes : passkeys WebAuthn (anti-phishing, sans mot de passe).
+ * - Comptes : identifiant + mot de passe (scrypt). Pas de passkey.
  *   Enrôlement protégé par un code d'enrôlement (SIRAL_SETUP_CODE) défini
  *   par l'administrateur du serveur. Le premier compte créé est admin.
  * - Sessions : cookie HttpOnly signé HMAC-SHA256 (aucun stockage serveur),
@@ -13,6 +13,7 @@
 import fs from 'fs'
 import crypto from 'crypto'
 import { dataDir, ensureDir, readJson, writeJson, withFileLock, DEFAULT_TJ_ID } from './store'
+import { listTjs } from './tj'
 
 const SESSION_HOURS = 12
 const COOKIE_NAME = 'siral_session'
@@ -37,15 +38,30 @@ export interface Account {
   tjs?: string[]
   /** Dernier TJ actif (repris à la connexion suivante s'il est toujours autorisé). */
   lastTj?: string
+  /**
+   * TJ dont ce compte est l'ADMINISTRATEUR LOCAL : il y gère les accès
+   * (comptes, invitations, révocations) et y initialise les clés. Distinct du
+   * rôle `admin` (administrateur du serveur : création des TJ, attaché, mises
+   * à jour, supervision globale).
+   */
+  tjAdmins?: string[]
+  /** Compte suspendu par l'administrateur général : plus aucune connexion ni accès. */
+  suspendu?: boolean
+  /** Héritage : anciennes passkeys (plus utilisées — connexion par mot de passe seulement). */
   credentials: StoredCredential[]
-  /** Hachage scrypt du mot de passe (optionnel — complément aux passkeys). */
+  /** Hachage scrypt du mot de passe (seul moyen de connexion). */
   passwordHash?: string
   createdAt: string
   lastLoginAt?: string
 }
 
-/** TJ accessibles d'un compte — les comptes historiques relèvent du TJ par défaut. */
+/**
+ * TJ accessibles d'un compte. L'administrateur général les a TOUS (lui seul
+ * bascule de l'un à l'autre) ; un membre relève d'un seul TJ ; les comptes
+ * historiques relèvent du TJ par défaut.
+ */
 export function accountTjs(account: Account): string[] {
+  if (account.role === 'admin') return listTjs().map((t) => t.id)
   return account.tjs && account.tjs.length ? account.tjs : [DEFAULT_TJ_ID]
 }
 
@@ -53,6 +69,37 @@ export function accountTjs(account: Account): string[] {
 export function initialTj(account: Account): string {
   const tjs = accountTjs(account)
   return account.lastTj && tjs.includes(account.lastTj) ? account.lastTj : tjs[0]
+}
+
+/**
+ * Administration locale d'un TJ : l'administrateur du serveur l'exerce sur les
+ * TJ auxquels il est rattaché ; un membre, sur ceux où il a été désigné.
+ */
+export function isTjAdmin(account: Account | null, tj: string): boolean {
+  if (!account || !accountTjs(account).includes(tj)) return false
+  return account.role === 'admin' || (account.tjAdmins || []).includes(tj)
+}
+
+/**
+ * Premier compte (hors administrateur général) d'un nouveau TJ → il en devient
+ * l'administrateur local. Le TJ d'origine reste administré par l'administrateur
+ * général (désignation explicite seulement).
+ */
+export function initialTjAdmins(tj: string, comptes: Account[] = listAccounts()): string[] | undefined {
+  if (tj === DEFAULT_TJ_ID) return undefined
+  return comptes.some((a) => a.role !== 'admin' && accountTjs(a).includes(tj)) ? undefined : [tj]
+}
+
+/**
+ * Création des clés d'un TJ VIERGE : son administrateur local — ou
+ * l'administrateur général, s'il choisit de préparer lui-même le TJ (il en
+ * invite alors les membres, administrateur local compris).
+ */
+export function canInitializeTj(account: Account | null, tj: string): boolean {
+  if (!account || !accountTjs(account).includes(tj)) return false
+  if ((account.tjAdmins || []).includes(tj)) return true
+  // l'administrateur général peut préparer lui-même un TJ (il en invitera les membres)
+  return account.role === 'admin'
 }
 
 function accountsPath() { return dataDir('accounts.json') }
@@ -73,6 +120,47 @@ export async function saveAccount(account: Account): Promise<void> {
     if (idx >= 0) all[idx] = account
     else all.push(account)
     writeJson(accountsPath(), all)
+  })
+}
+
+/**
+ * Modifie un compte DANS le verrou des comptes, sur sa version à jour : deux
+ * écritures concurrentes (connexion et suspension, par ex.) ne s'écrasent pas.
+ * `mutate` peut renvoyer false pour ne rien écrire. Rend le compte (ou null).
+ */
+export async function updateAccount(username: string, mutate: (a: Account) => void | false): Promise<Account | null> {
+  return withFileLock('accounts', async () => {
+    const all = listAccounts()
+    const u = username.trim().toLowerCase()
+    const idx = all.findIndex((a) => a.username.toLowerCase() === u)
+    if (idx < 0) return null
+    if (mutate(all[idx]) === false) return all[idx]
+    writeJson(accountsPath(), all)
+    return all[idx]
+  })
+}
+
+/**
+ * Crée un compte DANS le verrou des comptes : le rôle (premier compte du
+ * serveur = administrateur général, un seul) et la désignation d'administrateur
+ * local (premier compte d'un nouveau TJ) sont décidés sur l'état à jour —
+ * deux inscriptions simultanées ne peuvent pas obtenir toutes deux le rôle.
+ * Lève si l'identifiant est pris.
+ */
+export async function createAccount(
+  build: (ctx: { premierDuServeur: boolean, adminLocal: (tj: string) => string[] | undefined }) => Account,
+): Promise<Account> {
+  return withFileLock('accounts', async () => {
+    const all = listAccounts()
+    const premierDuServeur = all.length === 0
+    const account = build({ premierDuServeur, adminLocal: (tj) => (premierDuServeur ? undefined : initialTjAdmins(tj, all)) })
+    if (all.some((a) => a.username.toLowerCase() === account.username.toLowerCase())) {
+      throw new Error('Cet identifiant existe déjà')
+    }
+    if (account.role === 'admin' && !premierDuServeur) account.role = 'member'
+    all.push(account)
+    writeJson(accountsPath(), all)
+    return account
   })
 }
 
@@ -173,6 +261,14 @@ export function requireSession(req: Request): SessionPayload {
       headers: { 'content-type': 'application/json' },
     })
   }
+  // compte toujours actif : une suspension prend effet immédiatement
+  const account = findAccount(s.u)
+  if (!account || account.suspendu) {
+    throw new Response(JSON.stringify({ error: account ? 'Compte suspendu — voyez l’administrateur' : 'Compte inconnu' }), {
+      status: account ? 403 : 401,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
   return s
 }
 
@@ -184,7 +280,7 @@ export function requireSession(req: Request): SessionPayload {
 export function requireTjSession(req: Request): SessionPayload {
   const s = requireSession(req)
   const account = findAccount(s.u)
-  if (!account || !accountTjs(account).includes(s.tj)) {
+  if (!account || account.suspendu || !accountTjs(account).includes(s.tj)) {
     throw new Response(JSON.stringify({ error: 'Accès à ce tribunal révoqué — reconnectez-vous' }), {
       status: 403,
       headers: { 'content-type': 'application/json' },
@@ -193,24 +289,31 @@ export function requireTjSession(req: Request): SessionPayload {
   return s
 }
 
-// ── Défis WebAuthn éphémères (mémoire process, TTL 5 min) ──
-const challenges = new Map<string, { challenge: string, exp: number }>()
-
-export function storeChallenge(key: string, challenge: string) {
-  // purge opportuniste
-  const now = Date.now()
-  for (const [k, v] of challenges) { if (v.exp < now) challenges.delete(k) }
-  challenges.set(key, { challenge, exp: now + 5 * 60 * 1000 })
+/** Garde : administrateur local du TJ actif (ou administrateur du serveur rattaché). */
+export function requireTjAdmin(req: Request): SessionPayload {
+  const s = requireTjSession(req)
+  if (!isTjAdmin(findAccount(s.u), s.tj)) {
+    throw new Response(JSON.stringify({ error: 'Réservé à l’administrateur de ce tribunal' }), {
+      status: 403,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+  return s
 }
 
-export function takeChallenge(key: string): string | null {
-  const entry = challenges.get(key)
-  challenges.delete(key)
-  if (!entry || entry.exp < Date.now()) return null
-  return entry.challenge
+/** Garde : administrateur du serveur (création des TJ, attaché, mises à jour, supervision). */
+export function requireSuperAdmin(req: Request): SessionPayload {
+  const s = requireSession(req)
+  if (s.r !== 'admin' || findAccount(s.u)?.role !== 'admin') {
+    throw new Response(JSON.stringify({ error: 'Réservé à l’administrateur du serveur' }), {
+      status: 403,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+  return s
 }
 
-// ── RP (Relying Party) WebAuthn ──
+// ── Origine publique du serveur (connecteur MCP / OAuth) ──
 export function rpFromRequest(req: Request): { rpID: string, origin: string, rpName: string } {
   const url = new URL(req.url)
   const fwdHost = req.headers.get('x-forwarded-host')

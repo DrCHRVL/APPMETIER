@@ -1,6 +1,9 @@
+import { estTjOrigine } from '@/lib/web/identite';
+import { AIRConfigManager } from '@/utils/airConfigManager';
+import { SECTEURS_AIR_ORIGINE } from '@/types/airConfigTypes';
 // components/pages/AIRPage.tsx - Version mise à jour avec tri par colonnes
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AIRImportData, AIRStatus } from '@/types/interfaces';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -672,16 +675,23 @@ export const AIRPage = ({
   }, [mesures]);
 
   // Listes d'options pour les selects
-  const secteurOptions = useMemo(() => [
-    { value: '', label: 'Non défini' },
-    { value: 'Amiens', label: 'Amiens' },
-    { value: 'Abbeville', label: 'Abbeville' },
-    { value: 'Montdidier', label: 'Montdidier' },
-    { value: 'Péronne', label: 'Péronne' },
-    { value: 'Doullens', label: 'Doullens' },
-    { value: 'Albert', label: 'Albert' },
-    { value: 'Autres', label: 'Autres' }
-  ], []);
+  // Secteurs : ceux réglés par l'administrateur du TJ (Paramètres → Suivi AIR) ;
+  // à défaut, ceux de la Somme au TJ d'origine ; plus ceux déjà saisis.
+  const [secteursTj, setSecteursTj] = useState<string[] | undefined>(undefined);
+  useEffect(() => {
+    AIRConfigManager.load().then(c => setSecteursTj(c.secteurs)).catch(() => {});
+    return AIRConfigManager.subscribe(c => setSecteursTj(c.secteurs));
+  }, []);
+  const secteurOptions = useMemo(() => {
+    const base = secteursTj ?? (estTjOrigine() ? SECTEURS_AIR_ORIGINE : []);
+    const saisis = mesures.map(m => m.secteurGeographique).filter((s): s is string => Boolean(s) && s !== 'Autres');
+    const secteurs = Array.from(new Set([...base, ...saisis]));
+    return [
+      { value: '', label: 'Non défini' },
+      ...secteurs.map(s => ({ value: s, label: s })),
+      { value: 'Autres', label: 'Autres' },
+    ];
+  }, [mesures, secteursTj]);
 
   const referentOptions = useMemo(() => {
     const refs = new Set(mesures.map(m => m.referent).filter((r): r is string => Boolean(r)));

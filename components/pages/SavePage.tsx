@@ -893,7 +893,7 @@ export const SavePage = ({ lastSaveDate, contentieuxLabel, onRestoreFromServerBa
               <li>
                 <b>Cloisonnement par contentieux</b> : une clé distincte par périmètre (CRIM ORG, ECOFI,
                 ENVIRO). Vous ne pouvez déchiffrer que les contentieux auxquels un collègue vous a invité
-                (Paramètres → Accès &amp; clés).
+                (Paramètres → Utilisateurs &amp; accès, par l&apos;administrateur de votre tribunal).
               </li>
               <li>
                 <b>Historique immuable</b> : chaque écriture archive la version précédente du coffre

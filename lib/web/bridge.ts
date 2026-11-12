@@ -14,7 +14,7 @@ import { idb, exportKv, importKv, getAllEntries } from './idb'
 import { ScopedKeys, scopeOfVault, SCOPE_GLOBAL, generateInvitationCode, deriveRawKey, importAesKey, newKdfParams } from './keyring'
 import { encodeDocSegment } from './folderUpload'
 
-export interface BridgeIdentity { username: string, displayName: string, role: string }
+export interface BridgeIdentity { username: string, displayName: string, role: string, tjAdmin?: boolean }
 
 interface BuildOptions { keys: ScopedKeys, me: BridgeIdentity }
 
@@ -1182,7 +1182,9 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
     e2ee_listAccounts: async () => {
       const res = await api('/api/accounts')
       if (!res.ok) throw new Error('Liste des comptes indisponible (' + res.status + ')')
-      const { accounts } = await res.json()
+      const { accounts, generaux, adminGeneral } = await res.json()
+      ;(window as unknown as { __SIRAL_GENERAUX__?: string[] }).__SIRAL_GENERAUX__ = generaux || []
+      ;(window as unknown as { __SIRAL_ADMIN_GENERAL__?: unknown }).__SIRAL_ADMIN_GENERAL__ = adminGeneral || null
       return accounts
     },
     /**

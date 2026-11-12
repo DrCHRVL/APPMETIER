@@ -16,7 +16,7 @@ import { attacheTj, readVault, writeVault, withFileLock } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import {
   aujourdhui, estDate, etatDemande, prochainesActions, cleUrgence, chercherAutorites,
-  normaliser, texteRecherche, dateFr, EVENEMENT_LABELS, TYPE_LABELS, ETAPE_LABELS, DRAPEAU_LABELS, ISSUE_LABELS,
+  normaliser, texteRecherche, dateFr, EVENEMENT_LABELS, TYPE_LABELS, ETAPE_LABELS, DRAPEAU_LABELS, ISSUE_LABELS, etapeActuelle,
 } from '../../lib/entraide/core.mjs'
 import { paysDe, MESURES, SERVICES_DEPART } from '../../lib/entraide/referentiels.mjs'
 import { computeEntraideStats } from '../../lib/stats/entraideCore.mjs'
@@ -36,7 +36,9 @@ function texteBrut(html) {
 const VAULT = 'entraide'
 const TYPES = ['dee', 'do', 'cri', 'execution', 'civil']
 const SENS = ['recue', 'emise']
-export const EVENEMENTS_ENTRAIDE = Object.keys(EVENEMENT_LABELS)
+// « signature » : événement de l'ancien circuit (validation dans l'application,
+// supprimée) — lisible dans les chronologies, plus proposé à la saisie.
+export const EVENEMENTS_ENTRAIDE = Object.keys(EVENEMENT_LABELS).filter((t) => t !== 'signature')
 
 const vide = () => ({ demandes: [], autorites: [], services: [], signataires: [], tombstones: [] })
 
@@ -47,7 +49,9 @@ function lire(keys) {
   return {
     data: {
       demandes: p.demandes || [], autorites: p.autorites || [], services: p.services || [],
-      signataires: p.signataires || [], tombstones: p.tombstones || [],
+      // Coordonnées seules : une image de signature d'ancien format est
+      // écartée (purgée à la prochaine écriture).
+      signataires: (p.signataires || []).filter((s) => s && typeof s === 'object').map(({ signature: _image, ...s }) => s), tombstones: p.tombstones || [],
     },
     version: p.version || 0,
     existe: true,
@@ -125,6 +129,7 @@ function controlerMesures(ids) {
 }
 
 function etapeValide(v) {
+  v = etapeActuelle(v)
   if (!(v in ETAPE_LABELS) || v === 'cloturee') throw new Error(`etape : ${Object.keys(ETAPE_LABELS).filter((x) => x !== 'cloturee').join(' | ')}`)
   return v
 }
@@ -224,7 +229,7 @@ export function lireEntraide(keys, ref) {
     courrierEnAttente: e.docEnAttente,
     prochainesActions: prochainesActions(d, e).map((x) => x.libelle),
     chronologie: [...d.evenements].sort((x, y) => x.date.localeCompare(y.date)).map((x) => ({
-      id: x.id, date: dateFr(x.date), evenement: EVENEMENT_LABELS[x.type] + (x.doc ? ` (${x.doc.toUpperCase()})` : '') + (x.partiel ? ' — partiel' : '') + (x.issue ? ` — ${ISSUE_LABELS[x.issue]}` : '') + (x.etape ? ` → ${ETAPE_LABELS[x.etape]}` : ''),
+      id: x.id, date: dateFr(x.date), evenement: EVENEMENT_LABELS[x.type] + (x.doc ? ` (${x.doc.toUpperCase()})` : '') + (x.partiel ? ' — partiel' : '') + (x.issue ? ` — ${ISSUE_LABELS[x.issue]}` : '') + (x.etape ? ` → ${ETAPE_LABELS[etapeActuelle(x.etape)] || x.etape}` : ''),
       ...(x.note ? { note: x.note } : {}), ...(x.par ? { par: x.par } : {}),
     })),
     ...(d.origine ? { origine: d.origine } : {}),

@@ -1,4 +1,5 @@
 "use client"
+import { estSuperAdmin } from '@/lib/web/identite';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Menu, FolderSearch, SearchX } from 'lucide-react';
@@ -230,7 +231,7 @@ function AppContent() {
     window.addEventListener('siral:open-attache', open);
     return () => window.removeEventListener('siral:open-attache', open);
   }, []);
-  const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, isAdmin, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
+  const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
   // Profil JLD : accès restreint au seul tableau de bord (aperçu d'acte dédié,
   // aucune autre vue, aucune alerte, aucun paramètre).
   const isJLDUser = user?.globalRole === 'jld';
@@ -249,7 +250,7 @@ function AppContent() {
     if (isJLDUser && view !== 'dashboard') return;
     // L'assistant de justice (attaché IA) est réservé à l'administrateur, et
     // n'existe plus dès que l'interrupteur des fonctionnalités IA est coché.
-    if (view === 'assistant' && (!isAdmin() || iaMasquee)) return;
+    if (view === 'assistant' && (!estSuperAdmin() || iaMasquee)) return;
     // Vérifier que l'utilisateur a accès au contentieux demandé
     if (contentieuxId && !accessibleContentieux.some(c => c.id === contentieuxId)) {
       return;
@@ -585,8 +586,8 @@ function AppContent() {
   // Drapeau de visibilité des fonctionnalités IA : lu au serveur (il vaut pour
   // tous les appareils du magistrat), une fois la session ouverte.
   useEffect(() => {
-    if (isAuthenticated && isAdmin()) chargerIaVisibilite();
-  }, [isAuthenticated, isAdmin, chargerIaVisibilite]);
+    if (isAuthenticated && estSuperAdmin()) chargerIaVisibilite();
+  }, [isAuthenticated, chargerIaVisibilite]);
 
   // Attaché de justice IA : disponible seulement si le serveur l'active pour
   // CE TJ et CE compte (la route répond 404 à tout non-admin — invisible).
@@ -604,7 +605,7 @@ function AppContent() {
   // Une exception réseau (app injoignable) ne révèle rien : simple nouvelle
   // tentative, sans rien afficher.
   useEffect(() => {
-    if (!isAuthenticated || !isAdmin()) { setAttacheAvailable(false); setAttacheInjoignable(false); return; }
+    if (!isAuthenticated || !estSuperAdmin()) { setAttacheAvailable(false); setAttacheInjoignable(false); return; }
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const sonder = async () => {
@@ -621,11 +622,11 @@ function AppContent() {
     };
     sonder();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [isAuthenticated, isAdmin]);
+  }, [isAuthenticated]);
 
   // Ce qui commande TOUTE présence de l'attaché à l'écran : service annoncé,
   // administrateur, et interrupteur non coché.
-  const iaVisible = attacheAvailable && isAdmin() && !iaMasquee;
+  const iaVisible = attacheAvailable && estSuperAdmin() && !iaMasquee;
 
   // Interrupteur coché alors qu'on lisait la page de l'assistant : on retombe
   // sur le tableau de bord plutôt que de laisser une zone vide.
@@ -750,7 +751,7 @@ function AppContent() {
 
   const handleApplyUpdate = async () => {
     // La mise à jour est réservée aux administrateurs (AdminUpdatePanel).
-    if (!isAdmin()) return;
+    if (!estSuperAdmin()) return;
     setIsUpdating(true);
     try {
       const result = await window.siralBridge.applyAppUpdate?.();
@@ -2090,7 +2091,7 @@ return (
             lastSaveDate={StorageManager.getLastSave() ?? undefined}
             onSync={handleManualSync}
             isSearchingDocs={isSearchingDocs}
-            isAdmin={isAdmin()}
+            isAdmin={estSuperAdmin()}
             updateAvailable={updateAvailable}
             updateCommits={updateCommits}
             onShowUpdate={() => setShowUpdateModal(true)}
@@ -2882,7 +2883,7 @@ return (
           setUpdateAvailable(hasUpdate);
           setUpdateCommits(commits);
         }} />}
-        adminAttacheContent={isAdmin() ? <AdminAttachePanel /> : undefined}
+        adminAttacheContent={estSuperAdmin() ? <AdminAttachePanel /> : undefined}
         aProposContent={<AboutContent />}
         monProfilContent={<MyProfileContent />}
       />

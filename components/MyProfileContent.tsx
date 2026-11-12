@@ -1,5 +1,6 @@
 'use client';
 
+import { ChangerMotDePasse } from '@/components/ChangerMotDePasse';
 import React, { useMemo } from 'react';
 import { User, Shield, Layers, Package, Users as UsersIcon, Info, Gavel, Scale } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
@@ -228,6 +229,8 @@ export const MyProfileContent = () => {
           )}
         </div>
       </section>
+
+      <ChangerMotDePasse />
 
       {/* ── Rôle global ── */}
       <section className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">

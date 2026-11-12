@@ -1010,7 +1010,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'entraide_lire',
-    description: 'Fiche complète d\'une demande d\'entraide : identification, mesures, échéance interne, DÉLAIS LÉGAUX (DEE reçue : annexe B à 7 j, exécution à 120 j ; échéances saisies : prescription…) avec leur statut, courrier en attente de signature, prochaines actions proposées et CHRONOLOGIE. `ref` = n° ESABORA ou id.',
+    description: 'Fiche complète d\'une demande d\'entraide : identification, mesures, échéance interne, DÉLAIS LÉGAUX (DEE reçue : annexe B à 7 j, exécution à 120 j ; échéances saisies : prescription…) avec leur statut, courrier préparé en attente d\'envoi, prochaines actions proposées et CHRONOLOGIE. `ref` = n° ESABORA ou id.',
     inputSchema: { type: 'object', properties: { ref: { type: 'string' } }, required: ['ref'] },
     handler: async (a) => lireEntraide(keys, a.ref),
   },
@@ -1117,7 +1117,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
         delaiMois: { type: 'integer' },
         echeance: { type: 'string' },
         partiel: { type: 'boolean' },
-        etape: { type: 'string', enum: ['a_traiter', 'en_traduction', 'a_signer', 'a_envoyer', 'chez_enqueteurs', 'avis_magistrat', 'attente_etranger', 'attente_ar', 'a_cloturer'], description: 'Avec type repositionnement : corrige l\'étape (ex. a_signer + doc t1 = ST préparé, pas encore parti aux enquêteurs)' },
+        etape: { type: 'string', enum: ['a_traiter', 'en_traduction', 'a_envoyer', 'chez_enqueteurs', 'avis_magistrat', 'attente_etranger', 'attente_ar', 'a_cloturer'], description: 'Avec type repositionnement : corrige l\'étape (ex. a_envoyer + doc t1 = ST préparé, pas encore parti aux enquêteurs)' },
         issue: { type: 'string', enum: ['acceptee', 'refusee'], description: 'Dénonciation officielle reçue, avec type cloture : acceptée (enquête ouverte) ou refusée (classement)' },
         note: { type: 'string' },
       },

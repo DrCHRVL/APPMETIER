@@ -593,6 +593,8 @@ export async function buildDocxBlob(html: string, opts: BuildDocxOptions = {}): 
   const headerBlocks = opts.headerHtml ? htmlToDocxBlocks(opts.headerHtml, conv) : null;
   const footerBlocks = opts.footerHtml ? htmlToDocxBlocks(opts.footerHtml, conv) : null;
   const doc = new Document({
+    // métadonnées du fichier (Propriétés → Auteur) : discrètes, non imprimées
+    creator: "SIRAL — propriété d'Audran Chevalier",
     // Réglages par défaut du document (docDefaults) : la police et la taille
     // demandées deviennent le socle hérité par TOUS les runs/paragraphes, y
     // compris ceux des cellules et des listes, sans avoir à les repositionner

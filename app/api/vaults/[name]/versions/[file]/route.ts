@@ -1,5 +1,5 @@
 import { requireTjSession, handle, jsonResponse } from '@/lib/server/auth'
-import { readVaultVersion, isSafeName } from '@/lib/server/store'
+import { readVaultVersion, isSafeName, appendLog } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +19,13 @@ export async function GET(req: Request, { params }: { params: { name: string, fi
     const keyring = /^keyring-(.+)$/.exec(params.name)
     if (keyring && keyring[1] !== session.u) {
       return jsonResponse({ error: 'Lecture non autorisée sur ce trousseau' }, { status: 403 })
+    }
+    // Séquestre : administrateur général seul, historique compris.
+    if ((params.name === 'escrow-keys' || params.name.startsWith('indicateurs-')) && session.r !== 'admin') {
+      return jsonResponse({ error: 'Réservé à l’administrateur général' }, { status: 403 })
+    }
+    if (params.name === 'escrow-keys') {
+      await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: session.u, action: 'escrow.read', details: { tj: session.tj, version: file } })
     }
     const envelope = readVaultVersion(session.tj, params.name, file)
     if (!envelope) return jsonResponse({ exists: false }, { status: 404 })

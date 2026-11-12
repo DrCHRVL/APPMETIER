@@ -1258,7 +1258,7 @@ personnalisé) : lecture des dossiers et des pièces, fichier global, trames,
 skills et base de connaissances, statistiques, écritures réversibles et
 auditées — et **c'est là que les actes se rédigent**, puis se rangent dans
 SIRAL (`produire_document`, réservé au connecteur). OAuth réservé à
-l'administrateur (session passkey + consentement), désactivé par défaut,
+l'administrateur (session administrateur + consentement), désactivé par défaut,
 activation dans Paramètres → Attaché IA → **Connecteur Claude web**,
 révocation un clic. Deux outils sont exclus du connecteur : `sous_agents` et
 `poser_question`. Pour un travail de fond, Claude web lit le **fichier

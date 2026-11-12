@@ -25,7 +25,7 @@ export const AutreUniteInput: React.FC<Props> = ({ demandes, valeur, onChange, c
   }, [demandes]);
   return (
     <>
-      <input className={className} list={liste} placeholder="Ex. BR de Péronne" value={valeur} onChange={(e) => onChange(e.target.value)} />
+      <input className={className} list={liste} placeholder="Ex. brigade de recherches de …" value={valeur} onChange={(e) => onChange(e.target.value)} />
       <datalist id={liste}>{unites.map((u) => <option key={u} value={u} />)}</datalist>
     </>
   );

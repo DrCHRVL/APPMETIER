@@ -1,4 +1,5 @@
 'use client';
+import { estTjOrigine } from '@/lib/web/identite';
 
 // Listes de référence du module : autorités étrangères (apprises à l'usage,
 // avec leurs mots-clés) et services enquêteurs (cases des trames T1/T2).
@@ -65,7 +66,8 @@ const FicheService: React.FC<{ s: ServiceEnqueteur; api: EntraideApi }> = ({ s, 
       <td className="p-1.5"><input className="w-48 rounded border px-2 py-1 text-xs" value={f.email || ''} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="mail du service" /></td>
       <td className="p-1.5 text-[11px]">
         <div className="flex flex-wrap gap-x-2 gap-y-0.5">
-          {CASES_LIBELLES.map(([c, l]) => (
+          {!estTjOrigine() && <span className="text-gray-500">Libellé imprimé en « Autre unité »</span>}
+          {estTjOrigine() && CASES_LIBELLES.map(([c, l]) => (
             <label key={c} className="inline-flex items-center gap-1">
               <input type="checkbox" checked={f.cases.includes(c)} onChange={(e) => setF({ ...f, cases: e.target.checked ? [...f.cases, c] : f.cases.filter((x) => x !== c) })} />{l}
             </label>

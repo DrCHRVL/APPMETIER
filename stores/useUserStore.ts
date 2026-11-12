@@ -1,4 +1,5 @@
 import { create } from '@/lib/zustand';
+import { demarrerIndicateurs } from '@/lib/web/indicateursPoste';
 import { UserManager } from '@/utils/userManager';
 import {
   UserProfile,
@@ -116,6 +117,8 @@ export const useUserStore = create<UserState>((set, get) => ({
           const m = syncModesAll.get(cId);
           if (m && m !== 'none') syncModes.set(cId, m);
         }
+        // Indicateurs d'activité scellés pour l'administrateur général (compteurs seuls).
+        demarrerIndicateurs();
         void MultiSyncManager.getInstance()
           .initialize(defs, ctx.accessibleContentieux, syncModes)
           .catch(syncErr => {

@@ -25,13 +25,18 @@ import {
 } from '@/lib/web/keyring'
 import { idb, setIdbNamespace } from '@/lib/web/idb'
 import * as offlineMode from '@/lib/web/offlineMode'
+import {
+  openPrivateKey, openEscrow, maintenirSequestre, chargerEpinglesAdmin, controlerClesTj,
+  type EscrowEnvelope, type PrivateKeyEnvelope,
+} from '@/lib/web/escrow'
 import { NetworkStatusManager } from '@/utils/networkStatusManager'
 
-type Phase = 'boot' | 'login' | 'register' | 'unlock' | 'create-fresh' | 'migrate' | 'redeem' | 'no-access' | 'recovery-kit' | 'offline-unlock' | 'ready'
+type Phase = 'boot' | 'login' | 'register' | 'unlock' | 'create-fresh' | 'migrate' | 'redeem' | 'escrow-access' | 'no-access' | 'recovery-kit' | 'offline-unlock' | 'ready'
 
 export interface TjInfo { id: string, name: string }
 
 const KEYRING_STORE = '__siral_keyring__'
+
 const LEGACY_KEY_STORE = '__siral_cryptokey__'
 
 interface E2eeState {
@@ -41,6 +46,12 @@ interface E2eeState {
   hasGrant: boolean
   grantKdf: { salt: string, iterations: number, grantedBy?: string } | null
   anyKeyrings: boolean
+  /** Je suis l'administrateur local de ce TJ : je peux en créer les clés s'il est vierge. */
+  canInitialize?: boolean
+  /** Je suis administrateur de ce TJ : je dépose le séquestre pour l'administrateur général. */
+  isTjAdmin?: boolean
+  /** Séquestre des clés du TJ pour l'administrateur général (métadonnées). */
+  escrow?: { publicId: string, fp: string, scopes: string[], savedAt: string | null } | null
 }
 
 declare global {
@@ -111,6 +122,9 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   const [servicePass, setServicePass] = useState('')
   const [inviteCode, setInviteCode] = useState('')
   const [pass1, setPass1] = useState('')
+  // identité et état E2EE courants, lus hors du cycle de rendu (routage, séquestre)
+  const meRef = useRef<BridgeIdentity | null>(null)
+  const e2eeRef = useRef<E2eeState | null>(null)
   const [pass2, setPass2] = useState('')
   // Code de déverrouillage hors-ligne (mode « poste préparé », cf. offlineMode)
   const [offlineCode, setOfflineCode] = useState('')
@@ -123,6 +137,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   const installBridge = useCallback((keys: ScopedKeys, identity: BridgeIdentity) => {
     if (installedRef.current) return
     installedRef.current = true
+    window.__SIRAL_ME__ = identity
     const bridge = buildWebBridge({ keys, me: identity })
     if (window.__SIRAL_BRIDGE_SET__) window.__SIRAL_BRIDGE_SET__(bridge as Record<string, unknown>)
     // enregistre le service worker (PWA / hors-ligne)
@@ -178,17 +193,32 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     if (!res.ok) throw new Error('Dépôt du trousseau refusé (' + res.status + ')')
   }, [])
 
-  const finishUnlock = useCallback(async (payload: KeyringPayload, identity: BridgeIdentity, offerKit = false) => {
+  const finishUnlock = useCallback(async (payload: KeyringPayload, identity: BridgeIdentity, offerKit = false, phrase = '') => {
     const scoped = await buildScopedKeys(payload)
     const ok = await verifyOrCreateCanary(scoped.global, identity)
     if (ok !== true) throw new Error(ok)
+    // Séquestre pour l'administrateur général (best-effort, jamais bloquant).
+    maintenirSequestre(payload.keys, identity, phrase, e2eeRef.current, window.__SIRAL_TJ__?.active?.id || 'default', {
+      getJson: apiJson,
+      putJson: async (path, body) => (await fetch(path, {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body), credentials: 'same-origin',
+      })).status,
+    }).then((r) => {
+      if (r === 'cle-changee') {
+        window.alert('Sécurité : la clé d’administration générale présentée par le serveur n’est plus celle connue de ce tribunal. '
+          + 'Le séquestre n’a PAS été mis à jour. Prévenez l’administrateur général avant toute autre action.')
+      }
+    }).catch((e) => {
+      console.warn('Séquestre administrateur général non mis à jour', e)
+    })
     // Mémoriser la session en mémoire vive : permet de « préparer ce poste »
     // (mode hors-ligne) sans redemander la phrase personnelle. Prolonge aussi
     // la fenêtre hors-ligne si un poste a déjà été préparé.
     const tjState = window.__SIRAL_TJ__
     offlineMode.rememberSession(
       payload,
-      { username: identity.username, displayName: identity.displayName, role: identity.role },
+      { username: identity.username, displayName: identity.displayName, role: identity.role, tjAdmin: identity.tjAdmin },
       tjState?.active ?? null,
       tjState?.tjs ?? [],
     )
@@ -240,7 +270,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       <div class="lines"><div></div><div></div><div></div></div>
       <p class="foot">Cette phrase déverrouille le trousseau de <b>${entry.identity.username}</b>. Elle est irrécupérable :
       personne — ni l'hébergeur, ni le développeur — ne peut la réinitialiser. En cas de perte du kit ET de la phrase,
-      un administrateur de SIRAL peut générer une nouvelle invitation (Paramètres → Accès &amp; clés) : l'accès est alors
+      l'administrateur de votre tribunal (Paramètres → Utilisateurs &amp; accès) ou l'administrateur général (Gestion des TJ → Débloquer) peut générer une nouvelle invitation : l'accès est alors
       recréé, sans perte de données. Détruire ce kit si le trousseau est révoqué.</p>
       <script>window.print()<\/script></body></html>`)
     w.document.close()
@@ -250,8 +280,15 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   const routeByState = useCallback((state: E2eeState) => {
     if (state.hasKeyring) setPhase('unlock')
     else if (state.hasGrant) setPhase('redeem')
-    else if (state.legacyKdf && !state.anyKeyrings) setPhase('migrate')
-    else if (!state.legacyKdf && !state.anyKeyrings) setPhase('create-fresh')
+    // ancien serveur « phrase de service » : la migration revient à qui peut
+    // initialiser le TJ ; les autres attendent (écran sans accès)
+    else if (state.legacyKdf && !state.anyKeyrings && state.canInitialize) setPhase('migrate')
+    // TJ vierge : son administrateur local crée les clés. L'administrateur
+    // général, hors TJ d'origine, choisit (écran d'attente) de le faire lui-même.
+    else if (!state.legacyKdf && !state.anyKeyrings && state.canInitialize
+      && !(meRef.current?.role === 'admin' && (window.__SIRAL_TJ__?.active?.id || 'default') !== 'default')) setPhase('create-fresh')
+    // administrateur général : accès au TJ par le séquestre déposé par son admin local
+    else if (meRef.current?.role === 'admin' && state.anyKeyrings && state.escrow) setPhase('escrow-access')
     else setPhase('no-access')
   }, [])
 
@@ -259,6 +296,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
     const { status, json } = await apiJson('/api/e2ee/state')
     if (status !== 200) { setError('État du serveur indisponible'); return null }
     const state = json as unknown as E2eeState
+    e2eeRef.current = state
     setE2ee(state)
     routeByState(state)
     return state
@@ -271,11 +309,12 @@ export function WebGate({ children }: { children: React.ReactNode }) {
   const adoptMe = useCallback(async (): Promise<BridgeIdentity | null> => {
     const { status, json } = await apiJson('/api/me')
     if (status !== 200) return null
-    const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role) }
+    const identity: BridgeIdentity = { username: String(json.username), displayName: String(json.displayName), role: String(json.role), tjAdmin: json.tjAdmin === true }
     const active = (json.tj as TjInfo | undefined) || { id: 'default', name: '' }
     setIdbNamespace(active.id)
     window.__SIRAL_TJ__ = { active, tjs: (json.tjs as TjInfo[] | undefined) || [active] }
     setTj(active)
+    meRef.current = identity
     setMe(identity)
     return identity
   }, [])
@@ -392,7 +431,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       } catch {
         throw new Error('Phrase personnelle incorrecte')
       }
-      await finishUnlock(payload, me)
+      await finishUnlock(payload, me, false, pass1)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Déverrouillage impossible')
     } finally { setBusy(false) }
@@ -429,7 +468,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       requirePersonalPhrase()
       const payload = freshKeyringPayload()
       await pushKeyring(payload, pass1, me)
-      await finishUnlock(payload, me, true)
+      await finishUnlock(payload, me, true, pass1)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Création impossible')
     } finally { setBusy(false) }
@@ -473,9 +512,52 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       const now = new Date().toISOString()
       const payload: KeyringPayload = { v: 1, keys, createdAt: now, updatedAt: now }
       await pushKeyring(payload, pass1, me)
-      await finishUnlock(payload, me, true)
+      await finishUnlock(payload, me, true, pass1)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Migration impossible')
+    } finally { setBusy(false) }
+  }
+
+  /**
+   * Administrateur général : ouvre le séquestre du TJ avec sa clé
+   * d'administration (protégée par sa phrase personnelle), puis range les clés
+   * dans son propre trousseau pour ce TJ (même phrase).
+   */
+  const doEscrowAccess = async () => {
+    if (!me) return
+    setBusy(true); setError('')
+    try {
+      if (!pass1) throw new Error('Saisissez votre phrase personnelle')
+      const priv = await apiJson('/api/escrow?prive=1')
+      if (priv.status !== 200) throw new Error('Clé d’administration générale absente : déverrouillez d’abord le tribunal d’origine')
+      const privateKey = await openPrivateKey(priv.json.privateEnvelope as unknown as PrivateKeyEnvelope, pass1)
+      const httpSequestre = {
+        getJson: apiJson,
+        putJson: async (path: string, body: unknown) => (await fetch(path, {
+          method: 'PUT', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body), credentials: 'same-origin',
+        })).status,
+      }
+      await chargerEpinglesAdmin(pass1, httpSequestre)
+      const sq = await apiJson('/api/vaults/escrow-keys')
+      if (sq.status !== 200) throw new Error('Séquestre de ce tribunal introuvable')
+      let keys: Record<string, string>
+      try {
+        keys = await openEscrow(privateKey, sq.json.envelope as unknown as EscrowEnvelope)
+      } catch {
+        throw new Error('Séquestre scellé pour une autre clé d’administration : l’administrateur local doit se reconnecter')
+      }
+      // garde contre un séquestre contrefait par le serveur : les clés doivent
+      // ouvrir le témoin du TJ et correspondre à celles déjà connues
+      const temoin = await apiJson('/api/vaults/e2ee-check')
+      await controlerClesTj(window.__SIRAL_TJ__?.active?.id || 'default', keys,
+        temoin.status === 200 ? temoin.json.envelope as unknown as CipherEnvelope : null)
+      const now = new Date().toISOString()
+      const payload: KeyringPayload = { v: 1, keys, createdAt: now, updatedAt: now }
+      await pushKeyring(payload, pass1, me)
+      await finishUnlock(payload, me, false, pass1)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Accès impossible')
     } finally { setBusy(false) }
   }
 
@@ -503,7 +585,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
       await pushKeyring(payload, pass1, me)
       // invitation consommée : on la supprime (best effort)
       fetch(`/api/vaults/grant-${encodeURIComponent(me.username)}`, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {})
-      await finishUnlock(payload, me, true)
+      await finishUnlock(payload, me, true, pass1)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Invitation invalide')
     } finally { setBusy(false) }
@@ -617,8 +699,8 @@ export function WebGate({ children }: { children: React.ReactNode }) {
             <div className="siral-title">Enrôlement</div>
             <div className="siral-text">Réservé aux membres munis du <b>code d&apos;accès de leur tribunal</b> (remis par l&apos;administrateur — il identifie
               votre TJ et n&apos;est demandé qu&apos;à cette première inscription). Utilisez votre identifiant habituel.</div>
-            <input className="siral-input" placeholder="Identifiant (ex. a.chevalier)" value={regUsername} onChange={(e) => setRegUsername(e.target.value)} autoCapitalize="none" />
-            <input className="siral-input" placeholder="Nom affiché (ex. A. Chevalier)" value={regDisplay} onChange={(e) => setRegDisplay(e.target.value)} />
+            <input className="siral-input" placeholder="Identifiant (ex. p.nom)" value={regUsername} onChange={(e) => setRegUsername(e.target.value)} autoCapitalize="none" />
+            <input className="siral-input" placeholder="Nom affiché (ex. P. Nom)" value={regDisplay} onChange={(e) => setRegDisplay(e.target.value)} />
             <input className="siral-input" placeholder="Code d'accès du tribunal" value={regCode} onChange={(e) => setRegCode(e.target.value)} autoCapitalize="characters" />
             <input className="siral-input" type="password" placeholder="Mot de passe (10 caractères minimum)" value={regPassword}
               onChange={(e) => setRegPassword(e.target.value)} />
@@ -676,7 +758,8 @@ export function WebGate({ children }: { children: React.ReactNode }) {
             <div className="siral-title">Initialisation du chiffrement</div>
             <div className="siral-text">Vous êtes le premier utilisateur de {tj?.name ? <b>{tj.name}</b> : 'ce tribunal'} sur ce serveur.
               Des clés de chiffrement neuves, propres à ce tribunal, vont être générées et scellées
-              dans votre trousseau personnel. Vous pourrez ensuite inviter vos collègues depuis Paramètres → Accès &amp; clés.</div>
+              dans votre trousseau personnel. En tant qu&apos;<b>administrateur de ce tribunal</b>, vous inviterez ensuite vos
+              collègues depuis Paramètres → Utilisateurs &amp; accès.</div>
             {phraseFields(true)}
             <button className="siral-btn" onClick={doCreateFresh} disabled={busy || !pass1}>
               {busy ? 'Génération des clés…' : 'Créer mon trousseau'}
@@ -722,12 +805,53 @@ export function WebGate({ children }: { children: React.ReactNode }) {
           </>
         )}
 
+        {phase === 'escrow-access' && (
+          <>
+            {me && <span className="siral-user">Connecté : {me.displayName}{tj?.name ? ` · ${tj.name}` : ''}</span>}
+            <div className="siral-title">Accès administrateur général</div>
+            <div className="siral-text">Vous ouvrez {tj?.name ? <b>{tj.name}</b> : 'ce tribunal'} en qualité d&apos;administrateur
+              général. Votre phrase personnelle ouvre votre clé d&apos;administration, puis la copie des clés de ce tribunal
+              déposée par son administrateur local. Cet accès est journalisé.</div>
+            <input className="siral-input" type="password" placeholder="Phrase personnelle" value={pass1}
+              onChange={(e) => setPass1(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') doEscrowAccess() }} />
+            <button className="siral-btn" onClick={doEscrowAccess} disabled={busy || !pass1}>
+              {busy ? 'Ouverture…' : 'Ouvrir l’accès'}
+            </button>
+            {error && <div className="siral-error">{error}</div>}
+          </>
+        )}
+
         {phase === 'no-access' && (
           <>
             {me && <span className="siral-user">Connecté : {me.displayName}{tj?.name ? ` · ${tj.name}` : ''}</span>}
             <div className="siral-title">Accès en attente</div>
-            <div className="siral-text">Votre compte est créé mais aucun trousseau de clés ne vous a encore été remis.
-              Demandez à un membre du service de vous inviter (Paramètres → Accès &amp; clés), puis revenez ici.</div>
+            {me?.role === 'admin' && e2ee?.anyKeyrings && !e2ee.escrow ? (
+              <div className="siral-text">Ce tribunal est initialisé, mais son administrateur local n&apos;a pas encore déposé
+                l&apos;accès de l&apos;administrateur général : il le sera automatiquement à sa prochaine connexion.</div>
+            ) : me?.role === 'admin' && e2ee && !e2ee.anyKeyrings && !e2ee.legacyKdf ? (
+              <>
+                <div className="siral-text">Ce tribunal n&apos;est pas encore initialisé. Son administrateur local le fera à sa
+                  première connexion — ou vous pouvez le préparer vous-même : vous en créerez les clés, puis inviterez ses
+                  membres (administrateur local compris) depuis Paramètres → Utilisateurs &amp; accès.</div>
+                <button className="siral-btn" onClick={() => { setError(''); setPhase('create-fresh') }} disabled={busy}>
+                  Initialiser ce tribunal moi-même
+                </button>
+              </>
+            ) : e2ee && !e2ee.anyKeyrings && !e2ee.legacyKdf ? (
+              <div className="siral-text">Ce tribunal n&apos;est pas encore initialisé. Son <b>administrateur</b> doit s&apos;y
+                connecter en premier pour créer ses clés de chiffrement, puis vous inviter.</div>
+            ) : e2ee?.legacyKdf && !e2ee.anyKeyrings ? (
+              <div className="siral-text">Ce tribunal doit d&apos;abord passer aux clés individuelles : c&apos;est à
+                l&apos;<b>administrateur général</b> de le faire à sa prochaine connexion, puis de vous inviter.</div>
+            ) : me?.tjAdmin ? (
+              <div className="siral-text">Vous êtes administrateur de ce tribunal, mais ses clés ont été créées par
+                l&apos;<b>administrateur général</b> : demandez-lui de vous inviter (Gestion des TJ → Débloquer), puis revenez ici.</div>
+            ) : (
+              <div className="siral-text">Votre compte est créé mais aucun trousseau de clés ne vous a encore été remis.
+                Demandez à l&apos;<b>administrateur de votre tribunal</b> de vous inviter (Paramètres → Utilisateurs &amp; accès),
+                puis revenez ici.</div>
+            )}
             <button className="siral-btn ghost" onClick={() => { setError(''); loadStateAndRoute() }} disabled={busy}>
               J&apos;ai reçu mon invitation — vérifier
             </button>
@@ -757,6 +881,7 @@ export function WebGate({ children }: { children: React.ReactNode }) {
         )}
 
         <div className="siral-foot">Chiffrement de bout en bout · clés individuelles · hébergement UE · journal d&apos;accès</div>
+        <div className="siral-foot" style={{ marginTop: 4, opacity: 0.8 }}>SIRAL — propriété d&apos;Audran Chevalier</div>
       </div>
     </div>
   )

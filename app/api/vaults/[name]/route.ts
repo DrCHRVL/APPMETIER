@@ -3,10 +3,12 @@
  * version (l'ancienne est archivée automatiquement, historique immuable).
  * Tous les accès sont cloisonnés dans l'espace du TJ actif de la session.
  */
-import { requireTjSession, handle, jsonResponse } from '@/lib/server/auth'
-import { readVault, writeVault, deleteVault, isSafeName, appendLog } from '@/lib/server/store'
+import { requireTjSession, handle, jsonResponse, findAccount, isTjAdmin, canInitializeTj } from '@/lib/server/auth'
+import { readVault, writeVault, deleteVault, isSafeName, appendLog, listVaults, withFileLock } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
+
+const ESCROW_VAULT = 'escrow-keys'
 
 export async function GET(req: Request, { params }: { params: { name: string } }) {
   return handle(async () => {
@@ -21,10 +23,40 @@ export async function GET(req: Request, { params }: { params: { name: string } }
     if (keyring && keyring[1] !== session.u) {
       return jsonResponse({ error: 'Lecture non autorisée sur ce trousseau' }, { status: 403 })
     }
+    // Indicateurs scellés pour l'administrateur général : lui seul les lit.
+    if (params.name.startsWith('indicateurs-') && session.r !== 'admin') {
+      return jsonResponse({ error: 'Réservé à l’administrateur général' }, { status: 403 })
+    }
+    // Séquestre des clés du TJ : lisible par l'administrateur général seul.
+    if (params.name === ESCROW_VAULT) {
+      if (session.r !== 'admin') return jsonResponse({ error: 'Réservé à l’administrateur général' }, { status: 403 })
+      await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: session.u, action: 'escrow.read', details: { tj: session.tj } })
+    }
     const envelope = readVault(session.tj, params.name)
     if (!envelope) return jsonResponse({ exists: false }, { status: 404 })
     return jsonResponse({ exists: true, envelope })
   })
+}
+
+/**
+ * Premier trousseau d'un compte : seulement en activant une invitation, ou —
+ * TJ encore vierge — par qui peut l'initialiser (sinon le premier venu créerait
+ * les clés d'un TJ neuf et plus personne ne pourrait y être invité) ; pour
+ * l'administrateur général, aussi depuis le séquestre. Rend un refus, ou null.
+ */
+function controlePremierTrousseau(session: { u: string, r: string, tj: string }, name: string): Response | null {
+  const vaults = listVaults(session.tj)
+  const first = !vaults.includes(name) && !vaults.includes(`grant-${session.u}`)
+  if (!first) return null
+  const virgin = !vaults.some((v) => v.startsWith('keyring-'))
+  const viaEscrow = session.r === 'admin' && !virgin && vaults.includes(ESCROW_VAULT)
+  if (!virgin && !viaEscrow) {
+    return jsonResponse({ error: 'Ce tribunal est déjà initialisé : demandez une invitation à son administrateur' }, { status: 403 })
+  }
+  if (virgin && !canInitializeTj(findAccount(session.u), session.tj)) {
+    return jsonResponse({ error: 'Seul l’administrateur de ce tribunal peut en initialiser les clés' }, { status: 403 })
+  }
+  return null
 }
 
 export async function PUT(req: Request, { params }: { params: { name: string } }) {
@@ -32,15 +64,36 @@ export async function PUT(req: Request, { params }: { params: { name: string } }
     const session = requireTjSession(req)
     if (!isSafeName(params.name)) return jsonResponse({ error: 'Nom invalide' }, { status: 400 })
     // Coffres d'ACCÈS : un trousseau n'est modifiable que par son titulaire,
-    // une invitation n'est déposable que par un admin — sinon tout membre
-    // pourrait écraser le trousseau d'autrui ou empoisonner une invitation.
+    // une invitation n'est déposable que par l'administrateur du TJ — sinon
+    // tout membre pourrait écraser le trousseau d'autrui ou empoisonner une
+    // invitation.
+    // Séquestre : déposé par l'administrateur du TJ (pour l'administrateur général).
+    if (params.name === ESCROW_VAULT && !isTjAdmin(findAccount(session.u), session.tj)) {
+      return jsonResponse({ error: 'Réservé à l’administrateur de ce tribunal' }, { status: 403 })
+    }
     const access = /^(keyring|grant)-(.+)$/.exec(params.name)
     if (access) {
+      const tjAdmin = isTjAdmin(findAccount(session.u), session.tj)
       const ownKeyring = access[1] === 'keyring' && access[2] === session.u
-      const adminGrant = access[1] === 'grant' && session.r === 'admin'
+      // l'accès de l'administrateur général ne relève pas des administrateurs locaux
+      if (!ownKeyring && session.r !== 'admin' && findAccount(access[2])?.role === 'admin') {
+        return jsonResponse({ error: 'Accès de l’administrateur général : non modifiable ici' }, { status: 403 })
+      }
+      const adminGrant = access[1] === 'grant' && tjAdmin
       if (!ownKeyring && !adminGrant) {
         return jsonResponse({ error: 'Écriture non autorisée sur ce coffre d’accès' }, { status: 403 })
       }
+    }
+    // Indicateurs par utilisateur : chacun ne dépose que les siens.
+    const indicUser = /^indicateurs-user-(.+)$/.exec(params.name)
+    if (indicUser && indicUser[1].toLowerCase() !== session.u.toLowerCase()) {
+      return jsonResponse({ error: 'Écriture non autorisée' }, { status: 403 })
+    }
+    // Habilitations (contentieux, modules, rôles, en-têtes) et épinglage de la
+    // clé d'administration générale : administrateur du TJ (local ou général)
+    // seulement — un membre ne peut pas s'attribuer de contentieux.
+    if ((params.name === 'escrow-pin' || params.name === 'users-config') && !isTjAdmin(findAccount(session.u), session.tj)) {
+      return jsonResponse({ error: 'Réservé à l’administrateur de ce tribunal' }, { status: 403 })
     }
     const envelope = await req.json().catch(() => ({}))
     if (!envelope || envelope.encrypted !== true || typeof envelope.ct !== 'string' || typeof envelope.iv !== 'string') {
@@ -49,14 +102,25 @@ export async function PUT(req: Request, { params }: { params: { name: string } }
     if (envelope.ct.length > 80 * 1024 * 1024) {
       return jsonResponse({ error: 'Coffre trop volumineux' }, { status: 413 })
     }
-    const { version } = await writeVault(session.tj, params.name, envelope, session.u)
+    // Mon trousseau : contrôle du « premier trousseau » ET écriture sous un même
+    // verrou par TJ — deux initialisations simultanées d'un TJ vierge (admin
+    // local et administrateur général) ne peuvent pas créer deux jeux de clés.
+    const ecrire = () => writeVault(session.tj, params.name, envelope, session.u)
+    const resultat = access && access[1] === 'keyring' && access[2] === session.u
+      ? await withFileLock(`init:${session.tj}`, async () => {
+        const refus = controlePremierTrousseau(session, params.name)
+        return refus || ecrire()
+      })
+      : await ecrire()
+    if (resultat instanceof Response) return resultat
+    const { version } = resultat
     await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: session.u, action: 'vault.write', details: { tj: session.tj, vault: params.name, version } })
     return jsonResponse({ ok: true, version })
   })
 }
 
 /**
- * Suppression restreinte aux coffres d'accès individuels : un admin peut
+ * Suppression restreinte aux coffres d'accès individuels : l'admin du TJ peut
  * révoquer le trousseau/l'invitation de n'importe qui ; chacun peut supprimer
  * sa propre invitation consommée. Les coffres de données ne sont JAMAIS
  * supprimables par l'API.
@@ -68,7 +132,11 @@ export async function DELETE(req: Request, { params }: { params: { name: string 
     if (!isSafeName(name)) return jsonResponse({ error: 'Nom invalide' }, { status: 400 })
     const isAccessVault = /^(keyring|grant)-/.test(name)
     const ownGrant = name === `grant-${session.u}` || name === `keyring-${session.u}`
-    if (!isAccessVault || (session.r !== 'admin' && !ownGrant)) {
+    const cibleCompte = /^(?:keyring|grant)-(.+)$/.exec(name)?.[1]
+    if (isAccessVault && !ownGrant && session.r !== 'admin' && cibleCompte && findAccount(cibleCompte)?.role === 'admin') {
+      return jsonResponse({ error: 'Accès de l’administrateur général : non modifiable ici' }, { status: 403 })
+    }
+    if (!isAccessVault || (!isTjAdmin(findAccount(session.u), session.tj) && !ownGrant)) {
       return jsonResponse({ error: 'Suppression non autorisée' }, { status: 403 })
     }
     const deleted = await deleteVault(session.tj, name)

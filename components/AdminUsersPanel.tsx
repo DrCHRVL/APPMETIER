@@ -1,5 +1,6 @@
 'use client';
 
+import { estSuperAdmin } from '@/lib/web/identite';
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserPlus, Trash2, Shield, X, Check, ChevronDown, KeyRound, Copy, ShieldOff, AlertTriangle } from 'lucide-react';
 import { UserManager } from '@/utils/userManager';
@@ -87,23 +88,27 @@ export const AdminUsersPanel = () => {
 
   // ── État d'enrôlement / trousseau ─────────────────────────────────
   // username (minuscule) → état du compte serveur correspondant.
-  type AccountState = { exists: boolean; hasKeyring: boolean; hasGrant: boolean };
+  type AccountState = { exists: boolean; hasKeyring: boolean; hasGrant: boolean; suspendu?: boolean };
   const [accountStates, setAccountStates] = useState<Record<string, AccountState>>({});
+  // Accès de l'administrateur général à ce tribunal (information des administrateurs locaux)
+  type AdminGeneralInfo = { displayName: string; acces: 'ouvert' | 'pret' | 'non-depose' };
+  const [adminGeneral, setAdminGeneral] = useState<AdminGeneralInfo | null>(null);
 
   const loadAccountStates = useCallback(async () => {
     const api = (typeof window !== 'undefined' ? (window as any).siralBridge : null);
     if (!api?.e2ee_listAccounts) return;
     try {
-      const list: Array<{ username: string; displayName: string; role: 'admin' | 'member'; hasKeyring: boolean; hasGrant: boolean }> = await api.e2ee_listAccounts();
+      const list: Array<{ username: string; displayName: string; role: 'admin' | 'member'; tjAdmin?: boolean; suspendu?: boolean; hasKeyring: boolean; hasGrant: boolean }> = await api.e2ee_listAccounts();
       // Unification : tout compte serveur enrôlé doit avoir un profil d'habilitations.
       const manager = UserManager.getInstance();
       const changed = await manager.reconcileWithAccounts(
-        list.map(a => ({ username: a.username, displayName: a.displayName, role: a.role })),
+        list.map(a => ({ username: a.username, displayName: a.displayName, role: a.role, tjAdmin: a.tjAdmin })),
       );
       if (changed) { loadUsers(); await refreshUsers(); }
       const map: Record<string, AccountState> = {};
-      for (const a of list) map[a.username.toLowerCase()] = { exists: true, hasKeyring: a.hasKeyring, hasGrant: a.hasGrant };
+      for (const a of list) map[a.username.toLowerCase()] = { exists: true, hasKeyring: a.hasKeyring, hasGrant: a.hasGrant, suspendu: a.suspendu };
       setAccountStates(map);
+      setAdminGeneral(((window as unknown as { __SIRAL_ADMIN_GENERAL__?: AdminGeneralInfo | null }).__SIRAL_ADMIN_GENERAL__) || null);
     } catch {
       // non bloquant : la liste des comptes peut être momentanément indisponible
     }
@@ -256,7 +261,11 @@ export const AdminUsersPanel = () => {
   };
 
   // L'enrôlement serveur fait foi : seuls les utilisateurs approuvés sont gérés ici.
-  const approvedUsers = users.filter(u => u.approved === true || u.globalRole === 'admin');
+  // L'administrateur général (rattaché à tous les TJ) n'apparaît pas aux administrateurs locaux.
+  const generaux = new Set(((typeof window !== 'undefined' && (window as unknown as { __SIRAL_GENERAUX__?: string[] }).__SIRAL_GENERAUX__) || []).map(u => u.toLowerCase()));
+  const approvedUsers = users
+    .filter(u => u.approved === true || u.globalRole === 'admin')
+    .filter(u => estSuperAdmin() || !generaux.has(u.windowsUsername.toLowerCase()));
 
   return (
     <div className="space-y-6">
@@ -296,14 +305,13 @@ export const AdminUsersPanel = () => {
                 </li>
                 <li>
                   <b>Lui s&apos;enrôle</b> : il ouvre l&apos;application et remplit l&apos;écran <i>Enrôlement</i> avec le
-                  <b> code d&apos;enrôlement du service</b> (la valeur <code>SIRAL_SETUP_CODE</code>, à lui communiquer de
-                  vive voix) puis son mot de passe. ⚠️ Il doit utiliser <b>exactement le même identifiant</b> que celui de
+                  <b> code d&apos;accès du tribunal</b> (remis par l&apos;administrateur général à la création du TJ)
+                  puis son mot de passe. ⚠️ Il doit utiliser <b>exactement le même identifiant</b> que celui de
                   sa fiche, sinon les deux ne se relient pas.
                 </li>
                 <li>
                   <b>Vous l&apos;invitez</b> : son badge passe à <b>« À inviter »</b>. Dépliez sa carte → <b>Inviter</b> :
-                  vous obtenez un <b>code à usage unique</b> qui livre exactement ses clés. Transmettez-le maintenant, de
-                  vive voix ou par canal sûr — il ne sera <b>plus jamais affiché</b>.
+                  vous obtenez un <b>code à usage unique</b> qui livre exactement ses clés. Transmettez-le maintenant — il ne sera <b>plus jamais affiché</b>.
                 </li>
                 <li>
                   <b>Lui active son trousseau</b> : il saisit ce code d&apos;invitation et choisit sa <b>phrase
@@ -359,7 +367,7 @@ export const AdminUsersPanel = () => {
                 className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm"
               >
                 <option value="">Aucun (contentieux uniquement)</option>
-                <option value="admin">Administrateur</option>
+                <option value="admin" disabled>Administrateur (désigné par l’admin du serveur)</option>
                 <option value="pra">PR / PRA</option>
                 <option value="vice_proc">Vice-procureur</option>
                 <option value="jld">JLD (tableau de bord seul)</option>
@@ -387,6 +395,14 @@ export const AdminUsersPanel = () => {
 
       {/* Liste des utilisateurs approuvés */}
       <div className="space-y-3">
+        {adminGeneral && !estSuperAdmin() && (
+          <div className="border border-sky-200 bg-sky-50 rounded-lg p-3 text-xs text-sky-900">
+            <b>Administrateur général : {adminGeneral.displayName}</b> — accès à ce tribunal :{' '}
+            {adminGeneral.acces === 'ouvert' ? 'ouvert' : adminGeneral.acces === 'pret' ? 'possible' : 'pas encore possible'}.
+            {' '}Il peut ouvrir ce tribunal, créer, suspendre ou débloquer des comptes.
+          </div>
+        )}
+
         {approvedUsers.map(user => (
           <UserCard
             key={user.windowsUsername}
@@ -420,7 +436,7 @@ export const AdminUsersPanel = () => {
 interface UserCardProps {
   user: UserProfile;
   contentieuxDefs: ContentieuxDefinition[];
-  accountState?: { exists: boolean; hasKeyring: boolean; hasGrant: boolean };
+  accountState?: { exists: boolean; hasKeyring: boolean; hasGrant: boolean; suspendu?: boolean };
   onUpdateGlobalRole: (username: string, role: GlobalRole) => void;
   onAssignContentieux: (username: string, cId: ContentieuxId, role: ContentieuxRole) => void;
   onUnassignContentieux: (username: string, cId: ContentieuxId) => void;
@@ -438,7 +454,10 @@ interface UserCardProps {
 }
 
 /** Pastille d'état du trousseau (édition web) — dépliez la carte pour agir. */
-const KeyringBadge = ({ state }: { state?: { exists: boolean; hasKeyring: boolean; hasGrant: boolean } }) => {
+const KeyringBadge = ({ state }: { state?: { exists: boolean; hasKeyring: boolean; hasGrant: boolean; suspendu?: boolean } }) => {
+  if (state?.suspendu) {
+    return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700" title="Compte suspendu par l'administrateur général : plus de connexion possible">Suspendu</span>;
+  }
   if (!state?.exists) {
     return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" title="Aucun compte serveur — la personne ne s'est pas encore enrôlée">Pas encore enrôlé</span>;
   }
@@ -529,10 +548,12 @@ const UserCard = ({
             <select
               value={user.globalRole || ''}
               onChange={e => onUpdateGlobalRole(user.windowsUsername, e.target.value ? e.target.value as GlobalRole : null)}
-              className="px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white"
+              disabled={user.globalRole === 'admin'}
+              title={user.globalRole === 'admin' ? 'Administrateur du tribunal : désigné par l’administrateur général (Paramètres → Gestion des TJ)' : undefined}
+              className="px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white disabled:bg-gray-100"
             >
               <option value="">Aucun</option>
-              <option value="admin">Administrateur</option>
+              <option value="admin" disabled>Administrateur (désigné par l’admin du serveur)</option>
               <option value="pra">PR / PRA</option>
               <option value="vice_proc">Vice-procureur</option>
               <option value="jld">JLD (tableau de bord seul)</option>
@@ -640,8 +661,7 @@ const UserCard = ({
                         </button>
                       </div>
                       <p className="text-[11px] text-emerald-800">
-                        À usage unique — il ne sera <b>plus jamais affiché</b>. Transmettez-le maintenant, de vive voix
-                        ou par canal sûr.
+                        À usage unique — il ne sera <b>plus jamais affiché</b>. Transmettez-le maintenant.
                       </p>
                     </div>
                   )}
@@ -663,7 +683,8 @@ const UserCard = ({
                       <>
                         <button
                           onClick={() => onInvite?.(user)}
-                          disabled={keyBusy}
+                          disabled={keyBusy || accountState?.suspendu === true}
+                          title={accountState?.suspendu ? 'Compte suspendu par l’administrateur général' : undefined}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 disabled:opacity-50"
                         >
                           <UserPlus className="h-3.5 w-3.5" />

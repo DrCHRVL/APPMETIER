@@ -5,7 +5,7 @@
  * l'application : trousseau, coffres et cache local sont ceux du nouveau TJ.
  */
 import {
-  requireSession, handle, jsonResponse, findAccount, saveAccount, accountTjs,
+  requireSession, handle, jsonResponse, findAccount, updateAccount, accountTjs,
   createSessionCookie, sessionCookieHeader,
 } from '@/lib/server/auth'
 import { findTj } from '@/lib/server/tj'
@@ -16,14 +16,15 @@ export const dynamic = 'force-dynamic'
 export async function POST(req: Request) {
   return handle(async () => {
     const session = requireSession(req)
+    // Basculer de TJ : administrateur général seulement (un membre relève d'un seul TJ).
+    if (session.r !== 'admin') return jsonResponse({ error: 'Réservé à l’administrateur général' }, { status: 403 })
     const { tj } = await req.json().catch(() => ({}))
     if (typeof tj !== 'string' || !findTj(tj)) return jsonResponse({ error: 'Tribunal inconnu' }, { status: 400 })
     const account = findAccount(session.u)
     if (!account || !accountTjs(account).includes(tj)) {
       return jsonResponse({ error: 'Votre compte n’est pas rattaché à ce tribunal' }, { status: 403 })
     }
-    account.lastTj = tj
-    await saveAccount(account)
+    await updateAccount(account.username, (a) => { a.lastTj = tj })
     await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: session.u, action: 'auth.switch-tj', details: { from: session.tj, to: tj } })
     const cookie = createSessionCookie(account, tj)
     return jsonResponse(

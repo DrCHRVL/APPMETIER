@@ -1,3 +1,4 @@
+import { estTjOrigine } from '@/lib/web/identite';
 // utils/dataSync/EntraideSyncService.ts
 //
 // Registre PARTAGÉ du module Entraide internationale : un seul coffre chiffré
@@ -62,6 +63,18 @@ function fusionnerTombstones(a: EntraideTombstone[], b: EntraideTombstone[]): En
   return Array.from(m.values());
 }
 
+/** Coordonnées seules : écarte l'image de signature des anciennes données
+ *  (fonction retirée) — elle disparaît du coffre à la prochaine écriture. */
+function sansImage(xs: SignataireEntraide[]): SignataireEntraide[] {
+  return xs
+    .filter((x) => x && typeof x === 'object')
+    .map((x) => {
+      if (!('signature' in x)) return x;
+      const { signature: _image, ...reste } = x as SignataireEntraide & { signature?: unknown };
+      return reste;
+    });
+}
+
 /** Fusion pure de deux états (exportée pour les tests et le connecteur). */
 export function fusionnerEntraide(a: EntraideData, b: EntraideData): EntraideData {
   const tombstones = fusionnerTombstones(a.tombstones || [], b.tombstones || []);
@@ -71,7 +84,7 @@ export function fusionnerEntraide(a: EntraideData, b: EntraideData): EntraideDat
     demandes: fusionnerParCle<DemandeEntraide>(a.demandes || [], b.demandes || [], (x) => x.id).filter(vivant),
     autorites: fusionnerParCle<AutoriteEtrangere>(a.autorites || [], b.autorites || [], (x) => x.id).filter(vivant),
     services: fusionnerParCle<ServiceEnqueteur>(a.services || [], b.services || [], (x) => x.id).filter(vivant),
-    signataires: fusionnerParCle<SignataireEntraide>(a.signataires || [], b.signataires || [], (x) => x.username),
+    signataires: sansImage(fusionnerParCle<SignataireEntraide>(a.signataires || [], b.signataires || [], (x) => x.username)),
     tombstones,
   };
 }
@@ -94,7 +107,7 @@ function normaliser(raw: unknown): EntraideData {
     demandes: Array.isArray(r.demandes) ? r.demandes : [],
     autorites: Array.isArray(r.autorites) ? r.autorites : [],
     services: Array.isArray(r.services) ? r.services : [],
-    signataires: Array.isArray(r.signataires) ? r.signataires : [],
+    signataires: Array.isArray(r.signataires) ? sansImage(r.signataires) : [],
     tombstones: Array.isArray(r.tombstones) ? r.tombstones : [],
   };
 }
@@ -195,10 +208,15 @@ class EntraideSyncService {
       return;
     }
     this.serverVersion = serveur?.version ?? 0;
+    // Coffre portant encore une image de signature (fonction retirée) : on le
+    // réécrit sans elle, même sans autre changement.
+    const imageAPurger = Array.isArray(serveur?.signataires)
+      && serveur!.signataires.some((x) => !!x && typeof x === 'object' && 'signature' in x);
     const distant = normaliser(serveur);
     let fusion = fusionnerEntraide(this.data, distant);
-    // Premier usage du module : services enquêteurs de départ.
-    if (!serveur && fusion.services.length === 0) {
+    // Premier usage du module : services enquêteurs de départ (ceux de la
+    // Somme, cochés sur les trames T1/T2 d'Amiens) — TJ d'origine seulement.
+    if (!serveur && fusion.services.length === 0 && estTjOrigine()) {
       const maintenant = new Date().toISOString();
       fusion = { ...fusion, services: SERVICES_DEPART.map((s) => ({ ...s, dateMiseAJour: maintenant })) };
     }
@@ -217,7 +235,7 @@ class EntraideSyncService {
       await SiralBridge.setData(APP_CONFIG.STORAGE_KEYS.ENTRAIDE, fusion);
       this.emit();
     }
-    if (!serveur || this.dirty || empreinte(fusion) !== empreinte(distant)) {
+    if (!serveur || this.dirty || imageAPurger || empreinte(fusion) !== empreinte(distant)) {
       const user = await getCurrentUserInfo();
       const payload: EntraideSyncFile = {
         ...fusion,

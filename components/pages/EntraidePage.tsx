@@ -2,11 +2,11 @@
 
 // Module « Entraide internationale » : registre partagé des demandes
 // d'entraide (DEE, DO, CRI, exécution, civil), reçues ou émises, triées par
-// urgence. Onglets : registre, parapheur (à signer), relances par service,
-// clôturées, référentiels, signature.
+// urgence. Onglets : registre, courriers à envoyer, relances par service,
+// clôturées, référentiels, coordonnées du magistrat.
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, RefreshCw, Mail, Copy, Download, PenLine, ArrowUp, ArrowDown, ArrowUpDown, Flag } from 'lucide-react';
+import { Plus, RefreshCw, Mail, Copy, Download, Send, ArrowUp, ArrowDown, ArrowUpDown, Flag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/contexts/ToastContext';
 import { useEntraide } from '@/hooks/useEntraide';
@@ -31,11 +31,11 @@ import { BadgeEcheance, BadgeType } from '@/components/entraide/badges';
 import { EntraideFiche } from '@/components/entraide/EntraideFiche';
 import { NouvelleDemandeModal } from '@/components/entraide/NouvelleDemandeModal';
 import { ReferentielsPanel } from '@/components/entraide/ReferentielsPanel';
-import { SignaturePanel } from '@/components/entraide/SignaturePanel';
+import { CoordonneesPanel } from '@/components/entraide/CoordonneesPanel';
 import { nomUtilisateur, utilisateursEntraide } from '@/components/entraide/utilisateurs';
 import type { DemandeEntraide, EntraideAction, EntraideEtat, EntraideType, ServiceEnqueteur } from '@/types/entraideTypes';
 
-type Onglet = 'registre' | 'signer' | 'relances' | 'cloturees' | 'referentiels' | 'signature';
+type Onglet = 'registre' | 'envoyer' | 'relances' | 'cloturees' | 'referentiels' | 'coordonnees';
 
 interface Ligne { d: DemandeEntraide; e: EntraideEtat }
 
@@ -76,7 +76,7 @@ export const EntraidePage: React.FC<{ searchTerm?: string; ficheDemandee?: { id:
     [api.data.demandes, jour],
   );
   const enCours = lignes.filter((l) => l.e.etape !== 'cloturee');
-  const aSigner = enCours.filter((l) => l.e.etape === 'a_signer');
+  const aEnvoyer = enCours.filter((l) => l.e.etape === 'a_envoyer');
   const monSignataire = api.index.signataire.get(api.moi.toLowerCase()) || null;
 
   const q = normaliser(recherche || searchTerm);
@@ -116,7 +116,7 @@ export const EntraidePage: React.FC<{ searchTerm?: string; ficheDemandee?: { id:
     enCours: enCours.length,
     retard: enCours.filter((l) => l.e.niveau === 'retard').length,
     proche: enCours.filter((l) => l.e.niveau === 'proche').length,
-    signer: aSigner.length,
+    envoyer: aEnvoyer.length,
     legal: enCours.filter((l) => l.e.echeancesLegales.some((x) => x.statut === 'en_cours' || x.statut === 'depasse')).length,
     sansEcheance: enCours.filter((l) => l.e.niveau === 'aucune').length,
   };
@@ -153,11 +153,11 @@ export const EntraidePage: React.FC<{ searchTerm?: string; ficheDemandee?: { id:
 
   const Onglets: Array<[Onglet, string, number?]> = [
     ['registre', 'Registre', enCours.length],
-    ['signer', 'À signer', aSigner.length],
+    ['envoyer', 'À envoyer', aEnvoyer.length],
     ['relances', 'Relances', relancesParService.reduce((n, g) => n + g.lignes.length, 0) + etrangerEnRetard.length],
     ['cloturees', 'Clôturées'],
     ['referentiels', 'Référentiels'],
-    ['signature', 'Ma signature'],
+    ['coordonnees', 'Mes coordonnées'],
   ];
 
   const chip = (actif: boolean) => `px-2.5 py-0.5 rounded-full border text-xs ${actif ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 hover:bg-gray-50'}`;
@@ -267,7 +267,7 @@ export const EntraidePage: React.FC<{ searchTerm?: string; ficheDemandee?: { id:
           ['Demandes en cours', kpi.enCours, 'border-l-gray-700 text-gray-900'],
           ['Échéances dépassées', kpi.retard, 'border-l-red-500 text-red-700'],
           ['À échéance sous 30 jours', kpi.proche, 'border-l-amber-500 text-amber-700'],
-          ['À signer', kpi.signer, 'border-l-violet-500 text-violet-700'],
+          ['Courriers à envoyer', kpi.envoyer, 'border-l-violet-500 text-violet-700'],
           ['Délais légaux en jeu', kpi.legal, 'border-l-blue-500 text-blue-700'],
           ['Sans échéance (doit rester à 0)', kpi.sansEcheance, kpi.sansEcheance ? 'border-l-orange-500 text-orange-700' : 'border-l-green-600 text-green-700'],
         ].map(([l, n, c]) => (
@@ -291,16 +291,15 @@ export const EntraidePage: React.FC<{ searchTerm?: string; ficheDemandee?: { id:
 
       {onglet === 'cloturees' && (<>{Filtres}{tableau(cloturees, true)}</>)}
 
-      {onglet === 'signer' && (
+      {onglet === 'envoyer' && (
         <div className="space-y-2">
-          {!monSignataire?.signature && (
-            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">Pour signer, renseignez d’abord votre bloc signature (onglet « Ma signature »).</p>
-          )}
-          {aSigner.length === 0 && <p className="text-sm text-gray-500">Aucun courrier en attente de signature.</p>}
-          {aSigner
+          <p className="text-sm text-gray-600">Courriers préparés : téléchargez-les, imprimez-les et envoyez-les, puis marquez-les envoyés.</p>
+          {aEnvoyer.length === 0 && <p className="text-sm text-gray-500">Aucun courrier en attente d’envoi.</p>}
+          {aEnvoyer
             .sort((a, b) => Number((b.d.magistrat || '').toLowerCase() === api.moi.toLowerCase()) - Number((a.d.magistrat || '').toLowerCase() === api.moi.toLowerCase()))
             .map((l) => {
-              const doc = l.e.docEnAttente!;
+              const doc = l.e.docEnAttente;
+              if (!doc) return null;
               return (
                 <div key={l.d.id} className="flex flex-wrap items-center gap-3 rounded-lg border bg-white px-4 py-2.5">
                   <BadgeType type={l.d.type} />
@@ -310,11 +309,11 @@ export const EntraidePage: React.FC<{ searchTerm?: string; ficheDemandee?: { id:
                   <span className="text-xs text-gray-500 truncate max-w-[260px]">{l.d.objet}</span>
                   <div className="ml-auto flex gap-2">
                     <Button size="sm" variant="outline" onClick={() => telechargerCourrier(api, l.d, doc.doc, doc.langue || 'fr').catch((e) => showToast(e.message, 'error'))}>
-                      <Download className="h-3.5 w-3.5 mr-1" />Aperçu
+                      <Download className="h-3.5 w-3.5 mr-1" />Télécharger
                     </Button>
-                    <Button size="sm" className="bg-[#2B5746] hover:bg-[#2B5746]/90" disabled={!monSignataire?.signature}
-                      onClick={() => executerAction({ api, demande: l.d, monSignataire, notifier: showToast }, { action: 'signer', libelle: '', doc: doc.doc })}>
-                      <PenLine className="h-3.5 w-3.5 mr-1" />Valider et signer
+                    <Button size="sm" className="bg-[#2B5746] hover:bg-[#2B5746]/90"
+                      onClick={() => setAConfirmer({ d: l.d, a: { action: 'envoyer', libelle: 'Marquer envoyé', doc: doc.doc } })}>
+                      <Send className="h-3.5 w-3.5 mr-1" />Marquer envoyé
                     </Button>
                   </div>
                 </div>
@@ -381,7 +380,7 @@ export const EntraidePage: React.FC<{ searchTerm?: string; ficheDemandee?: { id:
       )}
 
       {onglet === 'referentiels' && <ReferentielsPanel api={api} />}
-      {onglet === 'signature' && <SignaturePanel api={api} />}
+      {onglet === 'coordonnees' && <CoordonneesPanel api={api} />}
 
       {aConfirmer && (
         <ConfirmationAction action={aConfirmer.a} demande={aConfirmer.d}

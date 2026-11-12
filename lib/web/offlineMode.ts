@@ -34,7 +34,7 @@ import {
 } from './keyring'
 
 export interface OfflineTj { id: string; name: string }
-export interface OfflineIdentity { username: string; displayName: string; role: string }
+export interface OfflineIdentity { username: string; displayName: string; role: string; tjAdmin?: boolean }
 
 interface OfflineBundle {
   v: 1
