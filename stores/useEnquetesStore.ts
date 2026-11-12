@@ -35,6 +35,7 @@ import { repairArchiveState } from '@/utils/archiveState';
 import { buildResultatLookup } from '@/utils/archiveStateIO';
 import throttle from 'lodash/throttle';
 import { docServerKey } from '@/lib/web/folderUpload';
+import { dedupeDocuments } from '@/utils/documents/dedupeDocuments';
 
 const SAVE_THROTTLE = 8000;
 
@@ -45,6 +46,9 @@ function storageKey(contentieuxId: ContentieuxId): string {
 const migrateEnqueteDocuments = (enquete: any): Enquete => {
   if (!enquete.documents || !Array.isArray(enquete.documents)) {
     enquete.documents = [];
+  } else {
+    // Doublons hérités des anciennes fusions par id : nettoyés au chargement.
+    enquete.documents = dedupeDocuments(enquete.documents);
   }
   if (!enquete.toDos || !Array.isArray(enquete.toDos)) {
     enquete.toDos = [];

@@ -42,6 +42,7 @@ import { DocumentSyncManager, SyncResult } from '@/utils/documents/DocumentSyncM
 import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipProvider } from '../ui/tooltip';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { dedupeDocuments } from '@/utils/documents/dedupeDocuments';
 
 interface DocumentsSectionProps {
   enquete: Enquete;
@@ -596,7 +597,8 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         const annotated = copieCommun
           ? savedFiles.map((f: DocumentEnquete) => ({ ...f, copieCommun }))
           : savedFiles;
-        onUpdate(enquete.id, { documents: [...(enquete.documents || []), ...annotated] });
+        // Liste COURANTE (docsRef : la synchro a pu l'enrichir pendant le dépôt), dédoublonnée par chemin.
+        onUpdate(enquete.id, { documents: dedupeDocuments([...(docsRef.current || []), ...annotated]) });
         if (!chunkError) {
           // Le dépôt a réveillé le flux tendu : le dire ici, sinon le travail
           // qui suit est entièrement invisible. Aucune promesse de compte
