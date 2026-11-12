@@ -34,6 +34,7 @@ import { useUserStore } from '@/stores/useUserStore';
 import { repairArchiveState } from '@/utils/archiveState';
 import { buildResultatLookup } from '@/utils/archiveStateIO';
 import throttle from 'lodash/throttle';
+import { docServerKey } from '@/lib/web/folderUpload';
 
 const SAVE_THROTTLE = 8000;
 
@@ -417,6 +418,27 @@ async function persistOriginContentieux(
 
 // ── Création du store ──
 
+// Le numéro du dossier est la clé de rangement de ses pièces sur le serveur :
+// le renommer sans déplacer les pièces les rendait « introuvables » (listées
+// par la fiche, absentes sous la nouvelle clé). Chaîne SÉRIALISÉE : la saisie
+// du numéro est enregistrée par à-coups (A→B puis B→C), les déplacements
+// doivent s'appliquer dans le même ordre.
+let _rekeyChain: Promise<unknown> = Promise.resolve();
+function suivrePiecesRenommage(ancien: string, nouveau: string, autres: Enquete[]) {
+  const from = docServerKey(ancien);
+  const to = docServerKey(nouveau);
+  if (from === to || typeof window === 'undefined' || !window.siralBridge?.rekeyDocuments) return;
+  // Clé partagée avec un AUTRE dossier : ne jamais emporter ni fusionner ses pièces.
+  if (autres.some(e => { const k = docServerKey(e.numero); return k === from || k === to; })) {
+    console.warn(`[documents] renommage ${ancien} → ${nouveau} : clé partagée avec un autre dossier, pièces laissées en place`);
+    return;
+  }
+  _rekeyChain = _rekeyChain
+    .then(() => window.siralBridge.rekeyDocuments(ancien, nouveau))
+    .then(r => { if (r.conflits.length) console.warn(`[documents] ${r.conflits.length} pièce(s) homonyme(s) restée(s) sous ${ancien}`, r.conflits); })
+    .catch(e => console.error(`[documents] pièces non déplacées (${ancien} → ${nouveau})`, e));
+}
+
 export const useEnquetesStore = create<EnquetesState>((set, get) => ({
   contentieuxId: 'crimorg',
   ownEnquetes: [],
@@ -672,6 +694,10 @@ export const useEnquetesStore = create<EnquetesState>((set, get) => ({
 
   updateEnquete: (id: number, updates: Partial<Enquete>) => {
     const now = new Date().toISOString();
+    const avant = get().ownEnquetes.find(e => e.id === id);
+    if (avant && typeof updates.numero === 'string' && updates.numero !== avant.numero) {
+      suivrePiecesRenommage(avant.numero, updates.numero, get().ownEnquetes.filter(e => e.id !== id));
+    }
     set(state => {
       const previous = state.ownEnquetes.find(e => e.id === id);
       // Si le patch ne contient que des champs techniques (pas de sens métier),

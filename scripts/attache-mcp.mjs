@@ -33,6 +33,7 @@ import { chercherDansPieces } from './attache/recherche.mjs'
 import { creerInterrogation, arreterInterrogation, sommaireInterrogations, detailInterrogation } from './attache/interrogation.mjs'
 import { detailRapport } from './attache/rapport.mjs'
 import { detecterPiecesMalClassees } from './attache/classement.mjs'
+import { piecesIntrouvables, rattacherPieces } from './attache/piecesIntrouvables.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine } from './attache/routines.mjs'
 import { searchNatinf } from './attache/natinf.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
@@ -410,6 +411,27 @@ const TOOLS = [
     description: 'Contrôle factuel d\'un dossier : actes expirés ou expirant sous 7 jours, attentes JLD, CR anciens, documents manquants, à-faire ouverts.',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
     handler: async (a) => verifierCompletude(keys, a.numero) ?? { erreur: 'Dossier introuvable' },
+  },
+  {
+    name: 'pieces_introuvables',
+    description: 'Concordance FICHE ↔ SERVEUR des pièces : pièces listées par la fiche d\'un dossier dont le fichier est absent du serveur (lire_document répond « Document introuvable »), et rangements ORPHELINS (pièces rangées sous un ancien numéro de dossier). Sans numero : tout le fonds, archives comprises (dossiers en écart seulement, 5 exemples chacun). Avec numero : liste intégrale pour ce dossier. `retrouveesSous` = où dorment les pièces (récupérables par pieces_rattacher).',
+    inputSchema: { type: 'object', properties: { numero: { type: 'string', description: 'Facultatif — un dossier.' } } },
+    handler: async (a) => piecesIntrouvables(keys, { numero: a.numero }),
+  },
+  {
+    name: 'pieces_rattacher',
+    description: 'Rattache à un dossier les pièces d\'un rangement ORPHELIN signalé par pieces_introuvables (dossier renommé après versement). Fichiers déplacés tels quels, jamais d\'écrasement ni de suppression : une pièce homonyme déjà présente reste sous l\'ancienne clé (rendue dans `conflits`). À n\'utiliser qu\'avec l\'accord du magistrat.',
+    inputSchema: {
+      type: 'object',
+      properties: { cle: { type: 'string', description: 'Clé du rangement orphelin (rangementsOrphelins[].cle).' }, numero: { type: 'string', description: 'Dossier destinataire.' } },
+      required: ['cle', 'numero'],
+    },
+    handler: async (a) => {
+      const r = rattacherPieces(keys, { cle: a.cle, numero: a.numero })
+      if (!r.erreur) await audit(keys, 'pieces_rattachees', r)
+      return r
+    },
+    write: true,
   },
   {
     name: 'enregistrer_acte',

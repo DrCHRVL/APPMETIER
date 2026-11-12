@@ -12,7 +12,7 @@
 import { encryptJson, decryptJson, encryptBytes, decryptBytes, b64, CipherEnvelope } from './crypto'
 import { idb, exportKv, importKv, getAllEntries } from './idb'
 import { ScopedKeys, scopeOfVault, SCOPE_GLOBAL, generateInvitationCode, deriveRawKey, importAesKey, newKdfParams } from './keyring'
-import { encodeDocSegment } from './folderUpload'
+import { encodeDocSegment, docServerKey } from './folderUpload'
 
 export interface BridgeIdentity { username: string, displayName: string, role: string }
 
@@ -182,13 +182,7 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
   // à passer comme segment d'URL unique. On le transforme en identifiant stable et
   // sûr. Idempotent : une clé déjà sûre reste identique (pas de migration des docs
   // existants stockés sous un numéro déjà valide).
-  function serverKey(enquete: string): string {
-    const cleaned = String(enquete)
-      .normalize('NFKD').replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-zA-Z0-9._@-]/g, '_')
-    const safe = /^[a-zA-Z0-9]/.test(cleaned) ? cleaned : 'e_' + cleaned
-    return safe.slice(0, 121)
-  }
+  const serverKey = docServerKey
 
   // Clé de comparaison robuste entre un nom de fichier serveur et un nom sur disque
   // (P:\). Les deux côtés normalisent différemment (accents, espaces, tirets) ; on
@@ -628,6 +622,25 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
         throw new NetworkError(msg)
       }
       return cleanTo
+    },
+    /**
+     * Le dossier a changé de numéro : ses pièces suivent sous la nouvelle clé
+     * serveur (sans quoi la fiche les liste mais le serveur ne les trouve
+     * plus). Jamais d'écrasement : les homonymes restent sous l'ancienne clé.
+     */
+    rekeyDocuments: async (fromNumero: unknown, toNumero: unknown) => {
+      const from = serverKey(String(fromNumero))
+      const to = serverKey(String(toNumero))
+      if (from === to) return { deplacees: 0, conflits: [] as string[] }
+      const res = await api(`/api/docs/${encodeURIComponent(from)}/rekey`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ toEnquete: to }),
+        timeoutMs: 30000,
+      })
+      if (!res.ok) throw new NetworkError('Déplacement des pièces refusé (' + res.status + ')')
+      const d = await res.json() as { deplacees: number, conflits: string[] }
+      return { deplacees: d.deplacees, conflits: d.conflits }
     },
     /**
      * Transfère une pièce vers un AUTRE dossier (pièce versée au mauvais

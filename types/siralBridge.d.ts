@@ -275,6 +275,10 @@ interface SiralBridgeApi {
    *  final (segments nettoyés). Refuse d'écraser une pièce existante. */
   moveDocument: (enqueteNumero: string, from: string, to: string) => Promise<string>;
 
+  /** Le dossier a changé de numéro : ses pièces suivent sous la nouvelle clé
+   *  serveur. Jamais d'écrasement (homonymes rendus dans `conflits`). */
+  rekeyDocuments: (fromNumero: string, toNumero: string) => Promise<{ deplacees: number; conflits: string[] }>;
+
   /** Transfère une pièce vers un AUTRE dossier (pièce mal classée) — même
    *  chemin dans le dossier cible, jumeau markdown compris. Refuse d'écraser.
    *  Rend l'entrée d'index de la pièce déplacée. */

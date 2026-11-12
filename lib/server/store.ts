@@ -388,6 +388,50 @@ export async function transferDoc(tj: string, fromEnquete: string, rel: string, 
   }))
 }
 
+/**
+ * Le NUMÉRO du dossier est la clé de rangement de ses pièces (serverKey côté
+ * client). Quand le magistrat renomme le dossier, les pièces doivent suivre —
+ * sinon la fiche les liste toujours mais le serveur répond « introuvable »
+ * sous la nouvelle clé, alors qu'elles dorment intactes sous l'ancienne.
+ * Clé cible vierge : le répertoire est renommé d'un bloc. Clé cible déjà
+ * occupée : fusion pièce par pièce, JAMAIS d'écrasement — une pièce homonyme
+ * reste sous l'ancienne clé et est rendue dans `conflits`. Contenu chiffré
+ * jamais réécrit. Verrous dans un ordre stable (cf. transferDoc).
+ */
+export async function rekeyDocs(tj: string, fromEnquete: string, toEnquete: string): Promise<{ deplacees: number, conflits: string[] }> {
+  if (!isSafeName(fromEnquete) || !isSafeName(toEnquete)) throw new Error('Nom invalide')
+  if (fromEnquete === toEnquete) return { deplacees: 0, conflits: [] }
+  const srcDir = tjDataDir(tj, 'docs', fromEnquete)
+  const dstDir = tjDataDir(tj, 'docs', toEnquete)
+  const [a, b] = [fromEnquete, toEnquete].sort()
+  return withFileLock(`docs:${tj}:${a}`, () => withFileLock(`docs:${tj}:${b}`, async () => {
+    if (!fs.existsSync(srcDir)) return { deplacees: 0, conflits: [] }
+    const indexSrc = readJson<DocMeta[]>(docMetaPath(tj, fromEnquete), [])
+    if (!fs.existsSync(dstDir)) {
+      ensureDir(path.dirname(dstDir))
+      fs.renameSync(srcDir, dstDir)
+      return { deplacees: indexSrc.length, conflits: [] }
+    }
+    const indexDst = readJson<DocMeta[]>(docMetaPath(tj, toEnquete), [])
+    const restants: DocMeta[] = []
+    const conflits: string[] = []
+    let deplacees = 0
+    for (const d of indexSrc) {
+      const src = docPath(tj, fromEnquete, d.rel)
+      const dst = docPath(tj, toEnquete, d.rel)
+      if (!fs.existsSync(src)) continue // entrée d'index sans blob : rien à déplacer
+      if (fs.existsSync(dst)) { restants.push(d); conflits.push(d.rel); continue }
+      ensureDir(path.dirname(dst))
+      fs.renameSync(src, dst)
+      indexDst.push(d)
+      deplacees++
+    }
+    writeJson(docMetaPath(tj, toEnquete), indexDst)
+    writeJson(docMetaPath(tj, fromEnquete), restants)
+    return { deplacees, conflits }
+  }))
+}
+
 export async function deleteDoc(tj: string, enquete: string, rel: string): Promise<boolean> {
   const p = docPath(tj, enquete, rel)
   return withFileLock(`docs:${tj}:${enquete}`, async () => {

@@ -82,6 +82,20 @@ export function encodeDocSegment(s: string): string {
 }
 
 /**
+ * Clé serveur d'une enquête (répertoire de ses pièces) dérivée de son numéro
+ * métier — même formule que docServerKey côté attaché. Le numéro contient
+ * des « / » et espaces refusés par le serveur : on le ramène à un identifiant
+ * sûr. Idempotente.
+ */
+export function docServerKey(enquete: string): string {
+  const cleaned = String(enquete)
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9._@-]/g, '_')
+  const safe = /^[a-zA-Z0-9]/.test(cleaned) ? cleaned : 'e_' + cleaned
+  return safe.slice(0, 121)
+}
+
+/**
  * Chemin serveur EXACT que produira depositDocument pour <zone>/<path>.
  * Prévoir ce chemin AVANT le dépôt permet de dédupliquer contre l'index
  * serveur et de REPRENDRE un versement interrompu sans créer de doublons.

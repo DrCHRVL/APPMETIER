@@ -658,6 +658,27 @@ export async function readDocumentText(keys, numero, cheminRelatif, page = {}) {
 }
 
 /**
+ * Forme canonique d'un chemin de pièce : la fiche migrée de l'application
+ * bureau garde « Actes/requête (20).pdf » quand le serveur range
+ * « Actes/requete__20_.pdf » — même pièce, écritures différentes.
+ */
+export function canonRel(rel) {
+  return String(rel || '')
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9./]+/g, '_')
+}
+
+/** Chemin serveur d'une pièce : exact s'il existe, sinon l'UNIQUE pièce de même forme canonique. */
+function resoudreChemin(key, cheminRelatif) {
+  const index = listDocsMeta(attacheTj(), key)
+  if (index.some((d) => d.rel === cheminRelatif)) return cheminRelatif
+  const c = canonRel(cheminRelatif)
+  const memes = index.filter((d) => canonRel(d.rel) === c)
+  return memes.length === 1 ? memes[0].rel : cheminRelatif
+}
+
+/**
  * Texte INTÉGRAL d'une pièce (clé serveur déjà résolue) — cœur commun de
  * lire_document et de pieces_chercher. Ordre : copie MD/ du téléversement →
  * cache d'extraction (hash du blob) → extraction (PDF/Office/tableur, OCR de
@@ -670,6 +691,7 @@ export async function readDocumentText(keys, numero, cheminRelatif, page = {}) {
  * Exporté pour la recherche (pieces_chercher) et l'ingestion (ingest.mjs).
  */
 export async function texteDocumentIntegral(keys, key, cheminRelatif, { integrale = false, extraire = true, echeance = null } = {}) {
+  cheminRelatif = resoudreChemin(key, cheminRelatif)
   // Copie markdown déposée AU TÉLÉVERSEMENT (MD/<chemin>.md) : servie en
   // priorité pour les formats non textuels — zéro extraction, texte fidèle
   // (conversion navigateur), tokens et CPU économisés. MAIS seulement si elle
@@ -688,7 +710,13 @@ export async function texteDocumentIntegral(keys, key, cheminRelatif, { integral
   const blob = readDocBlob(attacheTj(), key, cheminRelatif)
   if (!blob) {
     const known = listDocsMeta(attacheTj(), key).map((d) => d.rel)
-    return { ok: false, error: 'Document introuvable', disponibles: known.filter((r) => !r.startsWith('MD/')).slice(0, 60) }
+    return {
+      ok: false,
+      error: known.length
+        ? 'Document introuvable'
+        : 'Document introuvable : AUCUN fichier n\'est rangé sous ce dossier sur le serveur, bien que sa fiche puisse lister des pièces — dossier renommé après versement, ou pièces de l\'application bureau jamais recopiées. pieces_introuvables avec ce numéro pour savoir où elles sont.',
+      disponibles: known.filter((r) => !r.startsWith('MD/')).slice(0, 60),
+    }
   }
   const lower = cheminRelatif.toLowerCase()
   if (lower.endsWith('.pdf')) {
