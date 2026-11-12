@@ -149,7 +149,7 @@ export function NouveauxDossiersPropositions({
       <div className="flex items-center gap-2 border-b border-amber-100 bg-amber-50 px-3 py-2">
         <Sparkles className="h-3.5 w-3.5 text-amber-600" />
         <span className="text-xs font-bold text-gray-800">
-          {props.length} {title.toLowerCase()}{props.length > 1 ? 's' : ''} de l'attaché
+          {props.length} {title.toLowerCase()}{props.length > 1 ? 's' : ''}
         </span>
         <span className="text-[10.5px] text-gray-400">visibles de vous seul · ✓ {allCarto ? 'trace sur la carte' : 'crée (signé de votre nom)'} · ✗ refuse</span>
       </div>
