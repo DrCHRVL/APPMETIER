@@ -33,6 +33,7 @@ const MODULE_LABELS: Record<ModuleId, string> = {
   instructions: 'Instructions judiciaires',
   mindmap: 'Cartographie mis en cause',
   entraide: 'Entraide internationale',
+  convertisseur: 'Convertisseur PDF → texte',
 };
 
 // Explications publiques (admin intentionnellement absent — reste confidentiel)

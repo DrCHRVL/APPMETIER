@@ -497,8 +497,8 @@ export const MultiSideBar = ({
           </>
         )}
 
-        {/* Convertisseur PDF → texte — outil local, ouvert à tous */}
-        {!jldRestricted && (
+        {/* Convertisseur PDF → texte — module activable, outil local */}
+        {!jldRestricted && hasModule('convertisseur') && (
           <>
             <div className="my-2 border-t border-white/10" />
             <button

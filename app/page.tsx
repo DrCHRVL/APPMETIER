@@ -2368,7 +2368,7 @@ return (
             <EntraidePage searchTerm={debouncedSearchTerm} ficheDemandee={entraideFiche} />
           )}
 
-          {baseView === 'convertisseur' && <ConvertisseurPage />}
+          {baseView === 'convertisseur' && hasModule('convertisseur') && <ConvertisseurPage />}
 
           {baseView === 'stats' && (
             <StatsPage
