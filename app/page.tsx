@@ -77,6 +77,11 @@ const AIRPage = dynamic(
   }
 );
 
+const ConvertisseurPage = dynamic(
+  () => import('@/components/pages/ConvertisseurPage').then(m => ({ default: m.ConvertisseurPage })),
+  { ssr: false }
+);
+
 const EntraidePage = dynamic(
   () => import('@/components/pages/EntraidePage').then(m => ({ default: m.EntraidePage })),
   { ssr: false }
@@ -2362,6 +2367,8 @@ return (
           {baseView === 'entraide' && hasModule('entraide') && (
             <EntraidePage searchTerm={debouncedSearchTerm} ficheDemandee={entraideFiche} />
           )}
+
+          {baseView === 'convertisseur' && <ConvertisseurPage />}
 
           {baseView === 'stats' && (
             <StatsPage
