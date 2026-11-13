@@ -522,7 +522,8 @@ export async function pdfToMarkdown(bytes: Uint8Array): Promise<ConversionResult
     // serveur peut alors océriser ces pages depuis l'original.
     if (contenu.replace(/\s/g, '').length < 25) {
       pagesMuettes++
-      pages.push(`[page ${p} : image sans couche texte]`)
+      // le peu de texte trouvé (page de garde, cote) est conservé sous la marque
+      pages.push(`[page ${p} : image sans couche texte]` + (contenu.trim() ? `\n${contenu}` : ''))
     } else {
       pages.push(contenu)
     }

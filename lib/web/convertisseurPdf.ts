@@ -68,7 +68,13 @@ export async function collecterPdfs(depots: Depot[]): Promise<{ pdfs: SourcePdf[
 export async function convertirPdf(src: SourcePdf): Promise<ResultatPdf> {
   try {
     const { markdown, avertissement } = await pdfToMarkdown(await src.lire())
-    return { chemin: src.chemin, texte: markdown, avertissement }
+    return {
+      chemin: src.chemin,
+      texte: markdown,
+      avertissement: avertissement && /scann/i.test(avertissement)
+        ? 'PDF scanné (image) : pas de texte extractible, OCR nécessaire'
+        : avertissement,
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     const erreur = /password/i.test(msg) || (e as { name?: string })?.name === 'PasswordException'
