@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   FileText, CheckCircle2, BarChart, Settings, Target,
-  Plus, Scale, Activity, Eye, PieChart, Network, LayoutDashboard, Landmark, ChevronDown, Globe2
+  Plus, Scale, Activity, Eye, PieChart, Network, LayoutDashboard, Landmark, ChevronDown, Globe2, FileType2
 } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId } from '@/types/userTypes';
@@ -493,6 +493,30 @@ export const MultiSideBar = ({
             >
               <Network className={`h-4 w-4 flex-shrink-0 ${currentView === 'mindmap' ? 'text-white' : 'text-white/60'}`} />
               {isOpen && <span className="truncate">Cartographie</span>}
+            </button>
+          </>
+        )}
+
+        {/* Convertisseur PDF → texte — module activable, outil local */}
+        {!jldRestricted && hasModule('convertisseur') && (
+          <>
+            <div className="my-2 border-t border-white/10" />
+            <button
+              className={`
+                w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm
+                transition-all duration-150 relative group
+                ${currentView === 'convertisseur'
+                  ? 'bg-white/20 text-white font-semibold shadow-sm'
+                  : 'font-medium text-white/70 hover:bg-white/8 hover:text-white'
+                }
+              `}
+              style={currentView === 'convertisseur' ? {
+                boxShadow: 'inset 3px 0 0 rgba(255,255,255,0.85)'
+              } : {}}
+              onClick={() => onViewChange('convertisseur')}
+            >
+              <FileType2 className={`h-4 w-4 flex-shrink-0 ${currentView === 'convertisseur' ? 'text-white' : 'text-white/60'}`} />
+              {isOpen && <span className="truncate">PDF → texte</span>}
             </button>
           </>
         )}

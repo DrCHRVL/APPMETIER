@@ -38,6 +38,7 @@ const MODULE_LABELS: Record<ModuleId, string> = {
   instructions: 'Instructions judiciaires',
   mindmap: 'Cartographie mis en cause',
   entraide: 'Entraide internationale',
+  convertisseur: 'Convertisseur PDF → texte',
 };
 
 /** Libellés courts des contentieux pour l'aperçu des clés livrées. */
@@ -605,7 +606,7 @@ const UserCard = ({
           {/* Modules */}
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-2">Modules activés</label>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-x-3 gap-y-1.5">
               {(Object.entries(MODULE_LABELS) as [ModuleId, string][]).map(([moduleId, label]) => {
                 const isEnabled = user.modules.includes(moduleId);
                 return (

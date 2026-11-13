@@ -81,6 +81,17 @@ async function zipEntry(bytes: Uint8Array, wantedName: string): Promise<Uint8Arr
   return null
 }
 
+// Noms d'entrées : UTF-8 si l'archive le déclare (bit 11) ou s'il est valide ;
+// sinon page de code OEM (CP850, celle de « Dossier compressé » sous Windows FR).
+const CP850_HAUT = 'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜø£Ø×ƒáíóúñÑªº¿®¬½¼¡«»░▒▓│┤ÁÂÀ©╣║╗╝¢¥┐└┴┬├─┼ãÃ╚╔╩╦╠═╬¤ðÐÊËÈıÍÎÏ┘┌█▄¦Ì▀ÓßÔÒõÕµþÞÚÛÙýÝ¯´\u00ad±‗¾¶§÷¸°¨·¹³²■\u00a0'
+function decodeZipName(raw: Uint8Array, flags: number): string {
+  if (flags & 0x800) return new TextDecoder().decode(raw)
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(raw) } catch { /* pas de l'UTF-8 */ }
+  let s = ''
+  for (const b of raw) s += b < 0x80 ? String.fromCharCode(b) : CP850_HAUT[b - 0x80]
+  return s
+}
+
 /** Liste TOUTES les entrées d'un zip (import des .skill Claude web, archives). */
 export async function zipEntries(bytes: Uint8Array): Promise<Array<{ name: string; data: Uint8Array }>> {
   let eocd = -1
@@ -100,7 +111,7 @@ export async function zipEntries(bytes: Uint8Array): Promise<Array<{ name: strin
     const extraLen = u16(bytes, off + 30)
     const commentLen = u16(bytes, off + 32)
     const localOff = u32(bytes, off + 42)
-    const name = new TextDecoder().decode(bytes.subarray(off + 46, off + 46 + nameLen))
+    const name = decodeZipName(bytes.subarray(off + 46, off + 46 + nameLen), u16(bytes, off + 8))
     off += 46 + nameLen + extraLen + commentLen
     if (name.endsWith('/')) continue // répertoires
     if (u32(bytes, localOff) !== 0x04034b50) continue
@@ -483,7 +494,7 @@ async function docxToMarkdown(bytes: Uint8Array): Promise<string> {
 
 // ── PDF : pdfjs (texte natif) + détection des scans sans texte ──
 
-async function pdfToMarkdown(bytes: Uint8Array): Promise<ConversionResult> {
+export async function pdfToMarkdown(bytes: Uint8Array): Promise<ConversionResult> {
   const pdfjs = await import('pdfjs-dist')
   pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
   const doc = await pdfjs.getDocument({ data: bytes.slice() }).promise
@@ -511,7 +522,8 @@ async function pdfToMarkdown(bytes: Uint8Array): Promise<ConversionResult> {
     // serveur peut alors océriser ces pages depuis l'original.
     if (contenu.replace(/\s/g, '').length < 25) {
       pagesMuettes++
-      pages.push(`[page ${p} : image sans couche texte]`)
+      // le peu de texte trouvé (page de garde, cote) est conservé sous la marque
+      pages.push(`[page ${p} : image sans couche texte]` + (contenu.trim() ? `\n${contenu}` : ''))
     } else {
       pages.push(contenu)
     }
