@@ -76,6 +76,10 @@ export function lireTexteEnCache(
   rel: string,
 ): { envelope: DocTexteEnvelope; blobHash: string } | null {
   if (!isSafeName(enquete) || !isSafeRelPath(rel)) return null
+  // Le cache n'existe que pour le TJ de l'attaché, et il est chiffré avec la clé
+  // « global » de CE TJ. Un autre TJ ne pourrait de toute façon pas l'ouvrir : on
+  // ne va pas lire le cache d'un autre tenant pour rien (et on évite le latent).
+  if (tj !== attacheTjId()) return null
   const attendu = empreinteDuBlob(tj, enquete, rel)
   if (!attendu) return null // la pièce n'est plus là : rien à servir
 

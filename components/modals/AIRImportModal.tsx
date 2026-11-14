@@ -219,29 +219,38 @@ export const AIRImportModal = ({
       const validationResult = validateFileStructure(jsonData);
       const headerRowIndex = validationResult.headerRowIndex ?? 2;
       const dataStartIndex = headerRowIndex + 2;
-      
-      // Parser rapidement quelques lignes pour l'aperçu
-      const previewData: AIRImportData[] = [];
-      const maxPreviewRows = Math.min(dataStartIndex + previewRowCount + 5, jsonData.length);
-      
-      for (let i = dataStartIndex; i < maxPreviewRows; i++) {
+
+      // Reparser TOUTES les lignes avec le mapping ajusté : l'aperçu ET les
+      // données réellement importées (completeData) doivent refléter le mapping
+      // courant. Sinon, après un décalage via les flèches −/+, l'aperçu montre
+      // le bon résultat mais l'import réutilise silencieusement l'ancien mapping.
+      const data: AIRImportData[] = [];
+      for (let i = dataStartIndex; i < jsonData.length; i++) {
         const row = jsonData[i];
         if (!row || row.every((cell: any) => !cell || String(cell).trim() === '')) {
           continue;
         }
-        
+
         try {
           const airData = parseAIRDataRowWithMapping(row, i, mapping);
-          if (airData && previewData.length < previewRowCount) {
-            previewData.push(airData);
+          if (airData) {
+            data.push(airData);
           }
         } catch (error) {
-          // Ignorer les erreurs pour l'aperçu rapide
+          // Ignorer les lignes en erreur pour le rafraîchissement
         }
       }
 
-      setPreviewData(previewData);
-      
+      setCompleteData(data);
+      setPreviewData(data.slice(0, previewRowCount));
+      setMappingResult({
+        mapping,
+        confidence: 'high',
+        method: 'dynamic',
+        foundFields: Object.keys(mapping),
+        missingFields: []
+      });
+
     } catch (error) {
       console.error('Erreur lors du rafraîchissement rapide:', error);
     }
@@ -442,7 +451,7 @@ export const AIRImportModal = ({
       
       // Stocker les données
       setCompleteData(data);
-      setPreviewData(data.slice(0, 5)); // Aperçu limité à 5 lignes
+      setPreviewData(data.slice(0, previewRowCount)); // Aperçu limité au nombre de lignes choisi
       
       showToast(`${data.length} mesures AIR détectées`, 'success');
       
