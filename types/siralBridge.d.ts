@@ -12,12 +12,6 @@ export interface SyncResult {
   externalAccessible: boolean;
 }
 
-// Interface pour les résultats de scan
-export interface ScanResult {
-  newDocuments: DocumentEnquete[];
-  errors: string[];
-}
-
 interface SiralBridgeApi {
   // API de base pour le stockage de données
   getData: <T>(key: string, defaultValue?: T) => Promise<T>;
@@ -95,12 +89,6 @@ interface SiralBridgeApi {
 
   validatePath: (pathToValidate: string) => Promise<boolean>;
   selectFolder: () => Promise<string | null>;
-
-  openExternalFolder: (
-    externalPath: string,
-    enqueteNumero: string,
-    useSubfolder?: boolean
-  ) => Promise<boolean>;
 
   // API POUR SYNCHRONISATION DES DONNÉES (DataSyncManager)
   // Note : toujours appelées avec optional chaining (?.).
@@ -240,11 +228,6 @@ interface SiralBridgeApi {
     useSubfolder?: boolean
   ) => Promise<SyncResult>;
 
-  scanForNewDocuments: (
-    enqueteNumero: string,
-    existingDocumentPaths: string[]
-  ) => Promise<ScanResult>;
-
   // API DOCUMENTS EXISTANTES
   deleteFromExternalPath: (
     externalPath: string,
@@ -274,6 +257,10 @@ interface SiralBridgeApi {
    *  chiffré est renommé sur place, le jumeau markdown suit. Rend le chemin
    *  final (segments nettoyés). Refuse d'écraser une pièce existante. */
   moveDocument: (enqueteNumero: string, from: string, to: string) => Promise<string>;
+
+  /** Le dossier a changé de numéro : ses pièces suivent sous la nouvelle clé
+   *  serveur. Jamais d'écrasement (homonymes rendus dans `conflits`). */
+  rekeyDocuments: (fromNumero: string, toNumero: string) => Promise<{ deplacees: number; conflits: string[] }>;
 
   /** Transfère une pièce vers un AUTRE dossier (pièce mal classée) — même
    *  chemin dans le dossier cible, jumeau markdown compris. Refuse d'écraser.

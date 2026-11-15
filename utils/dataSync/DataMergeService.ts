@@ -1,5 +1,6 @@
 // utils/dataSync/DataMergeService.ts
 
+import { dedupeDocuments } from '@/utils/documents/dedupeDocuments';
 import { Enquete } from '@/types/interfaces';
 import { ResultatAudience } from '@/types/audienceTypes';
 import { SyncData, SyncConflict } from '@/types/dataSyncTypes';
@@ -368,7 +369,9 @@ export class DataMergeService {
         suivi: newer.suivi || older.suivi,
         communications: newer.communications || older.communications,
         checklist: newer.checklist || older.checklist,
-        documents: this.unionById(newer.documents || [], older.documents || [], true),
+        // Union par id (une pièce déplacée garde son id : sa nouvelle place
+        // l'emporte), PUIS par chemin : la même pièce inscrite sous deux ids.
+        documents: dedupeDocuments(this.unionById(newer.documents || [], older.documents || [], true)),
         toDos: newer.toDos || older.toDos,
         // Suivi des modifications inter-utilisateurs : union par id (pas de perte
         // sur écritures concurrentes), max-par-utilisateur pour `lastViewedBy`.

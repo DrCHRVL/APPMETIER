@@ -22,7 +22,6 @@ import {
   XCircle,
   RefreshCw,
   Loader,
-  Calendar,
   Copy,
   X,
   ChevronDown,
@@ -42,6 +41,7 @@ import { DocumentSyncManager, SyncResult } from '@/utils/documents/DocumentSyncM
 import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipProvider } from '../ui/tooltip';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { dedupeDocuments } from '@/utils/documents/dedupeDocuments';
 
 interface DocumentsSectionProps {
   enquete: Enquete;
@@ -150,11 +150,6 @@ const DOCUMENT_ZONES: DocumentZone[] = [
   }
 ];
 
-// ─── Singleton module-level : une seule paire timer/interval par enquête ID ───
-// Garantit qu'aucun doublon ne s'accumule quand la modale est ouverte/fermée rapidement.
-const _scanTimers = new Map<number, ReturnType<typeof setTimeout>>();
-const _scanIntervals = new Map<number, ReturnType<typeof setInterval>>();
-
 // ─── Versement d'arborescences : bornes de sécurité ───
 // Limite serveur par pièce (au-delà : l'original est refusé — on verse alors
 // son TEXTE intégral à la place, pour que l'IA puisse quand même l'analyser).
@@ -255,8 +250,6 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   // Synchronisation
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
-  const [lastScanTime, setLastScanTime] = useState<Date | null>(null);
 
   // Résolution de conflits de noms
   const [conflictQueue, setConflictQueue] = useState<ConflictItem[]>([]);
@@ -327,33 +320,6 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     return out;
   }, [documentsByCategory]);
 
-  // Ref toujours à jour vers scanForNewDocuments pour que l'interval appelle
-  // la dernière version (et lise la liste de documents actuelle, pas celle du 1er render).
-  const scanRef = useRef<(silent?: boolean) => void>(() => {});
-
-  // ── useEffect : scan initial (délayé) + scan périodique — singleton par enquête ID ──
-  useEffect(() => {
-    // Ne créer un timer/interval que s'il n'en existe pas encore pour cette enquête
-    if (!_scanIntervals.has(enquete.id)) {
-      const timer = setTimeout(() => {
-        scanRef.current(true);
-      }, 1500);
-      _scanTimers.set(enquete.id, timer);
-
-      const interval = setInterval(() => {
-        scanRef.current(true);
-      }, 600000);
-      _scanIntervals.set(enquete.id, interval);
-    }
-
-    return () => {
-      const t = _scanTimers.get(enquete.id);
-      if (t !== undefined) { clearTimeout(t); _scanTimers.delete(enquete.id); }
-      const i = _scanIntervals.get(enquete.id);
-      if (i !== undefined) { clearInterval(i); _scanIntervals.delete(enquete.id); }
-    };
-  }, [enquete.id]);
-
   // Fermer l'onglet pendant un versement = perdre le travail en cours :
   // le navigateur demande confirmation tant qu'un téléversement tourne.
   useEffect(() => {
@@ -371,48 +337,6 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
       setConflictQueue(rest);
     }
   }, [currentConflict, conflictQueue]);
-
-  // Ref pour lire l'état scanning à jour depuis l'interval singleton
-  const isScanningRef = useRef(false);
-
-  // ── Scan des nouveaux documents ──
-  const scanForNewDocuments = async (silent = false) => {
-    if (!window.siralBridge) {
-      if (!silent) showToast('Pont de données indisponible', 'error');
-      return;
-    }
-    if (isScanningRef.current) return;
-
-    isScanningRef.current = true;
-    setIsScanning(true);
-    try {
-      const existing = enquete.documents || [];
-      const result = await DocumentSyncManager.scanForNewDocuments(enquete.numero, existing);
-
-      if (result.errors.length > 0 && !silent) {
-        result.errors.forEach(e => console.error('Erreur scan:', e));
-        showToast('Erreur lors du scan des documents', 'error');
-      }
-
-      if (result.newDocuments.length > 0) {
-        onUpdate(enquete.id, { documents: [...existing, ...result.newDocuments] });
-        if (!silent) showToast(`${result.newDocuments.length} nouveaux documents trouvés`, 'success');
-      } else if (!silent) {
-        showToast('Aucun nouveau document trouvé', 'info');
-      }
-
-      setLastScanTime(new Date());
-    } catch (err) {
-      console.error('Erreur scan documents:', err);
-      if (!silent) showToast('Erreur lors du scan des documents', 'error');
-    } finally {
-      isScanningRef.current = false;
-      setIsScanning(false);
-    }
-  };
-
-  // Tenir la ref du scan à jour à chaque render pour que l'interval lise la dernière version
-  scanRef.current = scanForNewDocuments;
 
   // ── Synchronisation externe ──
   // `silent` : pas de toast ni d'indicateur (utilisé par la synchro automatique).
@@ -596,7 +520,8 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
         const annotated = copieCommun
           ? savedFiles.map((f: DocumentEnquete) => ({ ...f, copieCommun }))
           : savedFiles;
-        onUpdate(enquete.id, { documents: [...(enquete.documents || []), ...annotated] });
+        // Liste COURANTE (docsRef : la synchro a pu l'enrichir pendant le dépôt), dédoublonnée par chemin.
+        onUpdate(enquete.id, { documents: dedupeDocuments([...(docsRef.current || []), ...annotated]) });
         if (!chunkError) {
           // Le dépôt a réveillé le flux tendu : le dire ici, sinon le travail
           // qui suit est entièrement invisible. Aucune promesse de compte
@@ -1107,12 +1032,6 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
     });
   };
 
-  const formatLastScanTime = () => {
-    if (!lastScanTime) return null;
-    try { return format(lastScanTime, 'dd/MM/yyyy HH:mm:ss', { locale: fr }); }
-    catch { return lastScanTime.toLocaleString(); }
-  };
-
   const toggleFolder = (key: string) => {
     setOpenFolders(prev => {
       const next = new Set(prev);
@@ -1248,14 +1167,6 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
               <FileText className="h-5 w-5" />
               Documents ({(enquete.documents || []).length})
 
-              {/* Indicateur de scan silencieux — discret, juste à côté du titre */}
-              {isScanning && (
-                <span className="inline-flex items-center gap-1 text-xs text-gray-400 font-normal ml-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
-                  vérification...
-                </span>
-              )}
-
               {copyStatus && (
                 <div className="flex items-center gap-1">
                   {copyStatus === 'success'
@@ -1264,13 +1175,6 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
                   <span className="text-xs text-gray-600">
                     {copyStatus === 'success' ? 'Copie externe OK' : 'Erreur copie externe'}
                   </span>
-                </div>
-              )}
-
-              {lastScanTime && (
-                <div className="flex items-center gap-1 ml-2 text-xs text-gray-500">
-                  <Calendar className="h-3 w-3" />
-                  <span>Scan : {formatLastScanTime()}</span>
                 </div>
               )}
             </CardTitle>
