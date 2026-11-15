@@ -12,12 +12,6 @@ export interface SyncResult {
   externalAccessible: boolean;
 }
 
-// Interface pour les résultats de scan
-export interface ScanResult {
-  newDocuments: DocumentEnquete[];
-  errors: string[];
-}
-
 interface SiralBridgeApi {
   // API de base pour le stockage de données
   getData: <T>(key: string, defaultValue?: T) => Promise<T>;
@@ -95,12 +89,6 @@ interface SiralBridgeApi {
 
   validatePath: (pathToValidate: string) => Promise<boolean>;
   selectFolder: () => Promise<string | null>;
-
-  openExternalFolder: (
-    externalPath: string,
-    enqueteNumero: string,
-    useSubfolder?: boolean
-  ) => Promise<boolean>;
 
   // API POUR SYNCHRONISATION DES DONNÉES (DataSyncManager)
   // Note : toujours appelées avec optional chaining (?.).
@@ -239,11 +227,6 @@ interface SiralBridgeApi {
     externalPath: string,
     useSubfolder?: boolean
   ) => Promise<SyncResult>;
-
-  scanForNewDocuments: (
-    enqueteNumero: string,
-    existingDocumentPaths: string[]
-  ) => Promise<ScanResult>;
 
   // API DOCUMENTS EXISTANTES
   deleteFromExternalPath: (

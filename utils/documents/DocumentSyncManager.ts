@@ -8,7 +8,7 @@ export interface SyncResult {
   addedToInternal: string[];
   addedToExternal: string[];
   // Documents importés depuis le dossier commun (web) avec leurs métadonnées,
-  // à fusionner dans la liste de l'enquête. Absent en mode bureau.
+  // à fusionner dans la liste de l'enquête.
   importedDocs?: DocumentEnquete[];
   // Chemins relatifs (ex. « Geoloc/fichier.pdf ») des documents présents en interne
   // mais introuvables / non copiés sur le dossier commun. Permet d'afficher un badge
@@ -16,11 +16,6 @@ export interface SyncResult {
   notOnCommun?: string[];
   errors: string[];
   externalAccessible: boolean;
-}
-
-export interface ScanResult {
-  newDocuments: DocumentEnquete[];
-  errors: string[];
 }
 
 export class DocumentSyncManager {
@@ -118,33 +113,6 @@ export class DocumentSyncManager {
         addedToExternal: [],
         errors: [error instanceof Error ? error.message : 'Erreur inconnue'],
         externalAccessible: true // L'erreur est survenue après avoir vérifié l'accessibilité
-      };
-    }
-  }
-
-  /**
-   * Recherche de nouveaux documents ajoutés manuellement dans le système de fichiers
-   */
-  static async scanForNewDocuments(
-    enqueteNumero: string,
-    existingDocuments: DocumentEnquete[]
-  ): Promise<ScanResult> {
-    if (!window.siralBridge) {
-      return { newDocuments: [], errors: ['Pont de données indisponible'] };
-    }
-
-    try {
-      const result = await window.siralBridge.scanForNewDocuments(
-        enqueteNumero,
-        existingDocuments.map(doc => doc.cheminRelatif)
-      );
-
-      return result || { newDocuments: [], errors: [] };
-    } catch (error) {
-      console.error('Erreur lors de la recherche de nouveaux documents:', error);
-      return {
-        newDocuments: [],
-        errors: [error instanceof Error ? error.message : 'Erreur inconnue']
       };
     }
   }

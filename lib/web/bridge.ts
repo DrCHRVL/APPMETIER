@@ -741,7 +741,6 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       const fsa = await import('./folderAccess')
       return fsa.pickFolder()
     },
-    openExternalFolder: async () => false, // un navigateur ne peut pas ouvrir l'Explorateur
     deleteFromExternalPath: async (externalPath: unknown, enqueteNumero: unknown, cheminRelatif: unknown) => {
       const fsa = await import('./folderAccess')
       const token = String(externalPath || '')
@@ -837,15 +836,6 @@ export function buildWebBridge({ keys, me }: BuildOptions): Record<string, AnyFn
       }
       return result
     },
-    scanForNewDocuments: async () => ({ newDocuments: [], errors: [] }), // sans objet : le serveur est la source interne
-
-    // ── Configuration serveur (gérée par SIRAL côté web) ──
-    serverConfig_get: async () => ({ isConfigured: true, serverRootPath: 'SIRAL — serveur chiffré', configPath: '' }),
-    serverConfig_setup: async () => ({ success: true }),
-    serverConfig_reset: async () => ({ success: false, error: 'Géré par le serveur SIRAL en mode web' }),
-    paths_getEffective: async () => ({ general: 'siral://serveur/general', contentieux: {} }),
-    paths_migrateContentieux: async () => ({ success: true, skipped: true, reason: 'mode web' }),
-    paths_migrateGeneral: async () => ({ success: true, skipped: true, reason: 'mode web' }),
 
     // ── Synchronisation racine (legacy) ──
     dataSync_checkAccess: async () => serverReachable(),

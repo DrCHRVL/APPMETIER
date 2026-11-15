@@ -75,7 +75,8 @@ coté. Mais les fiches n'existent que si un chantier a tourné — d'où le §4.
   serveur chiffré indexé par sha256 du blob, OCR fr (poppler+tesseract)
   jamais d'office. Solide.
 - **Dédoublonnage** : par CHEMIN à l'upload (reprise sans doublon), flou sur
-  les ACTES extraits (`DuplicateDetectionService.ts`), Damerau-Levenshtein
+  les ACTES extraits (`DuplicateDetectionService.ts`, retiré en 11/2026 :
+  jamais branché), Damerau-Levenshtein
   sur les PERSONNES (`dossier.mjs:925-1053`), sémantique par le modèle.
   **Aucune détection de contenu identique entre deux pièces** — le vrai trou
   (§4).
