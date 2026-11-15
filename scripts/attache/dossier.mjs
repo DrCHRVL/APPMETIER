@@ -17,6 +17,7 @@ import {
   attacheDir, readJson, atomicWrite, readState,
 } from './store.mjs'
 import { encryptJson, decryptJson, decryptDocBlob } from './crypto.mjs'
+import { coffreTags } from './coffresGlobaux.mjs'
 import { normNumero, numerosProches } from './numero.mjs'
 import { AUTRE_ACTE_TYPES, resolveAutreActeTypeKey, deriveAutreActeFields } from './acteTypes.mjs'
 import { natinfEntry, natinfLabel } from './natinf.mjs'
@@ -1522,6 +1523,72 @@ export function dossierSyntheseSignals(keys) {
     })
 }
 
+// ── Services d'enquête ────────────────────────────────────────────────────
+// L'écran lit les services d'un dossier dans ses TAGS (catégorie « services »,
+// cf. useTags.getServicesFromTags), pas dans `services[]` qui n'est qu'une
+// copie de compatibilité. Écrire seulement `services[]` laissait le champ vide
+// à l'écran. Chaque service demandé est rapproché du référentiel (coffre
+// `tags`) : « GIR Amiens » → « GIR », « oltim » → « OLTIM ».
+const normService = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+
+function referentielServices(keys, data) {
+  const coffre = coffreTags(keys)
+  const defs = coffre ? coffre.customTags : (data.customTags || [])
+  return defs.filter((d) => d && d.category === 'services' && d.value)
+}
+
+/** Rapproche un libellé de service du référentiel : égalité normalisée, sinon
+ *  l'entrée du référentiel dont les mots figurent d'un bloc dans le libellé
+ *  (la plus longue l'emporte : « BR ABBEVILLE » avant « BR »). */
+export function rapprocherService(libelle, referentiel) {
+  const n = normService(libelle)
+  if (!n) return null
+  const exact = referentiel.find((d) => normService(d.value) === n)
+  if (exact) return exact
+  let best = null
+  for (const d of referentiel) {
+    const r = normService(d.value)
+    if (!r || !` ${n} `.includes(` ${r} `)) continue
+    if (!best || r.length > normService(best.value).length) best = d
+  }
+  return best
+}
+
+/** Services demandés → { services, tags, horsReferentiel } prêts à écrire. */
+function servicesDepuisLibelles(keys, data, libelles) {
+  const referentiel = referentielServices(keys, data)
+  const services = []
+  const tags = []
+  const horsReferentiel = []
+  for (const brut of libelles) {
+    const libelle = String(brut || '').trim().slice(0, 120)
+    if (!libelle) continue
+    const def = rapprocherService(libelle, referentiel)
+    const value = def ? def.value : libelle
+    if (services.includes(value)) continue
+    if (!def) horsReferentiel.push(libelle)
+    services.push(value)
+    tags.push({ id: def ? def.id : `services-${value}`, value, category: 'services' })
+  }
+  return {
+    services,
+    tags,
+    horsReferentiel,
+    ...(horsReferentiel.length ? { servicesConnus: referentiel.map((d) => d.value) } : {}),
+  }
+}
+
+/** Avertissement joint au retour quand un service n'est pas au référentiel. */
+function servicesAvertissement(svc) {
+  if (!svc.horsReferentiel.length) return {}
+  return {
+    servicesHorsReferentiel: svc.horsReferentiel,
+    servicesConnus: svc.servicesConnus,
+    noteServices: 'Service(s) absent(s) du référentiel : enregistré(s) tel(s) quel(s), mais introuvable(s) dans la liste déroulante de l\'écran — choisis le libellé exact parmi servicesConnus puis corrige avec modifier_dossier.',
+  }
+}
+
 /** Vrai si un dossier de ce numéro existe déjà dans le contentieux.
  *  STRICT à dessein (garde d'unicité avant création) : « …GRIVESNES 2 »
  *  n'est pas un doublon de « …GRIVESNES ». */
@@ -1586,8 +1653,8 @@ export async function creerDossier(keys, { numero, dateDebut, services, descript
     })
   }
 
-  const svc = Array.isArray(services) ? services.filter(Boolean).map(String)
-    : services ? [String(services)] : []
+  const svc = servicesDepuisLibelles(keys, payload.data,
+    Array.isArray(services) ? services : services ? [services] : [])
   const desc = String(description || '').trim()
 
   // NATINF à la création (comme le sélecteur du formulaire « Nouvelle
@@ -1601,7 +1668,7 @@ export async function creerDossier(keys, { numero, dateDebut, services, descript
     id: newId,
     numero: num,
     dateDebut: /^\d{4}-\d{2}-\d{2}/.test(String(dateDebut || '')) ? String(dateDebut).slice(0, 10) : today,
-    services: svc,
+    services: svc.services,
     // Champs du formulaire « Nouvelle enquête » (NewEnqueteModal) : directeur
     // d'enquête, n° parquet, n° IDJ — pour une création IA au niveau d'une
     // création manuelle (« créer le dossier X avec tel directeur d'enquête »).
@@ -1618,7 +1685,7 @@ export async function creerDossier(keys, { numero, dateDebut, services, descript
     documents: [],
     toDos: [],
     notes: '',
-    tags: [],
+    tags: svc.tags,
     statut: 'en_cours',
     dateCreation: now,
     dateMiseAJour: now,
@@ -1636,6 +1703,8 @@ export async function creerDossier(keys, { numero, dateDebut, services, descript
     numero: num,
     id: enquete.id,
     misEnCause: mecs.length,
+    ...(svc.services.length ? { services: svc.services } : {}),
+    ...servicesAvertissement(svc),
     ...(natinfsValides.length ? { natinfs: natinfsValides } : {}),
     ...(natinfsInconnus.length ? { natinfsRefuses: natinfsInconnus, note: 'Codes inconnus du référentiel NON enregistrés — vérifie avec natinf_chercher puis ajouter_natinfs' } : {}),
   }
@@ -1768,14 +1837,19 @@ export async function modifierActe(keys, { numero, acteId, operation, date, cibl
  */
 export async function modifierDossier(keys, { numero, directeurEnquete, services, dateDebut, numeroParquet, numeroIDJ }) {
   const author = authorOf(keys)
-  return mutate(keys, numero, (e) => {
+  let svc = null
+  return mutate(keys, numero, (e, data) => {
     const changes = []
     if (directeurEnquete !== undefined) {
       e.directeurEnquete = String(directeurEnquete || '').slice(0, 120) || undefined
       changes.push(`directeur d'enquête : ${e.directeurEnquete || '(effacé)'}`)
     }
     if (services !== undefined) {
-      e.services = (Array.isArray(services) ? services : [services]).filter(Boolean).map((s) => String(s).slice(0, 120))
+      svc = servicesDepuisLibelles(keys, data, Array.isArray(services) ? services : [services])
+      e.services = svc.services
+      // Les tags « services » sont ce que l'écran affiche : on les remplace,
+      // les autres catégories de tags restent intactes.
+      e.tags = [...(e.tags || []).filter((t) => t?.category !== 'services'), ...svc.tags]
       changes.push(`service(s) : ${e.services.join(', ') || '(aucun)'}`)
     }
     if (dateDebut !== undefined && /^\d{4}-\d{2}-\d{2}/.test(String(dateDebut))) {
@@ -1799,7 +1873,7 @@ export async function modifierDossier(keys, { numero, directeurEnquete, services
       user: { username: author, displayName: author },
       timestamp: new Date().toISOString(),
     })
-    return { numero: e.numero, modifie: changes }
+    return { numero: e.numero, modifie: changes, ...(svc ? servicesAvertissement(svc) : {}) }
   })
 }
 

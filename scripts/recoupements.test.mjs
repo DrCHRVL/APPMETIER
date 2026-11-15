@@ -242,11 +242,17 @@ const cas = [
   ['Il fixe sa résidence habituelle chez sa mère, sa résidence principale.', '',
     'une résidence sans nom propre n’est pas une adresse'],
   ['La personne citée comme témoin.', '', '« citée » n’est pas une cité'],
+  ['Se trouvant au 8 rue des Lilas afin d’y passer la nuit.', '8 rue des lilas', '« afin » clôt le nom de la voie'],
 ]
 for (const [texte, attendu, libelle] of cas) {
   const lu = adresses(texte).join('|')
   ok(lu === attendu, libelle, lu)
 }
+
+const lignes = (texte) => extractValues(texte).filter(v => v.kind === 'telephone').map(v => v.canon)
+ok(lignes('Standard : 0800 12 34 56 ou 08 99 00 00 00.').length === 0, 'un numéro en 08 (vert, surtaxé) n’est pas une ligne',
+  lignes('Standard : 0800 12 34 56 ou 08 99 00 00 00.'))
+ok(lignes('Ligne 06 79 55 13 84.').join() === '0679551384', 'une ligne mobile est toujours lue')
 
 const comptes = (texte) => extractValues(texte).filter(v => v.kind === 'compte').map(v => v.valeur)
 

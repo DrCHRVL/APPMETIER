@@ -123,3 +123,26 @@ const renderFormattedTextUncached = (text: string): string => {
     .replace(/^- (.*)$/gm, '• $1')
     .replace(/\n/g, '<br>');
 };
+
+/**
+ * Version texte brut d'un contenu éventuellement HTML (description d'enquête
+ * saisie dans l'éditeur riche) — pour les aperçus tronqués et la recherche.
+ * Purement textuel (aucun parse DOM, donc aucune ressource chargée) ; un texte
+ * déjà brut est rendu tel quel.
+ */
+export const toPlainText = (text: string | undefined | null): string => {
+  if (!text) return '';
+  if (!looksLikeHtml(text)) return text;
+  return stripClipboardNoise(text)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|li|h[1-6])>/gi, '\n')
+    .replace(/<\/?[a-z][^>]*>/gi, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};

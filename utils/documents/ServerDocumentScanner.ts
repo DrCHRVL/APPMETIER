@@ -1,3 +1,4 @@
+import { PAPETERIE } from '@/lib/web/papeterie';
 // utils/documents/ServerDocumentScanner.ts
 // Service d'analyse automatique des PDF du serveur pour créer des actes
 
@@ -456,7 +457,7 @@ export class ServerDocumentScanner {
       duree: duree || (dureeUnit === 'mois' ? '1' : '15'),
       dureeUnit,
       dateAutorisation: dateAutorisation || new Date().toISOString().split('T')[0],
-      tribunal: (a.tribunal ? String(a.tribunal) : '').toUpperCase() || 'AMIENS',
+      tribunal: (a.tribunal ? String(a.tribunal) : '').toUpperCase() || PAPETERIE.ville.toUpperCase(),
       numeroPV: a.numeroPV ? String(a.numeroPV) : undefined,
       titulaire: a.titulaire ? String(a.titulaire) : undefined,
       utilisateur: a.utilisateur ? String(a.utilisateur) : undefined,
@@ -596,7 +597,7 @@ export class ServerDocumentScanner {
       duree: duree || (dureeUnit === 'mois' ? '1' : '15'),
       dureeUnit,
       dateAutorisation: dateAutorisation || new Date().toISOString().split('T')[0],
-      tribunal: tribunal || 'AMIENS',
+      tribunal: tribunal || PAPETERIE.ville.toUpperCase(),
       numeroPV,
       titulaire,
       utilisateur,
@@ -710,7 +711,7 @@ export class ServerDocumentScanner {
   private static extractCibles(text: string, type: DocumentType): string[] {
     const cibles: string[] = [];
 
-    if (type.includes('ecoute') || type.includes('requete_ecoute')) {
+    if (type.includes('ecoute')) {
       // Extraire les numéros de téléphone
       // Utiliser [0-9oOlI] au lieu de \d pour tolérer les erreurs OCR courantes
       // (o/O confondu avec 0, l/I confondu avec 1)
@@ -735,7 +736,7 @@ export class ServerDocumentScanner {
       }
     }
 
-    if (type.includes('geoloc') || type.includes('requete_geoloc')) {
+    if (type.includes('geoloc')) {
       // Extraire les véhicules + immatriculations
       const vehiclePatterns = [
         // "véhicule FORD Fiesta immatriculé CF-554-GE"

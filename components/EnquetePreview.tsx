@@ -24,7 +24,8 @@ import { NatinfBadge } from './natinf/NatinfBadge';
 import { CopyButton } from './ui/CopyButton';
 import { useUser } from '@/contexts/UserContext';
 import { getLastCR } from '@/utils/compteRenduUtils';
-import { getProlongationRequestDate, getAutorisationRequestDate, isActeEnAttenteDePose } from '@/utils/acteUtils';
+import { toPlainText } from '@/lib/formatCR';
+import { getProlongationRequestDate, getAutorisationRequestDate, isActeEnAttenteDePose, isAlerteCoupee } from '@/utils/acteUtils';
 import { OverboardPin } from '@/types/userTypes';
 import { MagistratBadge } from './MagistratBadge';
 
@@ -163,10 +164,11 @@ export const EnquetePreview = React.memo(({
   const enqueteAlerts = alerts.filter(alert => alert.enqueteId === enquete.id && alert.status === 'active');
   const hasCRDelayAlert = enqueteAlerts.some(alert => alert.type === 'cr_delay');
 
-  const descriptionPreview = enquete.description
-    ? enquete.description.length > 400
-      ? `${enquete.description.substring(0, 400)}...`
-      : enquete.description
+  const descriptionTexte = toPlainText(enquete.description);
+  const descriptionPreview = descriptionTexte
+    ? descriptionTexte.length > 400
+      ? `${descriptionTexte.substring(0, 400)}...`
+      : descriptionTexte
     : null;
 
   // Services dérivés depuis les tags
@@ -198,7 +200,7 @@ export const EnquetePreview = React.memo(({
               // Un acte non posé n'a pas d'échéance : le délai ne court qu'à
               // compter de la pose. Une dateFin résiduelle (pose supprimée)
               // ne doit pas déclencher l'alerte « acte expire ».
-              if (isActeEnAttenteDePose(acte.statut) || !acte.dateFin) return false;
+              if (isActeEnAttenteDePose(acte.statut) || !acte.dateFin || isAlerteCoupee(acte)) return false;
               const daysLeft = Math.ceil((new Date(acte.dateFin).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
               return daysLeft <= rule.seuil && daysLeft >= 0;
             });
@@ -635,6 +637,7 @@ return (
           const badgeColor = isPending ? 'bg-green-100 text-green-800' :
             isPosePending ? 'bg-orange-100 text-orange-800' :
             isAutorisationPending ? 'bg-purple-100 text-purple-800' :
+            isAlerteCoupee(acte) ? 'bg-gray-100 text-gray-800' :
             daysLeft !== null && daysLeft <= 3 ? 'bg-red-100 text-red-800' :
             daysLeft !== null && daysLeft <= 7 ? 'bg-yellow-100 text-yellow-800' :
             'bg-gray-100 text-gray-800';

@@ -12,6 +12,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { aujourdhui, chercherAutorites, DRAPEAU_LABELS, normaliser, PAYS, paysDe, TYPE_LABELS } from '@/utils/entraide/logique';
 import { lirePiece, personnesEnTexte, rattacherLecture, useLecturePieceDisponible, type LecturePiece } from '@/utils/entraide/lecturePiece';
 import { LecturePieceVue } from './LecturePieceVue';
+import { observationsDee, personnesEnTexteDee, type FicheDee } from '@/utils/entraide/dee';
 import { AutoriteSelect } from './AutoriteSelect';
 import { NatinfChamp } from './NatinfChamp';
 import { AutreUniteInput } from './AutreUniteInput';
@@ -24,6 +25,8 @@ interface Props {
   api: EntraideApi;
   onClose: () => void;
   onCree: (id: string) => void;
+  /** DEE déposée dans le registre et lue (annexe A) : préremplit la fiche. */
+  dee?: { fiche: FicheDee; piece: string } | null;
 }
 
 const TYPES: EntraideType[] = ['dee', 'do', 'cri', 'execution', 'civil'];
@@ -37,26 +40,37 @@ const Champ: React.FC<{ label: string; children: React.ReactNode; className?: st
   </div>
 );
 
-export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree }) => {
+/** Autorité déjà connue correspondant à celle lue dans la pièce. */
+function autoriteConnue(autorites: AutoriteEtrangere[], lue: { nom: string; ville: string }, pays: string): AutoriteEtrangere | null {
+  if (!lue.nom) return null;
+  return chercherAutorites(autorites, lue.ville || lue.nom, pays)
+    .find((a) => normaliser(a.nom) === normaliser(lue.nom) || (!!lue.ville && normaliser(a.ville) === normaliser(lue.ville))) || null;
+}
+
+export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree, dee = null }) => {
   const { showToast } = useToast();
   useEscapeKey(onClose);
-  const [sens, setSens] = useState<EntraideSens>('recue');
+  const f = dee?.fiche;
+  const [sens, setSens] = useState<EntraideSens>(f?.sens || 'recue');
   const [type, setType] = useState<EntraideType>('dee');
-  const [refEsabora, setRefEsabora] = useState('');
-  const [refEtrangere, setRefEtrangere] = useState('');
-  const [date, setDate] = useState(aujourdhui());
-  const [pays, setPays] = useState('');
-  const [autorite, setAutorite] = useState<AutoriteEtrangere | null>(null);
-  const [requeteAutorite, setRequeteAutorite] = useState('');
-  const [objet, setObjet] = useState('');
-  const [personnes, setPersonnes] = useState('');
-  const [mesures, setMesures] = useState<string[]>([]);
-  const [natinf, setNatinf] = useState<string[]>([]);
+  const [refEsabora, setRefEsabora] = useState(f?.refEsabora || '');
+  const [refEtrangere, setRefEtrangere] = useState(f?.refEtrangere || '');
+  // DEE émise : la date de la décision ; reçue : la réception, aujourd'hui.
+  const [date, setDate] = useState((f?.sens === 'emise' && f.dateEmission) || aujourdhui());
+  const [pays, setPays] = useState(f?.pays || '');
+  const [autorite, setAutorite] = useState<AutoriteEtrangere | null>(() => (f ? autoriteConnue(api.data.autorites, f.autorite, f.pays) : null));
+  const [requeteAutorite, setRequeteAutorite] = useState(f ? [f.autorite.ville, f.autorite.nom].filter(Boolean).join(' ') : '');
+  const [objet, setObjet] = useState(f ? [f.infractions[0], f.lieuFaits.replace(/\s*\(France\)$/, '')].filter(Boolean).join(' – ') : '');
+  const [personnes, setPersonnes] = useState(f ? personnesEnTexteDee(f.personnes) : '');
+  const [mesures, setMesures] = useState<string[]>(f?.mesures || []);
+  const [natinf, setNatinf] = useState<string[]>(f?.natinf || []);
   const [drapeau, setDrapeau] = useState<EntraideDrapeau | undefined>(undefined);
   const [serviceId, setServiceId] = useState('');
   const [serviceAutre, setServiceAutre] = useState('');
   const [magistrat, setMagistrat] = useState(api.moi);
-  const [echeanceLegale, setEcheanceLegale] = useState({ date: '', libelle: '' });
+  const [echeanceLegale, setEcheanceLegale] = useState(f?.dateButoir
+    ? { date: f.dateButoir, libelle: f.sens === 'emise' ? 'Délai d’exécution demandé dans la DEE' : 'Date butoir fixée par l’autorité requérante' }
+    : { date: '', libelle: '' });
   const lecturePossible = useLecturePieceDisponible();
   const [lecture, setLecture] = useState<LecturePiece | null>(null);
   const [enLecture, setEnLecture] = useState(false);
@@ -73,10 +87,8 @@ export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree }) 
     if (l.mesures.length) setMesures((m) => Array.from(new Set([...m, ...l.mesures])));
     if (l.dateButoir && !echeanceLegale.date) setEcheanceLegale({ date: l.dateButoir, libelle: 'Date butoir fixée par l’autorité requérante' });
     if (!autorite && l.autorite.nom) {
-      const requete = [l.autorite.ville, l.autorite.nom].filter(Boolean).join(' ');
-      const trouvee = chercherAutorites(api.data.autorites, l.autorite.ville || l.autorite.nom, p)
-        .find((a) => normaliser(a.nom) === normaliser(l.autorite.nom) || (!!l.autorite.ville && normaliser(a.ville) === normaliser(l.autorite.ville)));
-      if (trouvee) { setAutorite(trouvee); setRequeteAutorite(requete); setPays(trouvee.pays); }
+      const trouvee = autoriteConnue(api.data.autorites, l.autorite, p);
+      if (trouvee) { setAutorite(trouvee); setRequeteAutorite([l.autorite.ville, l.autorite.nom].filter(Boolean).join(' ')); setPays(trouvee.pays); }
     }
   };
 
@@ -122,6 +134,7 @@ export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree }) 
       magistrat: magistrat || undefined,
       dateEnregistrement: date,
       echeancesLegales: echeanceLegale.date ? [{ id: nouvelId('l'), date: echeanceLegale.date, libelle: echeanceLegale.libelle || 'Échéance légale' }] : undefined,
+      observations: dee ? observationsDee(dee.fiche, dee.piece) : undefined,
     });
     if (autorite && requeteAutorite) api.apprendreAutorite(autorite.id, requeteAutorite);
     if (lecture) rattacherLecture(id, lecture);
@@ -149,6 +162,16 @@ export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree }) 
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {dee && (
+            <div className="rounded-lg border border-[#2B5746]/25 bg-[#2B5746]/5 p-3 text-xs text-gray-700 space-y-1">
+              <p className="font-medium text-[#2B5746]">Prérempli d’après « {dee.piece} » — à vérifier avant de créer.</p>
+              {dee.fiche.dossier && <p>Dossier : {dee.fiche.dossier}</p>}
+              {dee.fiche.mesuresTitres.length > 0 && <p>Mesures : {dee.fiche.mesuresTitres.map((t, i) => `${i + 1}. ${t}`).join(' ; ')}</p>}
+              {dee.fiche.infractions.length > 1 && <p>Infractions : {dee.fiche.infractions.join(' ; ')}</p>}
+              {dee.fiche.urgence && <p>Urgence : {dee.fiche.urgence}</p>}
+              {!refEsabora && <p className="text-amber-800">N° ESABORA absent de la pièce : à saisir.</p>}
+            </div>
+          )}
           {lecture && (
             <div className="rounded-lg border border-[#2B5746]/25 bg-[#2B5746]/5 p-3">
               <LecturePieceVue l={lecture} compact />
@@ -196,7 +219,8 @@ export const NouvelleDemandeModal: React.FC<Props> = ({ api, onClose, onCree }) 
                 valeur={autorite}
                 onChoisir={(a, q) => { setAutorite(a); setRequeteAutorite(q); if (a) setPays(a.pays); }}
                 onCreer={(a) => api.enregistrerAutorite(a)}
-                suggestion={lecture?.autorite.nom ? { nom: lecture.autorite.nom, ville: lecture.autorite.ville, pays: lecture.autorite.pays || lecture.pays } : null}
+                suggestion={lecture?.autorite.nom ? { nom: lecture.autorite.nom, ville: lecture.autorite.ville, pays: lecture.autorite.pays || lecture.pays }
+                  : f?.autorite.nom ? { nom: f.autorite.nom, ville: f.autorite.ville, pays: f.pays } : null}
               />
             </Champ>
           </div>

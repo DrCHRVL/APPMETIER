@@ -329,6 +329,11 @@ Cartographie par lots : traite les dossiers par groupes, croise avec
 de l'eau** — elles survivent à la conversation dans le module de revue de
 la cartographie, où le magistrat valide ✓/✗ à son rythme.
 
+Une proposition encore en attente se corrige (`modifier_proposition` —
+ex. aligner un nom sur la graphie déjà connue de SIRAL pour éviter un
+doublon) ou se retire (`retirer_proposition`), sans attendre le ✗ du
+magistrat. Une proposition déjà tranchée ne se touche plus.
+
 ## Discipline permanente
 
 - Jamais de suppression (dossier, acte, CR, mis en cause) : impossible par

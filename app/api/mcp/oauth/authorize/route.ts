@@ -135,7 +135,7 @@ export async function GET(req: Request) {
         <h1>Connexion administrateur requise</h1>
         <p><b>Claude</b> demande à se connecter à SIRAL. Cette autorisation est réservée à
         l'<b>administrateur</b>, connecté sur le tribunal confié à l'attaché.</p>
-        <p>Ouvrez SIRAL dans un nouvel onglet, connectez-vous (passkey), puis revenez ici et réessayez.</p>
+        <p>Ouvrez SIRAL dans un nouvel onglet, connectez-vous (identifiant et mot de passe), puis revenez ici et réessayez.</p>
         <div class="row">
           <a class="btn no" href="/" target="_blank" rel="opener">Ouvrir SIRAL</a>
           <button class="ok" onclick="location.reload()">J'ai ouvert ma session — réessayer</button>

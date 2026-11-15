@@ -1,7 +1,7 @@
 /**
  * Journal d'audit applicatif (entrées chiffrées côté client, append-only), par TJ.
  */
-import { requireTjSession, handle, jsonResponse } from '@/lib/server/auth'
+import { requireTjSession, requireTjAdmin, handle, jsonResponse } from '@/lib/server/auth'
 import { appendLog, readLog, tjFile } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
@@ -10,8 +10,7 @@ interface AuditRecord { username: string, ct: string, iv: string, timestamp: num
 
 export async function GET(req: Request) {
   return handle(async () => {
-    const session = requireTjSession(req)
-    if (session.r !== 'admin') return jsonResponse({ error: 'Accès refusé' }, { status: 403 })
+    const session = requireTjAdmin(req)
     const entries = readLog<AuditRecord>(tjFile(session.tj, 'audit-app.jsonl'), { max: 2000 })
     return jsonResponse({ entries })
   })

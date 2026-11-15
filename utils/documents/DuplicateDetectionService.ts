@@ -894,12 +894,11 @@ export class DuplicateDetectionService {
 
   /** Calcule la différence absolue en jours entre deux dates YYYY-MM-DD */
   private static dateDiffDays(dateA: string, dateB: string): number {
-    try {
-      const a = new Date(dateA);
-      const b = new Date(dateB);
-      return Math.abs(Math.round((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24)));
-    } catch {
-      return 999;
-    }
+    const a = new Date(dateA).getTime();
+    const b = new Date(dateB).getTime();
+    // Une date illisible donne NaN : on retourne une valeur « hors tolérance »
+    // plutôt que de propager NaN dans les comparaisons en aval.
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return 999;
+    return Math.abs(Math.round((a - b) / (1000 * 60 * 60 * 24)));
   }
 }

@@ -10,7 +10,7 @@ import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { formatDateLong } from '@/utils/clotureDocument';
 import {
   SasTemplate,
-  DEFAULT_SAS_TEMPLATE,
+  defaultSasTemplate,
   mergeSasTemplate,
   buildSasText,
   buildSasHtml,
@@ -59,10 +59,9 @@ const FIELD_GROUPS: { title: string; fields: TemplateField[] }[] = [
     ],
   },
   {
-    title: 'Signature',
+    title: 'Lieu',
     fields: [
       { key: 'lieu', label: 'Lieu' },
-      { key: 'signataire', label: 'Signataire' },
     ],
   },
 ];
@@ -77,7 +76,7 @@ const todayIso = (): string => {
 
 export const SasSummaryModal = ({ isOpen, onClose, enquete }: SasSummaryModalProps) => {
   const [copied, setCopied] = useState(false);
-  const [template, setTemplate] = useState<SasTemplate>(DEFAULT_SAS_TEMPLATE);
+  const [template, setTemplate] = useState<SasTemplate>(defaultSasTemplate);
   const [templateLoaded, setTemplateLoaded] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<SasTemplate | null>(null);
   // Snapshot du template au début de l'édition pour détecter si l'utilisateur a modifié
@@ -97,7 +96,7 @@ export const SasSummaryModal = ({ isOpen, onClose, enquete }: SasSummaryModalPro
     if (isOpen) {
       SiralBridge.getData<Partial<SasTemplate>>(
         APP_CONFIG.STORAGE_KEYS.SAS_TEMPLATE,
-        DEFAULT_SAS_TEMPLATE,
+        defaultSasTemplate(),
       ).then((saved) => {
         setTemplate(mergeSasTemplate(saved));
         setTemplateLoaded(true);
@@ -381,7 +380,7 @@ export const SasSummaryModal = ({ isOpen, onClose, enquete }: SasSummaryModalPro
                   Annuler
                 </Button>
                 <Button variant="destructive" size="sm" onClick={() => {
-                  setEditingTemplate({ ...DEFAULT_SAS_TEMPLATE });
+                  setEditingTemplate(defaultSasTemplate());
                   setShowConfirmReset(false);
                 }}>
                   Réinitialiser

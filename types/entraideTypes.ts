@@ -29,8 +29,8 @@ export type EntraideEvenementType =
   | 'ar_annexe_b'              // DEE reçue : accusé de réception (annexe B) adressé
   | 'traduction_demandee'
   | 'traduction_recue'
-  | 'document_prepare'         // courrier préparé, à signer (doc)
-  | 'signature'                // courrier validé et signé par le magistrat (doc)
+  | 'document_prepare'         // courrier préparé et téléchargé, à envoyer (doc)
+  | 'signature'                // ancien circuit (validation dans l'application) : sans effet, conservé pour l'historique
   | 'envoi_enqueteurs'         // ST (T1) envoyé → délai de 3 mois
   | 'relance_enqueteurs_mail'  // simple mail de relance (pas de nouveau délai)
   | 'relance_enqueteurs'       // ST de relance (T2) envoyé → nouveau délai de 3 mois
@@ -53,7 +53,7 @@ export interface EntraideEvenement {
   date: string;
   /** Utilisateur qui l'a enregistré (windowsUsername). */
   par?: string;
-  /** Courrier concerné (document_prepare, signature). */
+  /** Courrier concerné (document_prepare). */
   doc?: EntraideDocId;
   /** Langue du courrier préparé. */
   langue?: EntraideLangue;
@@ -149,7 +149,8 @@ export interface ServiceEnqueteur {
   dateMiseAJour: string;
 }
 
-/** Bloc signature d'un magistrat (renseigné par lui-même). */
+/** Coordonnées d'un magistrat (renseignées par lui-même), reprises dans la
+ *  ligne de contact et le bas des courriers et des mails. */
 export interface SignataireEntraide {
   username: string;
   civilite: 'M.' | 'Mme';
@@ -158,9 +159,6 @@ export interface SignataireEntraide {
   fonction: string;
   telephone?: string;
   email?: string;
-  /** Image de la signature (data URL PNG/JPEG). Apposée uniquement quand ce
-   *  magistrat valide lui-même un courrier. */
-  signature?: string;
   dateMiseAJour: string;
 }
 
@@ -191,7 +189,6 @@ export interface EntraideSyncFile extends EntraideData {
 export type EntraideEtape =
   | 'a_traiter'
   | 'en_traduction'
-  | 'a_signer'
   | 'a_envoyer'
   | 'chez_enqueteurs'
   | 'avis_magistrat'
@@ -218,8 +215,8 @@ export interface EntraideEtat {
   /** Échéance interne en cours (retour attendu, représentation). */
   echeance: { date: string; libelle: string } | null;
   echeancesLegales: EntraideEcheanceLegale[];
-  /** Courrier en attente (à signer ou à envoyer). */
-  docEnAttente: { doc: EntraideDocId; langue?: EntraideLangue; depuis: string; signeLe?: string; signePar?: string } | null;
+  /** Courrier préparé, en attente d'envoi. */
+  docEnAttente: { doc: EntraideDocId; langue?: EntraideLangue; depuis: string } | null;
   /** Échéance la plus proche, internes et légales confondues (non tenues). */
   prochaineDate: string | null;
   /** Jours restants avant prochaineDate (négatif = retard). */

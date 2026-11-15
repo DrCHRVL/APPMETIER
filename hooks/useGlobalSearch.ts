@@ -8,6 +8,7 @@
 // chaque frappe ne fait qu'interroger des chaînes prénormalisées.
 
 import { useMemo } from 'react';
+import { toPlainText } from '@/lib/formatCR';
 import { Enquete, AIRMesure, CompteRendu } from '@/types/interfaces';
 import { DossierInstruction } from '@/types/instructionTypes';
 import { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
@@ -80,7 +81,7 @@ function buildEnqueteDoc(e: Enquete, ctxId: ContentieuxId): GlobalSearchDoc {
   push(acc, makeField((e.services || []).filter(Boolean).join(' · '), 2, { label: 'Service', fuzzy: true, ops: ['service', 'sce'] }));
   push(acc, makeField((e.tags || []).map(t => t.value).join(' · '), 1.8, { label: 'Tag', fuzzy: true, ops: ['tag'] }));
   push(acc, makeField(e.directeurEnquete, 1.8, { label: 'Directeur d’enquête', fuzzy: true, ops: ['dir', 'directeur'] }));
-  push(acc, makeField(e.description, 1.2, { label: 'Description', maxLength: 4000, ops: ['desc', 'description'] }));
+  push(acc, makeField(toPlainText(e.description), 1.2, { label: 'Description', maxLength: 4000, ops: ['desc', 'description'] }));
 
   // Numéros de téléphone (lignes d'écoute + cible quand elle contient elle-même
   // un numéro). Le moteur retrouve un numéro même partiel — ex. « 47.11 » pour
@@ -125,7 +126,7 @@ function buildEnqueteDoc(e: Enquete, ctxId: ContentieuxId): GlobalSearchDoc {
     key: `enq_${ctxId}_${e.id}`,
     kind: 'enquete',
     title: e.numero,
-    subtitle: e.description?.trim() || mecList || undefined,
+    subtitle: toPlainText(e.description) || mecList || undefined,
     ctxId,
     archived: e.statut !== 'en_cours',
     fields,

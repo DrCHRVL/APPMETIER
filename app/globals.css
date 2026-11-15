@@ -86,6 +86,19 @@ button[class*="ghost"] svg {
   pointer-events: none;
 }
 
+/* Listes de l'éditeur riche et du texte formaté (CR, description d'enquête) :
+   le reset Tailwind retire les puces des <ul>/<ol>, on les rétablit. */
+[contenteditable] ul,
+.cr-description ul {
+  list-style: disc;
+  padding-left: 1.5em;
+}
+[contenteditable] ol,
+.cr-description ol {
+  list-style: decimal;
+  padding-left: 1.5em;
+}
+
 /* Forcer la sélectabilité du texte dans les comptes-rendus.
    Les CR historiques collés depuis Word/Outlook contiennent parfois des
    styles inline `user-select: none` (ou variantes -webkit/-moz) qui empêchent

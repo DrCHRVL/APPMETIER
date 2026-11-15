@@ -1,3 +1,4 @@
+import { estSuperAdmin } from '@/lib/web/identite';
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -131,7 +132,7 @@ const EnqueteDetailModalImpl = ({
   const [showModificationsPopup, setShowModificationsPopup] = useState(false);
   useEffect(() => { setLocalNumero(enquete.numero); }, [enquete.numero]);
   const { showToast } = useToast();
-  const { user, isAdmin } = useUser();
+  const { user } = useUser();
   const markEnqueteAsSeen = useEnquetesStore(s => s.markEnqueteAsSeen);
 
   const effectiveReadOnly = readOnly;
@@ -195,7 +196,7 @@ const EnqueteDetailModalImpl = ({
     progress: descriptionProgress,
   } = useDescriptionActualisation({
     numero: enquete.numero,
-    enabled: attacheAvailable && isAdmin(),
+    enabled: attacheAvailable && estSuperAdmin(),
     showToast,
     onPropositions: bumpPropositions,
   });
@@ -417,7 +418,7 @@ const EnqueteDetailModalImpl = ({
               isEditing={isEditing}
               onUpdate={isEditing ? (updates) => debouncedOnUpdate(enquete.id, updates) : undefined}
               onUpdateImmediate={isEditing ? (updates) => handleUpdateImmediate(enquete.id, updates) : undefined}
-              onRefreshDescription={attacheAvailable && isAdmin() && !isEditing ? handleRefreshDescription : undefined}
+              onRefreshDescription={attacheAvailable && estSuperAdmin() && !isEditing ? handleRefreshDescription : undefined}
               descriptionRefreshStatus={descriptionRefreshStatus}
               descriptionProgress={descriptionProgress}
             />
@@ -446,9 +447,9 @@ const EnqueteDetailModalImpl = ({
                 attente (✓/✗) et la chronologie probatoire — admin uniquement,
                 auto-masqués sinon. Les actes rédigés, eux, vivent sur la page
                 « Assistant de justice ». */}
-            {isAdmin() && <FluxBandeau numero={enquete.numero} />}
-            {isAdmin() && <PropositionsBar numero={enquete.numero} reloadToken={propositionsToken} />}
-            {isAdmin() && <ChronologieSection numero={enquete.numero} />}
+            {estSuperAdmin() && <FluxBandeau numero={enquete.numero} />}
+            {estSuperAdmin() && <PropositionsBar numero={enquete.numero} reloadToken={propositionsToken} />}
+            {estSuperAdmin() && <ChronologieSection numero={enquete.numero} />}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div className="space-y-6">
@@ -469,7 +470,7 @@ const EnqueteDetailModalImpl = ({
                   isEditing={isEditing}
                   allKnownMec={allKnownMec}
                   knownNameHints={knownNameHints}
-                  onRefreshMec={attacheAvailable && isAdmin() && !isEditing ? handleRefreshMec : undefined}
+                  onRefreshMec={attacheAvailable && estSuperAdmin() && !isEditing ? handleRefreshMec : undefined}
                   mecRefreshStatus={mecRefreshStatus}
                 />
               </div>

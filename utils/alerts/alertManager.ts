@@ -1,4 +1,5 @@
 import { Alert, AlertRule, Enquete, AlertValidation, RecurrenceConfig, AlertValidations } from '@/types/interfaces';
+import { isAlerteCoupee } from '@/utils/acteUtils';
 import { DateUtils } from '../dateUtils';
 import { AlertStorage } from './alertStorage';
 import { getLastCR } from '../compteRenduUtils';
@@ -332,7 +333,7 @@ export class AlertManager {
     for (const rule of acteRules) {
       const actesToCheck = this.getActesToCheck(enquete, rule.acteType);
 
-      for (const acte of actesToCheck.filter(a => a.statut === 'en_cours')) {
+      for (const acte of actesToCheck.filter(a => a.statut === 'en_cours' && !isAlerteCoupee(a))) {
         if (acte.dateFin) {
           // Différence SIGNÉE : `getDaysDifference` (valeur absolue) faisait
           // qu'un acte expiré depuis N jours (N ≤ seuil) déclenchait à tort

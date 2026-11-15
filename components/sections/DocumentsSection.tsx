@@ -1,3 +1,4 @@
+import { estSuperAdmin } from '@/lib/web/identite';
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
@@ -35,7 +36,6 @@ import { fileToMarkdown } from '@/lib/web/fileToMarkdown';
 import { DocumentPathModal } from '../modals/DocumentPathModal';
 import { DocumentExplorerModal } from '../modals/DocumentExplorerModal';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
-import { useUserStore } from '@/stores/useUserStore';
 import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 import { DocHoverPreview } from '@/components/DocHoverPreview';
 import { DocumentSyncManager, SyncResult } from '@/utils/documents/DocumentSyncManager';
@@ -289,8 +289,8 @@ export const DocumentsSection = React.memo(({ enquete, onUpdate, isEditing }: Do
   // sont visibles QUE de l'administrateur : pour tout autre compte, les mêmes
   // mécanismes sont décrits sans référence à l'IA — le fonctionnement, lui,
   // est identique (les copies texte sont créées quel que soit le rôle).
-  const isAdmin = useUserStore(s => s.isAdmin);
-  const estAdmin = isAdmin();
+  // mentions de l'attaché IA : réservées à l'administrateur du serveur
+  const estAdmin = estSuperAdmin();
 
   // Liste de documents TOUJOURS à jour (prop re-rendue) : les sauvegardes
   // intermédiaires d'un long versement partent de là, pour ne jamais écraser

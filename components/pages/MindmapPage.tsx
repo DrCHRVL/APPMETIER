@@ -7,6 +7,7 @@
 
 'use client';
 
+import { estSuperAdmin } from '@/lib/web/identite';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, FileDown, FileText, Filter, Layers, Link as LinkIcon, Loader2, Network, Pencil, Pin, PinOff, Plus, RefreshCw, Save, Shrink, Trophy, User, X } from 'lucide-react';
 import type { ContentieuxDefinition, ContentieuxId } from '@/types/userTypes';
@@ -195,7 +196,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   const updateCamp = useCartographieOverlayStore(s => s.updateCamp);
 
   const { showToast } = useToast();
-  const { user, isAdmin } = useUser();
+  const { user } = useUser();
   const { getByCode: getNatinfByCode } = useNatinf();
   // Sources distantes : projection des dossiers de TOUTE l'équipe (tous
   // contentieux confondus), rapatriée par le service de contributions. Rend la
@@ -1280,7 +1281,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
           dossiers ex nihilo issus de l'analyse transversale — validés ✓ ou
           refusés ✗ un à un, tracés sur la carte à la validation. Panneau
           flottant bas-gauche, admin only, auto-masqué si vide. */}
-      {isAdmin() && (
+      {estSuperAdmin() && (
         <div className="pointer-events-none fixed bottom-4 left-4 z-40 w-[380px] max-w-[calc(100vw-2rem)]">
           <div className="pointer-events-auto">
             <NouveauxDossiersPropositions kinds={CARTO_REVIEW_KINDS} title="Proposition de renseignement" />

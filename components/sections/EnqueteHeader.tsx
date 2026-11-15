@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Tag } from '@/types/interfaces';
 import { Input } from '../ui/input';
 import { Select } from '../ui/select';
@@ -12,6 +12,8 @@ import { useInfractionNatinf } from '@/hooks/useInfractionNatinf';
 import { NatinfBadge } from '../natinf/NatinfBadge';
 import { NatinfPicker } from '../natinf/NatinfPicker';
 import { NatinfGroupSuggestions } from '../natinf/NatinfGroupSuggestions';
+import { RichTextEditor } from '../instruction/RichTextEditor';
+import { renderFormattedText } from '@/lib/formatCR';
 
 interface EnqueteHeaderProps {
   numero: string;
@@ -64,7 +66,17 @@ export const EnqueteHeader = React.memo(({
   useEffect(() => { setLocalDirecteur(directeurEnquete || ''); }, [directeurEnquete]);
   useEffect(() => { setLocalParquet(numeroParquet || ''); }, [numeroParquet]);
   useEffect(() => { setLocalIDJ(numeroIDJ || ''); }, [numeroIDJ]);
-  useEffect(() => { setLocalDescription(description || ''); }, [description]);
+  // Description (éditeur riche) : pendant la saisie, l'écho débouncé du parent
+  // arrive avec un temps de retard — le réinjecter ferait sauter le curseur et
+  // perdre les dernières frappes. On ne resynchronise donc qu'hors édition ou
+  // au changement de dossier.
+  const descNumeroRef = useRef(numero);
+  useEffect(() => {
+    if (!isEditing || descNumeroRef.current !== numero) {
+      descNumeroRef.current = numero;
+      setLocalDescription(description || '');
+    }
+  }, [description, isEditing, numero]);
 
   const { getTagsByCategory, getServicesFromTags } = useTags();
   const { infractionsForEnquete } = useInfractionNatinf();
@@ -341,17 +353,24 @@ export const EnqueteHeader = React.memo(({
           )}
         </div>
         {isEditing ? (
-          <textarea
+          <RichTextEditor
             value={localDescription}
-            onChange={(e) => {
-              setLocalDescription(e.target.value);
-              onUpdate?.({ description: e.target.value });
+            onChange={(html) => {
+              setLocalDescription(html);
+              onUpdate?.({ description: html });
             }}
-            className="w-full min-h-[60px] text-sm p-2 rounded border resize-none"
+            minHeight={260}
+            maxHeight="65vh"
+            className="mt-1"
             placeholder="Description de l'enquête..."
           />
         ) : (
-          description && <p className="text-sm whitespace-pre-wrap">{description}</p>
+          description && (
+            <div
+              className="cr-description text-sm break-words"
+              dangerouslySetInnerHTML={{ __html: renderFormattedText(description) }}
+            />
+          )
         )}
       </div>
     </div>

@@ -23,7 +23,7 @@ chez qui est le dossier, l'échéance interne, les délais légaux et la
 | `retour_enqueteurs` (`partiel`) | avis du magistrat (ou attente maintenue si partiel) |
 | `envoi_autorite` | reçue : attente de l'AR ; émise : réponse attendue à 4 mois |
 | `relance_autorite`, `prorogation` | nouveau délai (`delaiMois` ou `echeance` fixe) |
-| `document_prepare` → `signature` → envoi | parapheur : à signer, signé, envoyé |
+| `document_prepare` → envoi | courrier préparé et téléchargé : « À envoyer », puis envoyé (signé à la main, hors de l'application ; un ancien événement `signature` est sans effet) |
 | `cloture` / `reouverture` | un dossier clôturé le reste jusqu'à réouverture |
 
 Chaque action passe par une fenêtre de confirmation qui dit ce qu'elle va
@@ -60,7 +60,8 @@ Coffre chiffré `entraide` (périmètre global du trousseau) : `demandes`
 (dont `natinf` : infraction ou son équivalent français, `drapeau`,
 `observations` en texte enrichi),
 `autorites` (mots-clés appris à la saisie, langue des courriers), `services`
-(cases cochées sur T1/T2), `signataires` (bloc signature de chaque magistrat),
+(cases cochées sur T1/T2), `signataires` (coordonnées de chaque magistrat, onglet « Mes coordonnées » ;
+une image de signature d'ancien format est écartée au chargement),
 `tombstones`. Fusion par id, la `dateMiseAJour` la plus récente gagne
 (`utils/dataSync/EntraideSyncService.ts`).
 
@@ -70,8 +71,8 @@ Modèles `public/modeles/entraide/<doc>_<langue>.odt` — les trames du service,
 balisées `{{cle}}` : T1 (soit-transmis aux enquêteurs), T2 (relance), T3
 (retour à l'autorité étrangère, FR/EN), T4 (relance de l'autorité, FR/EN).
 Remplis par `utils/entraide/documents.ts` (mise en page et logo intacts).
-L'image de signature n'est apposée que sur un courrier validé par son
-titulaire (« Valider et signer »). Mails : `utils/entraide/mails.ts`
+Aucune signature n'est apposée par l'application : le courrier téléchargé
+est imprimé, signé et envoyé, puis marqué envoyé. Mails : `utils/entraide/mails.ts`
 (Copier / Ouvrir dans Outlook).
 
 Trames T1/T2 : police = commissariats d'Amiens et d'Abbeville (la ligne DRPJ
@@ -85,6 +86,25 @@ fiche (groupe « Entraide internationale »).
 
 Section « ENTRAIDE » de la page Statistiques ; source unique
 `lib/stats/entraideCore.mjs`, chaque carte porte sa règle.
+
+## Dépôt d'une DEE (tous les utilisateurs)
+
+Zone « Déposer une DEE » en tête du registre (PDF texte, DOCX, ODT). Le
+formulaire annexe A en français est lu dans le navigateur, sans IA ni envoi
+de la pièce (`lib/entraide/dee.mjs`) : sens (France en État d'émission →
+émise), pays et autorité étrangère (section A, ou K pour une DEE reçue),
+V/réf, n° de procédure, urgence et date butoir (B), mesures cochées et
+titres des mesures (C), personnes et qualité (E), qualifications et NATINF
+(G), date de signature (K).
+
+Le registre est d'abord interrogé : même n° ESABORA, même V/réf ou même
+n° de procédure → « déjà enregistrée » ; même personne dans le même pays →
+« demande proche ». Les demandes trouvées s'ouvrent d'un clic. Sinon (ou sur
+« Créer quand même »), la fiche de création s'ouvre préremplie : on vérifie,
+on saisit le n° ESABORA, on crée. Le reste du formulaire (dossier, mesures,
+faits, urgence) est versé dans les observations.
+
+Test : `node scripts/entraide-dee.test.mjs`.
 
 ## Lecture d'une pièce (administrateur seul)
 
@@ -109,5 +129,15 @@ aux runs autonomes). `entraide_importer` est idempotent (clé : onglet + ligne
 d'origine) : la reprise du tableau Excel peut être rejouée sans doublon.
 
 Tests : `node scripts/entraide-core.test.mjs`,
+`node scripts/entraide-dee.test.mjs`,
 `node scripts/attache-entraide.test.mjs`,
 `node scripts/attache-entraide-lecture.test.mjs`.
+
+## Hors du tribunal d'origine
+
+Les trames T1 à T4 portent l'en-tête et le pied de page du parquet d'Amiens ;
+dans un autre tribunal, ils sont remplacés à la génération par ceux réglés dans
+Paramètres → En-têtes des documents. La grille des services de la Somme (cases
+commissariats / compagnies) est retirée des T1/T2 : l'unité choisie s'imprime
+sur la ligne « Autre unité ». Les services de départ d'Amiens ne sont pas
+proposés ailleurs.

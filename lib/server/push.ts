@@ -10,6 +10,7 @@
  */
 import webpush from 'web-push'
 import { dataDir, readJson, writeJson, withFileLock } from './store'
+import { findAccount } from './auth'
 
 interface StoredSub { username: string, endpoint: string, subscription: webpush.PushSubscription, createdAt: string }
 interface ScheduleMap { [username: string]: number[] }
@@ -90,6 +91,8 @@ async function sendDue(): Promise<void> {
     }
     if (changed) writeJson(dataDir(SCHEDULE), map)
   })
+  // comptes suspendus ou supprimés : plus aucun rappel
+  due = due.filter((u) => { const a = findAccount(u); return !!a && !a.suspendu })
   if (!due.length) return
 
   const { publicKey, privateKey } = vapidKeys()

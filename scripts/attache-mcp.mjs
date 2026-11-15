@@ -45,7 +45,7 @@ import { modifierDossierInstruction, elementInstruction, misEnExamenInstruction,
 import { enregistrerAudience, resultatAudienceMarkdown, ISSUES_AUDIENCE, DECISIONS_AUDIENCE } from './attache/audience.mjs'
 import { listerEntraide, lireEntraide, statsEntraide, referentielEntraide, creerEntraide, importerEntraide, modifierEntraide, completerEntraide, evenementEntraide, autoriteEntraide, EVENEMENTS_ENTRAIDE } from './attache/entraide.mjs'
 import { listDepot, readDepotText, readMailPieceText, rangerDocument, rangerPieceDansKb, verserDocumentCarto, ecarterDepot, ZONES } from './attache/depot.mjs'
-import { addProposition, listPropositions } from './attache/propositions.mjs'
+import { addProposition, listPropositions, modifierProposition, retirerProposition } from './attache/propositions.mjs'
 import { lireRegistre, recouperRegistres } from './attache/registre.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
 import { analyserReseau, listerLiens, listerFiches, lireDocumentExNihilo, cartoHistoire, rapprochementsInterDossiers, recoupementMecs, cartoCorpus } from './attache/carto.mjs'
@@ -595,7 +595,7 @@ const TOOLS = [
       properties: {
         numero: { type: 'string', description: 'Nom/numéro du dossier (ex: « 2026/000123 » ou « Réseau ZOUAOUI »)' },
         dateDebut: { type: 'string', description: 'AAAA-MM-JJ (défaut : aujourd\'hui)' },
-        services: { type: 'array', items: { type: 'string' }, description: 'Unité(s)/service(s) d\'enquête (ex: « GIR Amiens »)' },
+        services: { type: 'array', items: { type: 'string' }, description: 'Unité(s)/service(s) d\'enquête, le principal en premier — libellés de la liste des services de l\'app (ex: « GIR », « OLTIM », « COB DOULLENS »). Rapprochés automatiquement du référentiel ; un libellé inconnu est signalé dans la réponse (servicesConnus)' },
         directeurEnquete: { type: 'string', description: 'Directeur d\'enquête (enquêteur qui dirige) — même champ que le formulaire' },
         numeroParquet: { type: 'string', description: 'Numéro de parquet si connu' },
         numeroIDJ: { type: 'string', description: 'Numéro IDJ (Identifiant Justice) si connu' },
@@ -620,7 +620,7 @@ const TOOLS = [
       properties: {
         numero: { type: 'string' },
         directeurEnquete: { type: 'string', description: 'Nouveau directeur d\'enquête (chaîne vide pour effacer)' },
-        services: { type: 'array', items: { type: 'string' }, description: 'Liste COMPLÈTE des services (remplace l\'existante)' },
+        services: { type: 'array', items: { type: 'string' }, description: 'Liste COMPLÈTE des services, le principal en premier (remplace l\'existante) — libellés de la liste des services de l\'app, rapprochés du référentiel' },
         dateDebut: { type: 'string', description: 'AAAA-MM-JJ' },
         numeroParquet: { type: 'string' },
         numeroIDJ: { type: 'string' },
@@ -1010,7 +1010,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'entraide_lire',
-    description: 'Fiche complète d\'une demande d\'entraide : identification, mesures, échéance interne, DÉLAIS LÉGAUX (DEE reçue : annexe B à 7 j, exécution à 120 j ; échéances saisies : prescription…) avec leur statut, courrier en attente de signature, prochaines actions proposées et CHRONOLOGIE. `ref` = n° ESABORA ou id.',
+    description: 'Fiche complète d\'une demande d\'entraide : identification, mesures, échéance interne, DÉLAIS LÉGAUX (DEE reçue : annexe B à 7 j, exécution à 120 j ; échéances saisies : prescription…) avec leur statut, courrier préparé en attente d\'envoi, prochaines actions proposées et CHRONOLOGIE. `ref` = n° ESABORA ou id.',
     inputSchema: { type: 'object', properties: { ref: { type: 'string' } }, required: ['ref'] },
     handler: async (a) => lireEntraide(keys, a.ref),
   },
@@ -1117,7 +1117,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
         delaiMois: { type: 'integer' },
         echeance: { type: 'string' },
         partiel: { type: 'boolean' },
-        etape: { type: 'string', enum: ['a_traiter', 'en_traduction', 'a_signer', 'a_envoyer', 'chez_enqueteurs', 'avis_magistrat', 'attente_etranger', 'attente_ar', 'a_cloturer'], description: 'Avec type repositionnement : corrige l\'étape (ex. a_signer + doc t1 = ST préparé, pas encore parti aux enquêteurs)' },
+        etape: { type: 'string', enum: ['a_traiter', 'en_traduction', 'a_envoyer', 'chez_enqueteurs', 'avis_magistrat', 'attente_etranger', 'attente_ar', 'a_cloturer'], description: 'Avec type repositionnement : corrige l\'étape (ex. a_envoyer + doc t1 = ST préparé, pas encore parti aux enquêteurs)' },
         issue: { type: 'string', enum: ['acceptee', 'refusee'], description: 'Dénonciation officielle reçue, avec type cloture : acceptée (enquête ouverte) ou refusée (classement)' },
         note: { type: 'string' },
       },
@@ -1664,6 +1664,36 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
     description: 'Liste les propositions en attente de validation (évite les redondances : ne jamais re-proposer ce qui attend déjà).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' } } },
     handler: async (a) => listPropositions(keys, { numero: a?.numero }).map(({ payload, ...meta }) => ({ ...meta, apercu: JSON.stringify(payload).slice(0, 200) })),
+  },
+  {
+    name: 'modifier_proposition',
+    description: 'CORRIGE une proposition encore EN ATTENTE (id de propositions_en_attente) : erreur de saisie, nom à aligner sur la graphie déjà connue de SIRAL pour éviter un doublon, description à reprendre. `champs` = les champs du payload à remplacer, tels que l\'outil proposer_* d\'origine les nomme (ex. { misEnCause: [...] } ou { notes: "..." } pour un dossier ex nihilo, { nom, role } pour un mis en cause) ; une liste se remplace EN ENTIER ; null retire un champ ; les autres champs sont conservés. La version corrigée est redéposée avec les mêmes contrôles qu\'un dépôt neuf (doublons, avertissements) et remplace l\'ancienne ; si elle est refusée, l\'ancienne reste en attente. Impossible sur une proposition déjà validée ou refusée.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'id de la proposition (propositions_en_attente)' },
+        champs: { type: 'object', description: 'Champs du payload à remplacer (null = retirer le champ)' },
+        source: { type: 'string', description: 'Nouvelle source (défaut : celle d\'origine)' },
+        motif: { type: 'string', description: 'Pourquoi la correction (tracé au journal)' },
+      },
+      required: ['id', 'champs'],
+    },
+    handler: async (a) => modifierProposition(keys, { id: a.id, payload: a.champs, source: a.source, motif: a.motif }),
+    write: true,
+  },
+  {
+    name: 'retirer_proposition',
+    description: 'RETIRE une de tes propositions encore EN ATTENTE (erreur, doublon repéré après coup, proposition devenue sans objet) : elle disparaît des ✓/✗ du magistrat. Ce n\'est pas un refus du magistrat. Impossible sur une proposition déjà validée ou refusée. Pour corriger plutôt que retirer : modifier_proposition.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'id de la proposition (propositions_en_attente)' },
+        motif: { type: 'string', description: 'Pourquoi le retrait (tracé au journal)' },
+      },
+      required: ['id'],
+    },
+    handler: async (a) => retirerProposition(keys, { id: a.id, motif: a.motif }),
+    write: true,
   },
   {
     name: 'recouper_personnes',

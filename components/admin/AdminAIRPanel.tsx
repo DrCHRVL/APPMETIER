@@ -1,13 +1,15 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Check, X, Trash2, Loader2, RefreshCw, Users, UserPlus, Share2, Mail, Activity, RotateCcw, SlidersHorizontal } from 'lucide-react';
+import { Check, X, Trash2, Loader2, RefreshCw, Users, UserPlus, Share2, Mail, Activity, RotateCcw, SlidersHorizontal, MapPin } from 'lucide-react';
 import type { AIRShareState } from '@/utils/dataSync/AIRSyncService';
 import { airSyncService } from '@/utils/dataSync/AIRSyncService';
 import { useToast } from '@/contexts/ToastContext';
 import { UserManager } from '@/utils/userManager';
 import { useAIRConvocationConfig } from '@/hooks/useAIRConvocationConfig';
-import type { AIRConvocationConfig } from '@/types/airConfigTypes';
+import { SECTEURS_AIR_ORIGINE, type AIRConvocationConfig } from '@/types/airConfigTypes';
+import { useUser } from '@/contexts/UserContext';
+import { estTjOrigine } from '@/lib/web/identite';
 
 /**
  * Panneau de paramètres du module AIR : synchronisation réseau privée par
@@ -80,6 +82,8 @@ export const AdminAIRPanel = () => {
         </div>
       </section>
 
+      <AIRSecteursSection />
+
       <AIRConvocationDelaysSection />
 
       <AIRPartageSection />
@@ -151,6 +155,48 @@ const DELAY_GROUPS: {
  * anciennes » du dashboard AIR. Édition immédiate : chaque champ est enregistré
  * à la validation (blur) et le dashboard se met à jour en direct.
  */
+/**
+ * Secteurs géographiques proposés pour les mesures AIR — propres au TJ,
+ * réglés par son administrateur (les autres les consultent).
+ */
+const AIRSecteursSection = () => {
+  const { config, update } = useAIRConvocationConfig();
+  const { isAdmin } = useUser();
+  const { showToast } = useToast();
+  const defaut = estTjOrigine() ? SECTEURS_AIR_ORIGINE : [];
+  const [texte, setTexte] = useState<string | null>(null);
+  const valeur = texte ?? (config.secteurs ?? defaut).join('\n');
+  const admin = isAdmin();
+
+  const enregistrer = async () => {
+    const secteurs = Array.from(new Set(valeur.split('\n').map(l => l.trim()).filter(Boolean)));
+    await update({ secteurs });
+    setTexte(null);
+    showToast('Secteurs enregistrés', 'success');
+  };
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-base font-semibold text-gray-800 flex items-center gap-1.5">
+        <MapPin className="h-4 w-4 text-gray-500" />
+        Secteurs géographiques
+      </h3>
+      <p className="text-xs text-gray-500">
+        Proposés dans la colonne « Secteur » des mesures, pour tout le tribunal. Un secteur par ligne.
+        {!admin && ' Réglés par l’administrateur de votre tribunal.'}
+      </p>
+      <textarea className="w-full max-w-sm border border-gray-300 rounded px-2 py-1.5 text-sm" rows={6}
+        value={valeur} disabled={!admin} placeholder="ex. Lille&#10;Roubaix&#10;Tourcoing"
+        onChange={e => setTexte(e.target.value)} />
+      {admin && texte !== null && (
+        <button className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-3 py-1.5" onClick={enregistrer}>
+          Enregistrer
+        </button>
+      )}
+    </section>
+  );
+};
+
 const AIRConvocationDelaysSection = () => {
   const { showToast } = useToast();
   const { config, update, reset } = useAIRConvocationConfig();
