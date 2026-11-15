@@ -4,6 +4,8 @@
 // identifie l'utilisateur courant par son Windows username,
 // et fournit les méthodes CRUD pour l'admin.
 
+import { identiteSession, estAdminTj, estSuperAdmin, estTjOrigine, tjCourantNom } from '@/lib/web/identite';
+import { appliquerPapeterie, type PapeterieTj } from '@/lib/web/papeterie';
 import { SiralBridge } from './siralBridge';
 import {
   UsersConfig,
@@ -86,10 +88,17 @@ export class UserManager {
 
       // 3. Config absente sur le serveur (premier lancement / migration) → créer une config par défaut
       if (!this.config) {
-        console.warn('UserManager: users.json introuvable côté serveur, création de la config initiale');
-        this.config = this.createDefaultConfig(systemUser.displayName);
-        // Persister immédiatement sur le serveur pour que les prochains lancements la trouvent
-        await this.saveConfig();
+        if (!identiteSession() || estAdminTj()) {
+          console.warn('UserManager: users.json introuvable côté serveur, création de la config initiale');
+          this.config = this.createDefaultConfig(systemUser.displayName);
+          // Persister immédiatement sur le serveur pour que les prochains lancements la trouvent
+          await this.saveConfig();
+        } else {
+          // Habilitations réservées aux administrateurs : un membre n'en crée pas,
+          // il attend que l'administrateur de son TJ les règle (aucun contentieux).
+          const now = new Date().toISOString();
+          this.config = { version: 1, contentieux: DEFAULT_CONTENTIEUX, users: [], updatedAt: now, updatedBy: '' };
+        }
       }
 
       // 4. Identifier l'utilisateur courant
@@ -98,12 +107,32 @@ export class UserManager {
       ) || null;
 
       if (!this.currentUser) {
-        // Auto-inscription : nouvel utilisateur → JA sans contentieux
-        console.log(`UserManager: auto-inscription de "${systemUser.displayName}" en tant que JA`);
+        // Pas encore de profil : JA sans contentieux. Seul un administrateur
+        // l'enregistre (habilitations protégées) ; pour un membre, le profil
+        // reste en mémoire jusqu'à ce que son administrateur le crée.
         this.currentUser = this.autoRegisterUser(systemUser.displayName);
-        this.config.users.push(this.currentUser);
-        await this.saveConfig();
+        if (!identiteSession() || estAdminTj()) {
+          this.config.users.push(this.currentUser);
+          await this.saveConfig();
+        }
       }
+
+      // 4 bis. Le rôle « administrateur » de ce TJ est tenu par le SERVEUR
+      // (administrateur local désigné, contrôlé à chaque appel) : la config
+      // d'habilitations s'y aligne — ni promotion ni rétrogradation locale.
+      const me = identiteSession();
+      if (me) {
+        const serverAdmin = estAdminTj();
+        if (serverAdmin && this.currentUser.globalRole !== 'admin') {
+          this.currentUser.globalRole = 'admin';
+          this.currentUser.updatedAt = new Date().toISOString();
+          await this.saveConfig();
+        } else if (!serverAdmin && this.currentUser.globalRole === 'admin') {
+          this.currentUser = { ...this.currentUser, globalRole: null };
+        }
+      }
+
+      this.appliquerPapeterie();
 
       // 5. Construire les permissions
       const allContentieuxIds = this.config.contentieux.map(c => c.id);
@@ -238,7 +267,7 @@ export class UserManager {
    * @returns true si la config a été modifiée (et persistée).
    */
   public async reconcileWithAccounts(
-    accounts: Array<{ username: string; displayName: string; role: 'admin' | 'member' }>,
+    accounts: Array<{ username: string; displayName: string; role: 'admin' | 'member'; tjAdmin?: boolean }>,
   ): Promise<boolean> {
     if (!this.config || !this.isCurrentUserAdmin()) return false;
 
@@ -253,7 +282,7 @@ export class UserManager {
         this.config.users.push({
           windowsUsername: acc.username,
           displayName: acc.displayName || acc.username,
-          globalRole: acc.role === 'admin' ? 'admin' : null,
+          globalRole: (acc.tjAdmin ?? acc.role === 'admin') ? 'admin' : null,
           contentieux: [],
           modules: [],
           approved: true, // l'enrôlement serveur fait foi : pas de double validation
@@ -273,6 +302,16 @@ export class UserManager {
       if (profile.approved !== true) {
         profile.approved = true;
         changed = true;
+      }
+      // Rôle administrateur : miroir de l'administration locale côté serveur.
+      if (acc.tjAdmin !== undefined) {
+        if (acc.tjAdmin && profile.globalRole !== 'admin') {
+          profile.globalRole = 'admin';
+          changed = true;
+        } else if (!acc.tjAdmin && profile.globalRole === 'admin') {
+          profile.globalRole = null;
+          changed = true;
+        }
       }
     }
 
@@ -393,6 +432,31 @@ export class UserManager {
     };
   }
 
+  // ──────────────────────────────────────────────
+  // PAPETERIE (en-têtes et signature des documents)
+  // ──────────────────────────────────────────────
+
+  /** Fusionne la papeterie du TJ et celle de l'utilisateur courant dans PAPETERIE. */
+  private appliquerPapeterie(): void {
+    const origine = estTjOrigine();
+    appliquerPapeterie({
+      tj: this.config?.papeterie,
+      nomTj: tjCourantNom(),
+      origine,
+      nomAffiche: this.currentUser?.displayName || '',
+      historique: origine && estSuperAdmin(),
+    });
+  }
+
+  /** Papeterie du tribunal — administrateur du TJ. */
+  public async updatePapeterieTj(papeterie: PapeterieTj): Promise<boolean> {
+    if (!this.config || !this.isCurrentUserAdmin()) return false;
+    this.config.papeterie = papeterie;
+    const ok = await this.saveConfig();
+    this.appliquerPapeterie();
+    return ok;
+  }
+
   private isCurrentUserAdmin(): boolean {
     return this.currentUser?.globalRole === 'admin';
   }
@@ -470,6 +534,9 @@ export class UserManager {
    */
   private async saveConfig(): Promise<boolean> {
     if (!this.config) return false;
+    // Habilitations : écriture réservée à l'administrateur du TJ (local ou
+    // général) — le serveur le refuse de toute façon à un membre.
+    if (identiteSession() && !estAdminTj()) return false;
 
     this.config.updatedAt = new Date().toISOString();
     this.config.updatedBy = this.currentUser?.windowsUsername || 'unknown';

@@ -2,12 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Enquete, AutreActe, DateManagerData, ProlongationHistoryEntry } from '@/types/interfaces';
 import ProgressBar from '../ProgressBar';
-import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp, Info, Ban } from 'lucide-react';
+import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp, Info, Ban, Bell, BellOff } from 'lucide-react';
 import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
 import { AutorisationValidationModal } from '../modals/AutorisationValidationModal';
-import { ActeUtils, getStatutBadgeProps, trackDeletedActeId, isActeEnAttenteDePose } from '@/utils/acteUtils';
+import { ActeUtils, getStatutBadgeProps, trackDeletedActeId, isActeEnAttenteDePose, isAlerteCoupee, toggleAlertesCoupees } from '@/utils/acteUtils';
 import { DateUtils } from '@/utils/dateUtils';
 import { Badge } from '@/components/ui/badge';
 import { ActeModal } from '../modals/ActeModal';
@@ -308,6 +308,12 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
     showToast('Acte supprimé', 'success');
   };
 
+  // Coupe / rétablit les alertes d'échéance d'une mesure qu'on sait ne pas prolonger.
+  const handleToggleAlertes = (id: number) => {
+    if (!onUpdate || !enquete.actes) return;
+    onUpdate(enquete.id, { actes: toggleAlertesCoupees(enquete.actes, id) });
+  };
+
   const handleRefuseJLD = (id: number) => {
     if (!onUpdate || !enquete) return;
     const updatedActes = enquete.actes.map(acte =>
@@ -346,7 +352,7 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
   const nbPosePending         = activeActes.filter(a => a.statut === 'pose_pending').length;
   const nbProlongationPending = activeActes.filter(a => a.statut === 'prolongation_pending').length;
   const nbExpireSoon          = activeActes.filter(a =>
-    a.statut === 'en_cours' && a.dateFin &&
+    a.statut === 'en_cours' && a.dateFin && !isAlerteCoupee(a) &&
     new Date(a.dateFin) <= sevenDaysFromNow && new Date(a.dateFin) >= now
   ).length;
   const hasUrgences = nbAutorisationPending + nbPosePending + nbProlongationPending + nbExpireSoon > 0;
@@ -397,6 +403,9 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
                 <div className="flex items-center gap-1 flex-wrap">
                   <span className="font-medium text-sm">{typeConfig?.label ?? acte.type}</span>
                   <Badge className={`text-xs px-1.5 py-0 border ${statutBadge.className}`}>{statutBadge.label}</Badge>
+                  {acte.statut === 'en_cours' && isAlerteCoupee(acte) && (
+                    <Badge className="text-xs px-1.5 py-0 border bg-gray-100 text-gray-500 border-gray-200">Alertes coupées</Badge>
+                  )}
                   {hoverTips.length > 0 && (
                     <TooltipRoot>
                       <TooltipTrigger asChild>
@@ -466,6 +475,16 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
                     title="Prolonger l'acte"
                   >
                     <Clock className="h-4 w-4" />
+                  </Button>
+                )}
+                {onUpdate && acte.statut === 'en_cours' && acte.dateFin && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleToggleAlertes(acte.id)}
+                    title={isAlerteCoupee(acte) ? "Rétablir les alertes d'échéance" : "Couper les alertes d'échéance (mesure qui ne sera pas prolongée)"}
+                  >
+                    {isAlerteCoupee(acte) ? <BellOff className="h-4 w-4 text-gray-400" /> : <Bell className="h-4 w-4" />}
                   </Button>
                 )}
                 {acte.statut === 'prolongation_pending' && (

@@ -1,6 +1,6 @@
 import {
   handle, jsonResponse, createSessionCookie, sessionCookieHeader,
-  findAccount, saveAccount, rateLimit, clientIp,
+  findAccount, updateAccount, rateLimit, clientIp,
 } from '@/lib/server/auth'
 import { verifyPasswordConstantTime } from '@/lib/server/password'
 import { appendLog } from '@/lib/server/store'
@@ -23,9 +23,11 @@ export async function POST(req: Request) {
     if (!account || !ok) {
       return jsonResponse({ error: 'Identifiant ou mot de passe incorrect' }, { status: 401 })
     }
+    if (account.suspendu) {
+      return jsonResponse({ error: 'Compte suspendu — voyez l’administrateur' }, { status: 403 })
+    }
 
-    account.lastLoginAt = new Date().toISOString()
-    await saveAccount(account)
+    await updateAccount(account.username, (a) => { a.lastLoginAt = new Date().toISOString() })
     await appendLog('audit.jsonl', { timestamp: new Date().toISOString(), user: account.username, action: 'auth.login.password', details: {} })
 
     const cookie = createSessionCookie(account)

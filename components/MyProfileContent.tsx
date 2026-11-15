@@ -1,5 +1,6 @@
 'use client';
 
+import { ChangerMotDePasse } from '@/components/ChangerMotDePasse';
 import React, { useMemo } from 'react';
 import { User, Shield, Layers, Package, Users as UsersIcon, Info, Gavel, Scale } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
@@ -32,6 +33,7 @@ const MODULE_LABELS: Record<ModuleId, string> = {
   instructions: 'Instructions judiciaires',
   mindmap: 'Cartographie mis en cause',
   entraide: 'Entraide internationale',
+  convertisseur: 'Convertisseur PDF → texte',
 };
 
 // Explications publiques (admin intentionnellement absent — reste confidentiel)
@@ -228,6 +230,8 @@ export const MyProfileContent = () => {
           )}
         </div>
       </section>
+
+      <ChangerMotDePasse />
 
       {/* ── Rôle global ── */}
       <section className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">

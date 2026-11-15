@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { CalendarClock } from 'lucide-react';
 import { Enquete } from '@/types/interfaces';
+import { isAlerteCoupee } from '@/utils/acteUtils';
 
 type ActeKind = 'acte' | 'ecoute' | 'geoloc';
 
@@ -66,7 +67,7 @@ export const UpcomingActeDeadlines = React.memo(({ enquetes, onOpenEnquete, onOp
       ];
       for (const { list, kind, label, cible } of buckets) {
         for (const a of list) {
-          if (a.statut !== 'en_cours' || !a.dateFin) continue;
+          if (a.statut !== 'en_cours' || !a.dateFin || isAlerteCoupee(a)) continue;
           const echeance = parseLocalDate(a.dateFin);
           if (!echeance) continue;
           // Décompte simple : nombre de jours calendaires d'aujourd'hui à l'échéance.

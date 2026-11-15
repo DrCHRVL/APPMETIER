@@ -1678,7 +1678,7 @@ export function AdminAttachePanel() {
               Branche <b>claude.ai</b> (connecteur personnalisé) sur SIRAL : Claude web obtient les <b>mêmes outils que
               l'attaché</b> — lecture des dossiers et pièces, statistiques, écritures réversibles — sans avoir à passer par
               le panneau intégré. Réservé à <b>votre compte administrateur</b> : l'autorisation exige votre session SIRAL
-              (passkey) et votre consentement ; chaque écriture reste versionnée et <b>journalisée dans l'audit</b>
+              (identifiant et mot de passe) et votre consentement ; chaque écriture reste versionnée et <b>journalisée dans l'audit</b>
               (contexte « connecteur »). Les autres utilisateurs ne voient rien.
             </p>
 

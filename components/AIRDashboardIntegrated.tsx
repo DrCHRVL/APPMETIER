@@ -716,17 +716,14 @@ const stats = useMemo(() => {
 
       // Alertes selon les critères configurables (mesures en cours uniquement)
       if (ageEnMois >= convocConfig.urgentAgeMois && nbRDV <= convocConfig.urgentMaxRDV) {
-        mesureInfo.score = 100;
         alertes.urgent.push(mesureInfo);
       } else if (ageEnMois >= convocConfig.retardAgeMois && retardRDV >= convocConfig.retardMinRetardRDV) {
-        mesureInfo.score = 80;
         alertes.retard.push(mesureInfo);
       } else if (ageEnMois >= convocConfig.insuffisantAgeMois && retardRDV >= convocConfig.insuffisantMinRetardRDV) {
-        mesureInfo.score = 60;
         alertes.insuffisant.push(mesureInfo);
       }
 
-      // Score pour priorisation par référent
+      // Score pour priorisation par référent (seul score effectivement utilisé)
       mesureInfo.score = (ageEnMois * 10) + (retardRDV * 20);
 
       if (!propositionsParReferent[mesureInfo.referent]) {

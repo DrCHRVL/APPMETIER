@@ -1,7 +1,9 @@
 'use client';
 
+import { estSuperAdmin } from '@/lib/web/identite';
 import React, { useState } from 'react';
-import { X, Bell, Tags, Save, Users, Settings, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark, Scale, WifiOff } from 'lucide-react';
+import { X, Bell, Tags, Save, Users, Settings, Activity, ClipboardList, Layers, Upload, Info, User, Gavel, Map, CalendarDays, Landmark, Scale, WifiOff, FileText } from 'lucide-react';
+import { PapeterieSettings } from '@/components/PapeterieSettings';
 import { useUser } from '@/contexts/UserContext';
 import { ContentieuxId, ModuleId } from '@/types/userTypes';
 
@@ -10,7 +12,7 @@ import { ContentieuxId, ModuleId } from '@/types/userTypes';
 // ──────────────────────────────────────────────
 
 type SettingsTab =
-  | 'alertes' | 'tags' | 'sauvegardes' | 'mode_hors_ligne' | 'mon_profil' | 'agenda' | 'a_propos'
+  | 'alertes' | 'tags' | 'sauvegardes' | 'mode_hors_ligne' | 'mon_profil' | 'papeterie' | 'agenda' | 'a_propos'
   | 'module_instruction' | 'module_cartographie' | 'module_air'
   | 'admin_users' | 'admin_tjs' | 'admin_contentieux' | 'admin_dashboard' | 'admin_tag_history' | 'admin_natinf' | 'admin_update' | 'admin_attache';
 
@@ -61,6 +63,8 @@ interface TabDef {
   section: TabSection;
   /** Réservé aux admins (admin = isAdmin()) */
   isAdmin?: boolean;
+  /** Réservé à l'administrateur du SERVEUR (pas à l'admin local d'un TJ) */
+  superAdmin?: boolean;
   /** Module requis pour voir cet onglet (l'utilisateur doit l'avoir activé) */
   requiresModule?: ModuleId;
 }
@@ -82,13 +86,14 @@ const TABS: TabDef[] = [
 
   // Administration (admin uniquement)
   { id: 'admin_users',       label: 'Utilisateurs & accès', icon: Users,     section: 'admin', isAdmin: true },
-  { id: 'admin_tjs',         label: 'Tribunaux',        icon: Landmark,      section: 'admin', isAdmin: true },
+  { id: 'admin_tjs',         label: 'Gestion des TJ',        icon: Landmark,      section: 'admin', isAdmin: true, superAdmin: true },
+  { id: 'papeterie',         label: 'En-têtes des documents', icon: FileText, section: 'admin', isAdmin: true },
   { id: 'admin_contentieux', label: 'Contentieux',      icon: Layers,        section: 'admin', isAdmin: true },
   { id: 'admin_dashboard',   label: 'Tableau de bord',  icon: Activity,      section: 'admin', isAdmin: true },
   { id: 'admin_tag_history', label: 'Historique tags',  icon: ClipboardList, section: 'admin', isAdmin: true },
-  { id: 'admin_natinf',      label: 'Référentiel NATINF', icon: Gavel,       section: 'admin', isAdmin: true },
-  { id: 'admin_update',      label: 'Mise à jour',      icon: Upload,        section: 'admin', isAdmin: true },
-  { id: 'admin_attache',     label: 'Attaché',          icon: Scale,         section: 'admin', isAdmin: true },
+  { id: 'admin_natinf',      label: 'Référentiel NATINF', icon: Gavel,       section: 'admin', isAdmin: true, superAdmin: true },
+  { id: 'admin_update',      label: 'Mise à jour',      icon: Upload,        section: 'admin', isAdmin: true, superAdmin: true },
+  { id: 'admin_attache',     label: 'Attaché',          icon: Scale,         section: 'admin', isAdmin: true, superAdmin: true },
 ];
 
 const SECTION_LABELS: Record<TabSection, string> = {
@@ -146,6 +151,7 @@ export const SettingsModal = ({
   // Filtrer les onglets selon les droits + modules activés
   const visibleTabs = TABS.filter(t => {
     if (t.isAdmin && !userIsAdmin) return false;
+    if (t.superAdmin && !estSuperAdmin()) return false;
     if (t.requiresModule && !hasModule(t.requiresModule)) return false;
     // L'attaché IA n'apparaît que si la fonctionnalité est activée côté serveur
     if (t.id === 'admin_attache' && !adminAttacheContent) return false;
@@ -164,6 +170,7 @@ export const SettingsModal = ({
       case 'sauvegardes':        return sauvegardesContent;
       case 'mode_hors_ligne':    return modeHorsLigneContent;
       case 'mon_profil':         return monProfilContent;
+      case 'papeterie':          return <PapeterieSettings />;
       case 'agenda':             return agendaContent;
       case 'a_propos':           return aProposContent;
       case 'module_instruction':  return moduleInstructionContent;
@@ -290,7 +297,7 @@ export const SettingsModal = ({
             <div className="hidden sm:block mt-auto px-4 pt-3 border-t border-gray-200 mx-2">
               <p className="text-[10px] leading-tight text-gray-400 font-medium uppercase tracking-wide">SIRAL — Suivi Intégré des Réseaux criminels et Affaires Liées</p>
               <p className="text-[10px] leading-tight text-gray-400 mt-0.5">
-                {"Conçu par A. CHEVALIER — Parquet d'Amiens"}
+                {"Propriété d'Audran Chevalier"}
               </p>
               <p className="text-[9px] leading-tight text-red-400 font-semibold mt-1">NE PAS DIFFUSER</p>
             </div>

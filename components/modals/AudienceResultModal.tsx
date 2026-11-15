@@ -1,3 +1,5 @@
+import { estTjOrigine } from '@/lib/web/identite';
+import { PAPETERIE } from '@/lib/web/papeterie';
 import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
@@ -201,7 +203,7 @@ export const AudienceResultModal = ({
 
   // Lieux d'interdiction de paraître déjà enregistrés (pour suggestions)
   const lieuxInterdictionExistants = React.useMemo(() => {
-    const defaultLieux = ['Somme', 'Amiens', 'Abbeville', 'Péronne', 'Montdidier'];
+    const defaultLieux = estTjOrigine() ? ['Somme', 'Amiens', 'Abbeville', 'Péronne', 'Montdidier'] : [PAPETERIE.ville];
     const allResultats = audienceState?.resultats ? Object.values(audienceState.resultats) : [];
     const lieuxFromData = allResultats
       .flatMap(r => r.condamnations || [])
@@ -765,7 +767,7 @@ export const AudienceResultModal = ({
                           <Label>Lieu d'interdiction</Label>
                           <Input
                             list={`lieux-interdiction-${index}`}
-                            placeholder="Ex: Amiens"
+                            placeholder={`Ex: ${PAPETERIE.ville}`}
                             value={condamnation.lieuInterdictionParaitre || ''}
                             onChange={(e) => updateCondamnation(index, 'lieuInterdictionParaitre', e.target.value)}
                           />

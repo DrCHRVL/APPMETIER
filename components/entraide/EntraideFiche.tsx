@@ -29,6 +29,7 @@ import {
 import { languesDisponibles } from '@/utils/entraide/documents';
 import { lienMailto, mailsDemande } from '@/utils/entraide/mails';
 import { lignesDemande } from '@/utils/entraide/textes';
+import { etapeActuelle } from '@/lib/entraide/core.mjs';
 import { executerAction, signataireDe, telechargerCourrier } from './actionsEntraide';
 import { ConfirmationAction, type OptionsAction } from './ConfirmationAction';
 import { NatinfChamp, NatinfLibelles } from './NatinfChamp';
@@ -103,7 +104,7 @@ function pasDeFrise(d: DemandeEntraide): Pas[] {
       : [null, { etape: 'a_traiter' }, { etape: 'attente_ar' }, 'cloture'];
   }
   return d.sens === 'recue'
-    ? [{ etape: 'a_traiter' }, { etape: 'a_signer', doc: 't1' }, { etape: 'chez_enqueteurs' }, { etape: 'avis_magistrat' }, { etape: 'a_signer', doc: 't3' }, { etape: 'attente_ar' }, 'cloture']
+    ? [{ etape: 'a_traiter' }, { etape: 'a_envoyer', doc: 't1' }, { etape: 'chez_enqueteurs' }, { etape: 'avis_magistrat' }, { etape: 'a_envoyer', doc: 't3' }, { etape: 'attente_ar' }, 'cloture']
     : [null, { etape: 'en_traduction' }, { etape: 'a_traiter' }, { etape: 'attente_etranger' }, { etape: 'avis_magistrat' }, 'cloture'];
 }
 
@@ -116,10 +117,10 @@ function indexEtape(d: DemandeEntraide, etape: string, doc?: EntraideDocId): num
   }
   if (sens === 'recue') {
     const m: Record<string, number> = { a_traiter: 1, en_traduction: 1, chez_enqueteurs: 2, avis_magistrat: 3, attente_ar: 5, a_cloturer: 6, cloturee: 7 };
-    if (etape === 'a_signer' || etape === 'a_envoyer') return doc === 't3' ? 4 : doc === 't2' ? 2 : 1;
+    if (etape === 'a_envoyer') return doc === 't3' ? 4 : doc === 't2' ? 2 : 1;
     return m[etape] ?? 1;
   }
-  const m: Record<string, number> = { a_traiter: 2, en_traduction: 1, attente_etranger: 3, a_signer: 3, a_envoyer: 3, avis_magistrat: 4, cloturee: 6 };
+  const m: Record<string, number> = { a_traiter: 2, en_traduction: 1, attente_etranger: 3, a_envoyer: 3, avis_magistrat: 4, cloturee: 6 };
   return m[etape] ?? 2;
 }
 
@@ -174,17 +175,6 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
     }
   };
   const retardExecution = etat.echeancesLegales.find((l) => l.code === 'execution_dee' && l.statut === 'depasse');
-
-  /** Signature associée au dernier courrier de ce type (pour retélécharger la version signée). */
-  const signePour = (doc: EntraideDocId): string | undefined => {
-    const evs = [...d.evenements].sort((a, b) => a.date.localeCompare(b.date) || a.creeLe.localeCompare(b.creeLe));
-    let signe: string | undefined;
-    for (const e of evs) {
-      if (e.type === 'document_prepare' && e.doc === doc) signe = undefined;
-      if (e.type === 'signature' && e.doc === doc) signe = e.par;
-    }
-    return signe;
-  };
 
   const champ = 'w-full rounded-md border px-2 py-1 text-sm';
 
@@ -452,7 +442,7 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
                       <button className="ml-auto opacity-0 group-hover:opacity-100 text-red-600" title="Retirer cet événement" onClick={() => api.supprimerEvenement(d.id, e.id)}>×</button>
                     </div>
                     <div className="text-[13px] text-gray-800">
-                      {EVENEMENT_LABELS[e.type]}{e.issue ? ` — ${ISSUE_LABELS[e.issue]}` : ''}{e.etape ? ` → ${ETAPE_LABELS[e.etape] || e.etape}` : ''}{e.doc ? ` — ${e.doc.toUpperCase()}${e.langue === 'en' ? ' (EN)' : ''}` : ''}{e.partiel ? ' (partiel)' : ''}
+                      {EVENEMENT_LABELS[e.type]}{e.issue ? ` — ${ISSUE_LABELS[e.issue]}` : ''}{e.etape ? ` → ${ETAPE_LABELS[etapeActuelle(e.etape)] || e.etape}` : ''}{e.doc ? ` — ${e.doc.toUpperCase()}${e.langue === 'en' ? ' (EN)' : ''}` : ''}{e.partiel ? ' (partiel)' : ''}
                       {e.echeance ? ` → ${dateFr(e.echeance)}` : e.delaiMois ? ` (${e.delaiMois} mois)` : ''}
                     </div>
                     {e.note && <div className="text-xs text-gray-600 whitespace-pre-wrap">{e.note}</div>}
@@ -474,14 +464,14 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
               <h3 className="text-sm font-semibold mb-2">Courriers</h3>
               <div className="space-y-1.5">
                 {docs.map((doc) => {
-                  const signe = signePour(doc);
+                  const aEnvoyer = etat.etape === 'a_envoyer' && etat.docEnAttente?.doc === doc;
                   return (
                     <div key={doc} className="flex items-center justify-between gap-2">
-                      <span>{DOC_LABELS[doc]}{signe ? <span className="ml-1 text-[11px] text-green-700">· signé</span> : null}</span>
+                      <span>{DOC_LABELS[doc]}{aEnvoyer ? <span className="ml-1 text-[11px] text-amber-700">· à envoyer</span> : null}</span>
                       <div className="flex gap-1">
                         {languesDisponibles(doc).map((l) => (
                           <button key={l} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-gray-50"
-                            onClick={() => telechargerCourrier(api, d, doc, l, signe).catch((e) => showToast(e.message, 'error'))}>
+                            onClick={() => telechargerCourrier(api, d, doc, l).catch((e) => showToast(e.message, 'error'))}>
                             <Download className="h-3 w-3" />{l.toUpperCase()}
                           </button>
                         ))}
@@ -490,7 +480,7 @@ export const EntraideFiche: React.FC<Props> = ({ api, demandeId, onClose }) => {
                   );
                 })}
               </div>
-              <p className="mt-2 text-[11px] text-gray-500">Fichier .odt (LibreOffice / Word). Version signée uniquement après « Valider et signer » par le magistrat.</p>
+              <p className="mt-2 text-[11px] text-gray-500">Fichier .odt (LibreOffice / Word), à imprimer et envoyer, puis à marquer envoyé.</p>
             </div>
             <div className="rounded-lg border bg-white p-4 text-sm">
               <h3 className="text-sm font-semibold mb-2">Mails prêts à envoyer</h3>

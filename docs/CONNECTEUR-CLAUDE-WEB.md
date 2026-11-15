@@ -207,7 +207,7 @@ de l'app consomme exactement les mêmes fonctions : si une règle évolue, elle
   stricte**. Adresses de retour bornées aux domaines Claude
   (`claude.ai` / `claude.com`).
 - **Autorisation = votre session** : la fenêtre d'autorisation exige une
-  session **administrateur** (passkey) sur le TJ confié, puis un
+  session **administrateur** (identifiant et mot de passe) sur le TJ confié, puis un
   **consentement explicite**. Personne d'autre ne peut aboutir — un compte
   membre reste sur une page « connexion administrateur requise ».
 - **Revérification à chaque appel** : jeton valide ET compte toujours admin
@@ -234,7 +234,7 @@ de l'app consomme exactement les mêmes fonctions : si une règle évolue, elle
    **Ajouter un connecteur personnalisé** → collez l'URL → *Ajouter* →
    **Se connecter**. Une fenêtre SIRAL s'ouvre :
    - si vous n'êtes pas connecté : « Ouvrir SIRAL », connectez-vous
-     (passkey) dans l'onglet ouvert, revenez, « réessayer » ;
+     (identifiant et mot de passe) dans l'onglet ouvert, revenez, « réessayer » ;
    - écran de consentement → **Autoriser**.
 4. **Utiliser** : dans une conversation Claude web, activez le connecteur
    (menu recherche/outils) et parlez normalement : « liste mes dossiers en

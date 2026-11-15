@@ -2,12 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Enquete, EcouteData, GeolocData, DateManagerData, ProlongationHistoryEntry } from '@/types/interfaces';
 import ProgressBar from '../ProgressBar';
-import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp, Copy, Ban } from 'lucide-react';
+import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp, Copy, Ban, Bell, BellOff } from 'lucide-react';
 import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
 import { ProlongationValidationModal } from '../modals/ProlongationValidationModal';
 import { AutorisationValidationModal } from '../modals/AutorisationValidationModal';
-import { ActeUtils, getStatutBadgeProps, trackDeletedActeId, isActeEnAttenteDePose } from '@/utils/acteUtils';
+import { ActeUtils, getStatutBadgeProps, trackDeletedActeId, isActeEnAttenteDePose, isAlerteCoupee, toggleAlertesCoupees } from '@/utils/acteUtils';
 import { useToast } from '@/contexts/ToastContext';
 import { DateUtils } from '@/utils/dateUtils';
 import { Badge } from '@/components/ui/badge';
@@ -338,6 +338,12 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
     showToast('Écoute supprimée', 'success');
   };
 
+  // Coupe / rétablit les alertes d'échéance d'une mesure qu'on sait ne pas prolonger.
+  const handleToggleAlertes = (id: number) => {
+    if (!onUpdate || !enquete.ecoutes) return;
+    onUpdate(enquete.id, { ecoutes: toggleAlertesCoupees(enquete.ecoutes, id) });
+  };
+
   const handleRefuseJLD = (id: number) => {
     if (!onUpdate || !enquete || !enquete.ecoutes) return;
     const updatedEcoutes = enquete.ecoutes.map(ecoute =>
@@ -376,7 +382,7 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
   const nbPosePending         = activeEcoutes.filter(e => e.statut === 'pose_pending').length;
   const nbProlongationPending = activeEcoutes.filter(e => e.statut === 'prolongation_pending').length;
   const nbExpireSoon          = activeEcoutes.filter(e =>
-    e.statut === 'en_cours' && e.dateFin &&
+    e.statut === 'en_cours' && e.dateFin && !isAlerteCoupee(e) &&
     new Date(e.dateFin) <= sevenDaysFromNow && new Date(e.dateFin) >= now
   ).length;
   const hasUrgences = nbAutorisationPending + nbPosePending + nbProlongationPending + nbExpireSoon > 0;
@@ -426,6 +432,9 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
                   <span className="font-medium">{ecoute.numero}</span>
                   {ecoute.cible && <span className="text-sm text-gray-500">({ecoute.cible})</span>}
                   <Badge className={`text-xs px-1.5 py-0 border ${statutBadge.className}`}>{statutBadge.label}</Badge>
+                  {ecoute.statut === 'en_cours' && isAlerteCoupee(ecoute) && (
+                    <Badge className="text-xs px-1.5 py-0 border bg-gray-100 text-gray-500 border-gray-200">Alertes coupées</Badge>
+                  )}
                 </div>
                 {ecoute.description && (
                   <p className="text-sm text-gray-600 mt-1">{ecoute.description}</p>
@@ -494,6 +503,16 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
                       <Copy className="h-4 w-4" />
                     </Button>
                   </div>
+                )}
+                {onUpdate && ecoute.statut === 'en_cours' && ecoute.dateFin && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleToggleAlertes(ecoute.id)}
+                    title={isAlerteCoupee(ecoute) ? "Rétablir les alertes d'échéance" : "Couper les alertes d'échéance (mesure qui ne sera pas prolongée)"}
+                  >
+                    {isAlerteCoupee(ecoute) ? <BellOff className="h-4 w-4 text-gray-400" /> : <Bell className="h-4 w-4" />}
+                  </Button>
                 )}
                 {ecoute.statut === 'prolongation_pending' && (
                   <Button

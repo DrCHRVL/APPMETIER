@@ -1,3 +1,4 @@
+import { cleLocaleTj } from '@/lib/web/identite';
 // components/mindmap/useForceLayout.ts
 //
 // Layout "carte stellaire" : on calcule les positions x/y des nœuds en
@@ -189,7 +190,7 @@ function hydratePositionCache(): void {
   positionCacheHydrated = true;
   if (typeof window === 'undefined') return;
   try {
-    const raw = window.localStorage.getItem(POSITIONS_STORAGE_KEY);
+    const raw = window.localStorage.getItem(cleLocaleTj(POSITIONS_STORAGE_KEY));
     if (!raw) return;
     const parsed = JSON.parse(raw) as Record<string, CachedPosition>;
     if (!parsed || typeof parsed !== 'object') return;
@@ -211,7 +212,7 @@ function persistPositionCache(): void {
   try {
     const obj: Record<string, CachedPosition> = {};
     for (const [id, pos] of positionCache) obj[id] = pos;
-    window.localStorage.setItem(POSITIONS_STORAGE_KEY, JSON.stringify(obj));
+    window.localStorage.setItem(cleLocaleTj(POSITIONS_STORAGE_KEY), JSON.stringify(obj));
   } catch { /* ignore */ }
 }
 
@@ -220,7 +221,7 @@ function hydrateGalaxyCenterCache(): void {
   galaxyCenterCacheHydrated = true;
   if (typeof window === 'undefined') return;
   try {
-    const raw = window.localStorage.getItem(GALAXY_CENTERS_STORAGE_KEY);
+    const raw = window.localStorage.getItem(cleLocaleTj(GALAXY_CENTERS_STORAGE_KEY));
     if (!raw) return;
     const parsed = JSON.parse(raw) as Record<string, { x: number; y: number }>;
     if (!parsed || typeof parsed !== 'object') return;
@@ -237,7 +238,7 @@ function persistGalaxyCenterCache(): void {
   try {
     const obj: Record<string, { x: number; y: number }> = {};
     for (const [id, c] of galaxyCenterCache) obj[id] = c;
-    window.localStorage.setItem(GALAXY_CENTERS_STORAGE_KEY, JSON.stringify(obj));
+    window.localStorage.setItem(cleLocaleTj(GALAXY_CENTERS_STORAGE_KEY), JSON.stringify(obj));
   } catch { /* ignore */ }
 }
 
@@ -246,7 +247,7 @@ function hydrateOrbitalAngleCache(): void {
   orbitalAngleCacheHydrated = true;
   if (typeof window === 'undefined') return;
   try {
-    const raw = window.localStorage.getItem(ORBITAL_ANGLES_STORAGE_KEY);
+    const raw = window.localStorage.getItem(cleLocaleTj(ORBITAL_ANGLES_STORAGE_KEY));
     if (!raw) return;
     const parsed = JSON.parse(raw) as Record<string, number>;
     if (!parsed || typeof parsed !== 'object') return;
@@ -262,7 +263,7 @@ function persistOrbitalAngleCache(): void {
   try {
     const obj: Record<string, number> = {};
     for (const [id, a] of orbitalAngleCache) obj[id] = a;
-    window.localStorage.setItem(ORBITAL_ANGLES_STORAGE_KEY, JSON.stringify(obj));
+    window.localStorage.setItem(cleLocaleTj(ORBITAL_ANGLES_STORAGE_KEY), JSON.stringify(obj));
   } catch { /* ignore */ }
 }
 
@@ -848,8 +849,8 @@ export function clearLayoutCache(): void {
   galaxyCenterCache.clear();
   orbitalAngleCache.clear();
   if (typeof window !== 'undefined') {
-    try { window.localStorage.removeItem(POSITIONS_STORAGE_KEY); } catch { /* ignore */ }
-    try { window.localStorage.removeItem(GALAXY_CENTERS_STORAGE_KEY); } catch { /* ignore */ }
-    try { window.localStorage.removeItem(ORBITAL_ANGLES_STORAGE_KEY); } catch { /* ignore */ }
+    try { window.localStorage.removeItem(cleLocaleTj(POSITIONS_STORAGE_KEY)); } catch { /* ignore */ }
+    try { window.localStorage.removeItem(cleLocaleTj(GALAXY_CENTERS_STORAGE_KEY)); } catch { /* ignore */ }
+    try { window.localStorage.removeItem(cleLocaleTj(ORBITAL_ANGLES_STORAGE_KEY)); } catch { /* ignore */ }
   }
 }

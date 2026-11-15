@@ -56,7 +56,7 @@ export const AboutContent = () => {
           <div className="text-xs text-amber-800 leading-relaxed">
             <p className="font-semibold mb-1">Propriété intellectuelle</p>
             <p>
-              Cette application est la propriété exclusive de son auteur.
+              Cette application est la propriété exclusive d&apos;Audran Chevalier, son auteur.
               Toute reproduction, diffusion ou utilisation non autorisée
               est strictement interdite.
             </p>

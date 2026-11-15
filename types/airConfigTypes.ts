@@ -26,9 +26,18 @@ export interface AIRConvocationConfig {
   /** Seuil « mesures très anciennes » (alerte système > 12 mois). */
   tresAncienneteMois: number;
 
+  /**
+   * Secteurs géographiques proposés pour les mesures, réglés par
+   * l'administrateur du TJ. Absent : liste par défaut (Somme au TJ d'origine).
+   */
+  secteurs?: string[];
+
   updatedAt?: string;
   updatedBy?: string;
 }
+
+/** Secteurs par défaut du TJ d'origine (Somme). */
+export const SECTEURS_AIR_ORIGINE = ['Amiens', 'Abbeville', 'Montdidier', 'Péronne', 'Doullens', 'Albert'];
 
 export const DEFAULT_AIR_CONVOCATION_CONFIG: AIRConvocationConfig = {
   cadenceRDVMois: 1.75,

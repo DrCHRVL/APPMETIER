@@ -66,6 +66,12 @@ interface BaseActe {
   autorisationRequestedAt?: string;
   prolongationsHistory?: ProlongationHistoryEntry[];
   /**
+   * Alertes d'échéance coupées par le magistrat (ligne qu'il sait ne pas
+   * prolonger). Porte la `dateFin` en vigueur au moment de la coupure : une
+   * prolongation (nouvelle `dateFin`) rétablit donc les alertes d'elle-même.
+   */
+  alertesCoupees?: string;
+  /**
    * Demande de prolongation déclenchée par la VALIDATION d'un acte rédigé
    * (production « prolongation JLD »). Une prolongation ne crée JAMAIS d'acte :
    * elle marque l'acte EXISTANT « prolongation en attente JLD », exactement
