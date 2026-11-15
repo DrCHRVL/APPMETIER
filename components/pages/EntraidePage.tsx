@@ -30,6 +30,8 @@ import { ConfirmationAction, type OptionsAction } from '@/components/entraide/Co
 import { BadgeEcheance, BadgeType } from '@/components/entraide/badges';
 import { EntraideFiche } from '@/components/entraide/EntraideFiche';
 import { NouvelleDemandeModal } from '@/components/entraide/NouvelleDemandeModal';
+import { DepotDee } from '@/components/entraide/DepotDee';
+import type { FicheDee } from '@/utils/entraide/dee';
 import { ReferentielsPanel } from '@/components/entraide/ReferentielsPanel';
 import { CoordonneesPanel } from '@/components/entraide/CoordonneesPanel';
 import { nomUtilisateur, utilisateursEntraide } from '@/components/entraide/utilisateurs';
@@ -61,6 +63,7 @@ export const EntraidePage: React.FC<{ searchTerm?: string; ficheDemandee?: { id:
   const [recherche, setRecherche] = useState('');
   const [ficheId, setFicheId] = useState<string | null>(null);
   const [creation, setCreation] = useState(false);
+  const [deeDeposee, setDeeDeposee] = useState<{ fiche: FicheDee; piece: string } | null>(null);
   const [tri, setTri] = useState<Tri>({ cle: 'echeance', desc: false });
   const [aConfirmer, setAConfirmer] = useState<{ d: DemandeEntraide; a: EntraideAction } | null>(null);
   const [relanceANoter, setRelanceANoter] = useState<string | null>(null);
@@ -287,7 +290,10 @@ export const EntraidePage: React.FC<{ searchTerm?: string; ficheDemandee?: { id:
         ))}
       </div>
 
-      {onglet === 'registre' && (<>{Filtres}{tableau(registre)}</>)}
+      {onglet === 'registre' && (<>
+        <DepotDee demandes={api.data.demandes} onOuvrir={setFicheId} onCreer={(fiche, piece) => { setDeeDeposee({ fiche, piece }); setCreation(true); }} />
+        {Filtres}{tableau(registre)}
+      </>)}
 
       {onglet === 'cloturees' && (<>{Filtres}{tableau(cloturees, true)}</>)}
 
@@ -388,7 +394,9 @@ export const EntraidePage: React.FC<{ searchTerm?: string; ficheDemandee?: { id:
           onAnnuler={() => setAConfirmer(null)} onValider={confirmer} />
       )}
       {ficheId && <EntraideFiche api={api} demandeId={ficheId} onClose={() => setFicheId(null)} />}
-      {creation && <NouvelleDemandeModal api={api} onClose={() => setCreation(false)} onCree={(id) => { setCreation(false); setOnglet('registre'); setFicheId(id); }} />}
+      {creation && <NouvelleDemandeModal api={api} dee={deeDeposee}
+        onClose={() => { setCreation(false); setDeeDeposee(null); }}
+        onCree={(id) => { setCreation(false); setDeeDeposee(null); setOnglet('registre'); setFicheId(id); }} />}
     </div>
   );
 };

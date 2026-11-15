@@ -87,6 +87,25 @@ fiche (groupe « Entraide internationale »).
 Section « ENTRAIDE » de la page Statistiques ; source unique
 `lib/stats/entraideCore.mjs`, chaque carte porte sa règle.
 
+## Dépôt d'une DEE (tous les utilisateurs)
+
+Zone « Déposer une DEE » en tête du registre (PDF texte, DOCX, ODT). Le
+formulaire annexe A en français est lu dans le navigateur, sans IA ni envoi
+de la pièce (`lib/entraide/dee.mjs`) : sens (France en État d'émission →
+émise), pays et autorité étrangère (section A, ou K pour une DEE reçue),
+V/réf, n° de procédure, urgence et date butoir (B), mesures cochées et
+titres des mesures (C), personnes et qualité (E), qualifications et NATINF
+(G), date de signature (K).
+
+Le registre est d'abord interrogé : même n° ESABORA, même V/réf ou même
+n° de procédure → « déjà enregistrée » ; même personne dans le même pays →
+« demande proche ». Les demandes trouvées s'ouvrent d'un clic. Sinon (ou sur
+« Créer quand même »), la fiche de création s'ouvre préremplie : on vérifie,
+on saisit le n° ESABORA, on crée. Le reste du formulaire (dossier, mesures,
+faits, urgence) est versé dans les observations.
+
+Test : `node scripts/entraide-dee.test.mjs`.
+
 ## Lecture d'une pièce (administrateur seul)
 
 Bouton « Lire une pièce » dans la création d'une demande et dans la fiche,
@@ -110,6 +129,7 @@ aux runs autonomes). `entraide_importer` est idempotent (clé : onglet + ligne
 d'origine) : la reprise du tableau Excel peut être rejouée sans doublon.
 
 Tests : `node scripts/entraide-core.test.mjs`,
+`node scripts/entraide-dee.test.mjs`,
 `node scripts/attache-entraide.test.mjs`,
 `node scripts/attache-entraide-lecture.test.mjs`.
 
