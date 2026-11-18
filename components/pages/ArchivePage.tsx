@@ -29,8 +29,6 @@ interface ArchivePageProps {
   onAjoutCR: (enqueteId: number, cr: any) => void;
   onUpdateCR: (enqueteId: number, crId: number, cr: any) => void;
   onDeleteCR: (enqueteId: number, crId: number) => void;
-  /** Chat « Attaché » ouvert : décale le modal détail pour éviter la superposition. */
-  attacheOpen?: boolean;
 }
 
 export const ArchivePage = ({
@@ -44,8 +42,7 @@ export const ArchivePage = ({
   onUnarchiveEnquete,
   onAjoutCR,
   onUpdateCR,
-  onDeleteCR,
-  attacheOpen = false
+  onDeleteCR
 }: ArchivePageProps) => {
   const { showToast } = useToast();
   const { hasResultat, isLoading, audienceState, getResultat, saveResultat } = useAudience();
@@ -800,7 +797,6 @@ export const ArchivePage = ({
           onDelete={() => onDeleteEnquete(selectedEnquete.id)}
           allKnownMec={allKnownMec}
           knownNameHints={knownNameHints}
-          attacheOpen={attacheOpen}
         />
       )}
       

@@ -13,7 +13,6 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { CopyButton } from '../ui/CopyButton';
 import { useToast } from '@/contexts/ToastContext';
-import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { ProductionsSection } from '../attache/ProductionsSection';
 import { DmlArchiveSection } from '../instruction/DmlArchiveSection';
 import { DossierCompletSection } from '../instruction/DossierCompletSection';
@@ -1052,14 +1051,6 @@ export const InstructionDetailModal = ({
         knownPersons={knownPersons}
       />
 
-      {/* Chat flottant de l'attaché sur ce dossier d'instruction — admin only. */}
-      {estSuperAdmin() && (dossier.numeroInstruction || dossier.numeroParquet) && (
-        <FloatingDossierChat
-          numero={dossier.numeroInstruction || dossier.numeroParquet || ''}
-          cadre="instruction"
-          label={dossier.numeroInstruction || dossier.numeroParquet}
-        />
-      )}
     </div>
   );
 };

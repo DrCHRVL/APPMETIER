@@ -670,6 +670,44 @@ async function runActualiserDescription(keys, num, trigger) {
   return { ok: result.ok && ecrite, ...bilan, convId: result.convId, error }
 }
 
+// ── Analyse cartographique « en un clic » (Enrichir une fiche, Détecter les camps) ──
+// Lancée depuis la carte, SANS chat : run en fond, une à la fois, qui ne fait
+// que PROPOSER (✓/✗ dans le panneau de revue de la carte). Le navigateur suit
+// l'état par GET /analyse-carto.
+const CARTO_KINDS = ['lien', 'dossier_carto', 'mec_carto', 'mec_note', 'camp_carto']
+let cartoEtat = null
+
+function countPropositionsCarto(keys) {
+  try { return listPropositions(keys, { enAttente: true }).filter((p) => CARTO_KINDS.includes(p.type)).length } catch { return 0 }
+}
+
+function demarrerAnalyseCarto(consigne, libelle) {
+  if (cartoEtat && !cartoEtat.fini) return { ok: false, running: true, libelle: cartoEtat.libelle }
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  const avant = countPropositionsCarto(keys)
+  cartoEtat = { libelle, debut: Date.now(), fini: false }
+  const prompt = promptConsigne(keys, 'carto_chat', {
+    entete: 'CONTEXTE : demande lancée depuis le module CARTOGRAPHIE (vue réseau des personnes et affaires du contentieux). Personne ne lit ta réponse : seules comptent les PROPOSITIONS que tu déposes.',
+    donnees: ['', `Demande du magistrat : ${consigne}`],
+  })
+  audit(keys, 'analyse_carto', { libelle, apercu: consigne.slice(0, 200) }).catch(() => {})
+  runAgent({
+    keys,
+    prompt,
+    title: `Cartographie — ${libelle}`,
+    runLabel: 'chat-carto', // même régime qu'une demande directe (sous-agents non bridés)
+    model: agentConfig().model || undefined,
+    timeoutMs: CARTO_CHAT_TIMEOUT_MS,
+    mcpToolTimeoutMs: CARTO_CHAT_TIMEOUT_MS - 120_000,
+  })
+    .catch((e) => ({ ok: false, error: String(e?.message || e) }))
+    .then((r) => {
+      cartoEtat = { ...cartoEtat, fini: true, ok: Boolean(r.ok), error: r.error, proposees: Math.max(0, countPropositionsCarto(keys) - avant) }
+    })
+  return { ok: true, demarre: true }
+}
+
 /** Propositions EN ATTENTE d'un type sur un dossier (comptage déterministe). */
 function countPropositions(keys, numero, type) {
   try {
@@ -1499,6 +1537,20 @@ const server = http.createServer(async (req, res) => {
     if (route === 'GET /actualiser-description') {
       // Avancement de l'actualisation en cours (ou de la dernière terminée).
       return json(res, 200, { etat: avancement(descEtat) })
+    }
+
+    if (route === 'POST /analyse-carto') {
+      const body = await readBody(req)
+      const consigne = String(body.consigne || '').slice(0, 20_000)
+      if (!consigne.trim()) return json(res, 400, { ok: false, error: 'Consigne vide' })
+      if (!loadKeyring()) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      const out = demarrerAnalyseCarto(consigne, String(body.libelle || 'Analyse').slice(0, 120))
+      if (out.running) return json(res, 202, out)
+      return json(res, out.ok ? 200 : 502, out)
+    }
+
+    if (route === 'GET /analyse-carto') {
+      return json(res, 200, { etat: cartoEtat })
     }
 
     if (route === 'POST /actualiser-mec') {
