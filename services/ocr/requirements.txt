@@ -1,0 +1,10 @@
+# Versions figées : mesurées ensemble (voir docs/OCR.md). paddlepaddle 3.3.x
+# casse l'accélération CPU (oneDNN) ; 3.0.x ne lit pas les modèles PP-OCRv5.
+paddlepaddle==3.2.2
+paddleocr==3.7.0
+paddlex==3.7.2
+pypdfium2==5.15.2
+pillow==13.0.0
+numpy==2.3.5
+fastapi==0.163.2
+uvicorn==0.54.0
