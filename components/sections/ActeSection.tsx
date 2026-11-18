@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Enquete, AutreActe, DateManagerData, ProlongationHistoryEntry } from '@/types/interfaces';
 import ProgressBar from '../ProgressBar';
+import { CollapsibleDescription } from '../ui/CollapsibleDescription';
 import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp, Info, Ban, Bell, BellOff } from 'lucide-react';
 import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
@@ -423,7 +424,7 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
                   <p className="text-xs text-red-600 font-medium mt-0.5">{typeConfig.limiteLegaleTexte}</p>
                 )}
                 {acte.description && (
-                  <p className="text-sm text-gray-600 mt-1">{acte.description}</p>
+                  <CollapsibleDescription text={acte.description} className="text-gray-600" />
                 )}
               </div>
               <div className="flex gap-2">
@@ -628,7 +629,7 @@ export const ActeSection = React.memo(({ enquete, onUpdate, isEditing }: ActeSec
                         {AUTRE_ACTE_TYPES[acte.type as AutreActeTypeKey]?.label || acte.type}
                       </span>
                       {acte.description && (
-                        <p className="text-sm text-gray-500 mt-1">{acte.description}</p>
+                        <CollapsibleDescription text={acte.description} className="text-gray-500" />
                       )}
                     </div>
                     <div className="flex gap-2">

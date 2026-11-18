@@ -14,6 +14,7 @@ import { X } from 'lucide-react';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { Enquete } from '@/types/interfaces';
 import ProgressBar from '../ProgressBar';
+import { CollapsibleDescription } from '../ui/CollapsibleDescription';
 import { Badge } from '@/components/ui/badge';
 import { getStatutBadgeProps } from '@/utils/acteUtils';
 import { DateUtils } from '@/utils/dateUtils';
@@ -122,7 +123,7 @@ export const JLDActePreviewModal = ({ acteRef, onClose }: JLDActePreviewModalPro
                     )}
                   </div>
                   {(acte as any).description && (
-                    <p className="text-sm text-gray-600 mt-1">{(acte as any).description}</p>
+                    <CollapsibleDescription text={(acte as any).description} className="text-gray-600" />
                   )}
                 </div>
               </div>
