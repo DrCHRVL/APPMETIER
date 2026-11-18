@@ -11,7 +11,7 @@
  * - Journal d'audit : chaque action de l'attaché, déchiffrée ici.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Mail, Wifi, Gauge, Leaf, GraduationCap, Link2, Copy } from 'lucide-react';
+import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Wifi, Gauge, Leaf, Link2, Copy } from 'lucide-react';
 import { AttacheSante } from './AttacheSante';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, SUBMODEL_OPTIONS, PLAN_PRESETS, AttacheConfig, saveAttacheConfig, formatTokens, formatCostEur } from '../attache/modelOptions';
 import { fileToMarkdown, titreDepuisFichier, decodeText } from '@/lib/web/fileToMarkdown';
@@ -38,11 +38,6 @@ function bridgeFn(name: string): AnyFn {
 }
 
 interface AuditEntry { action: string; at?: string; outil?: string; contexte?: string; [k: string]: unknown }
-
-interface Routine {
-  id: string; nom: string; prompt: string; heure?: string; intervalleHeures?: number;
-  actif: boolean; lastRunAt?: string; lastRunOk?: boolean | null;
-}
 
 interface Skill { nom: string; fileId?: string; description?: string; contenu: string; updatedAt?: string }
 interface Trame { nom: string; fileId?: string; description?: string; contenu: string; updatedAt?: string }
@@ -130,43 +125,6 @@ function srcLabelOf(k?: string): string {
   const key = !k || k === 'autre' ? 'autres' : k;
   return (USAGE_CATS[key] || USAGE_CATS.autres).label;
 }
-
-/** Fenêtre de progression mesurée (30 j) — agrégats de signaux, aucun LLM. */
-interface ApprFenetre {
-  validees: number; refusees: number; revisions: number; editionsMain: number;
-  portes: number; lecons: number; corrections: number; tauxAcceptation: number | null;
-}
-
-/** Statut de l'apprentissage progressif (GET /api/attache/apprentissage). */
-interface ApprStatus {
-  keyring?: boolean;
-  pending?: number | null;
-  parType?: Record<string, number>;
-  memoire?: { chars: number; budget: number; over: boolean } | null;
-  progression?: { j30: ApprFenetre; j30prec: ApprFenetre };
-  lastRunAt?: string | null;
-  lastRunOk?: boolean | null;
-  lastTrigger?: string | null;
-  seuilSignaux?: number;
-  cadenceJours?: number;
-  due?: string | null;
-  running?: boolean;
-  etude?: {
-    corpus: number; dossiers: number; nouveaux: number; seuil: number; cadenceJours: number;
-    lastRunAt?: string | null; lastRunOk?: boolean | null; running?: boolean;
-  };
-}
-
-/** Libellés lisibles des types de signaux d'apprentissage. */
-const SIGNAL_LABELS: Record<string, string> = {
-  proposition_refusee: 'propositions refusées ✗',
-  proposition_validee: 'propositions validées ✓',
-  acte_revise: 'actes révisés',
-  acte_edite_main: 'actes corrigés à la main',
-  lecon: 'leçons notées',
-  garde_qualite: 'portes de qualité déclenchées',
-  correction_conversation: 'corrections repérées en conversation',
-};
 
 /** Proposition d'amélioration d'une trame/skill du magistrat, en attente de ✓/✗. */
 interface MethodProp {
@@ -256,22 +214,6 @@ function MethodPropDiff({ actuel, propose }: { actuel: string; propose: string }
   );
 }
 
-/** Une tuile de progression : valeur sur 30 j, flèche face aux 30 j précédents. */
-function ProgressionTile({ label, now, before, invert = false, unit = '' }: { label: string; now: number | null; before: number | null; invert?: boolean; unit?: string }) {
-  const delta = now != null && before != null ? now - before : null;
-  // invert : pour les compteurs d'erreurs, BAISSER est un progrès
-  const good = delta == null || delta === 0 ? null : (invert ? delta < 0 : delta > 0);
-  return (
-    <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
-      <div className="text-[10px] uppercase tracking-wide text-gray-400">{label}</div>
-      <div className="text-sm font-semibold text-gray-800">{now == null ? '—' : `${now}${unit}`}</div>
-      <div className="text-[10px]" style={{ color: good == null ? '#9ca3af' : good ? '#059669' : '#d97706' }}>
-        {delta == null ? '30 j précédents : n/a' : delta === 0 ? 'stable vs 30 j précédents' : `${delta > 0 ? '+' : ''}${delta}${unit} vs 30 j précédents`}
-      </div>
-    </div>
-  );
-}
-
 export function AdminAttachePanel() {
   const [status, setStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -279,18 +221,10 @@ export function AdminAttachePanel() {
   const [notice, setNotice] = useState<string | null>(null);
   const [audit, setAudit] = useState<Array<AuditEntry & { ts: number }>>([]);
   const [showAudit, setShowAudit] = useState(false);
-  const [routines, setRoutines] = useState<Routine[]>([]);
-  const [showRoutineForm, setShowRoutineForm] = useState(false);
-  const [rForm, setRForm] = useState({ nom: '', prompt: '', heure: '07:00', mode: 'heure' as 'heure' | 'intervalle', intervalleHeures: 4 });
   const [config, setConfig] = useState<AttacheConfig>({});
   const [usage, setUsage] = useState<any>(null);
   const [governor, setGovernor] = useState<any>(null);
   const [usageLoading, setUsageLoading] = useState(false);
-  const [showMailDiag, setShowMailDiag] = useState(false);
-  const [mailTest, setMailTest] = useState<any>(null);
-  const [mailTesting, setMailTesting] = useState(false);
-  const [mailForm, setMailForm] = useState<{ open: boolean; imapHost: string; imapPort: string; imapSecure: boolean; imapUser: string; imapPassword: string }>({ open: false, imapHost: '', imapPort: '993', imapSecure: true, imapUser: '', imapPassword: '' });
-  const [mailSaving, setMailSaving] = useState(false);
   // Connexion du CLI Claude Code à l'abonnement (jeton « claude setup-token »)
   const [claudeForm, setClaudeForm] = useState<{ open: boolean; token: string }>({ open: false, token: '' });
   const [claudeSaving, setClaudeSaving] = useState(false);
@@ -465,42 +399,6 @@ export function AdminAttachePanel() {
 
   useEffect(() => { loadUsage(); }, [loadUsage]);
 
-  // ── Apprentissage progressif : signaux captés, consolidation de la mémoire ──
-  const [appr, setAppr] = useState<ApprStatus | null>(null);
-  const [apprLoading, setApprLoading] = useState(false);
-  const [apprMsg, setApprMsg] = useState<string | null>(null);
-
-  const loadAppr = useCallback(async () => {
-    setApprLoading(true);
-    try {
-      const res = await fetch('/api/attache/apprentissage');
-      if (res.ok) setAppr((await res.json()).apprentissage || null);
-    } catch { /* silencieux : statut secondaire */ } finally {
-      setApprLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { loadAppr(); }, [loadAppr]);
-
-  const runAppr = useCallback(async (action: 'consolidation' | 'etude' = 'consolidation') => {
-    setApprMsg(null);
-    try {
-      const res = await fetch('/api/attache/apprentissage', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action }),
-      });
-      const data = await res.json().catch(() => ({} as { ok?: boolean; error?: string }));
-      setApprMsg(res.ok && data.ok
-        ? (action === 'etude'
-          ? 'Étude du corpus lancée — l\'attaché dépouille vos actes validés (sous-agents) ; les modèles extraits (trames « modele-… ») et le livrable arriveront dans le fil « pendant votre absence ».'
-          : 'Consolidation lancée (run court, modèle économe) — la carte « Apprentissage » arrivera dans le fil « pendant votre absence », et la mémoire distillée sera visible dans le panneau de l\'attaché.')
-        : `Lancement refusé : ${data.error || res.status}`);
-      setTimeout(loadAppr, 1500);
-    } catch (e) {
-      setApprMsg(`Lancement impossible : ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }, [loadAppr]);
-
   /** Applique un forfait de référence : remplit les plafonds repères. */
   const applyPlan = useCallback((plan: string) => {
     const preset = PLAN_PRESETS.find((p) => p.value === plan);
@@ -508,13 +406,6 @@ export function AdminAttachePanel() {
     if (plan === 'custom' || plan === '') updateConfig({ plan });
     else updateConfig({ plan, cap5h: preset.cap5h, capHebdo: preset.capHebdo });
   }, [updateConfig]);
-
-  const loadRoutines = useCallback(async () => {
-    try {
-      const res = await fetch('/api/attache/routines');
-      if (res.ok) setRoutines((await res.json()).routines || []);
-    } catch { /* silencieux */ }
-  }, []);
 
   // ── Skills (comme Claude web) : enveloppes déchiffrées dans CE navigateur ──
   // fileId = nom du fichier serveur (clé de suppression) — peut différer du
@@ -622,7 +513,7 @@ export function AdminAttachePanel() {
     }
   }, [loadMethodProps, loadTrames, loadSkills, loadInstrProjet]);
 
-  useEffect(() => { refresh(); loadRoutines(); loadSkills(); loadTrames(); loadMethodProps(); loadInstrProjet(); }, [refresh, loadRoutines, loadSkills, loadTrames, loadMethodProps, loadInstrProjet]);
+  useEffect(() => { refresh(); loadSkills(); loadTrames(); loadMethodProps(); loadInstrProjet(); }, [refresh, loadSkills, loadTrames, loadMethodProps, loadInstrProjet]);
 
   /** Conversion des fichiers choisis en trames — tout se passe dans CE navigateur (E2EE). */
   const stageFiles = useCallback(async (files: FileList | null) => {
@@ -905,54 +796,6 @@ export function AdminAttachePanel() {
     loadSkills();
   }, [loadSkills]);
 
-  const saveRoutine = useCallback(async () => {
-    if (!rForm.nom.trim() || !rForm.prompt.trim()) return;
-    setWorking('routine');
-    try {
-      const res = await fetch('/api/attache/routines', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          nom: rForm.nom,
-          prompt: rForm.prompt,
-          heure: rForm.mode === 'heure' ? rForm.heure : undefined,
-          intervalleHeures: rForm.mode === 'intervalle' ? rForm.intervalleHeures : undefined,
-          actif: true,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setShowRoutineForm(false);
-        setRForm({ nom: '', prompt: '', heure: '07:00', mode: 'heure', intervalleHeures: 4 });
-        loadRoutines();
-      } else {
-        setNotice(data.error || 'Enregistrement refusé');
-      }
-    } finally {
-      setWorking(null);
-    }
-  }, [rForm, loadRoutines]);
-
-  const toggleRoutine = useCallback(async (r: Routine) => {
-    await fetch('/api/attache/routines', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...r, actif: !r.actif }),
-    }).catch(() => {});
-    loadRoutines();
-  }, [loadRoutines]);
-
-  const removeRoutine = useCallback(async (id: string) => {
-    if (!window.confirm('Supprimer cette routine ?')) return;
-    await fetch('/api/attache/routines?id=' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {});
-    loadRoutines();
-  }, [loadRoutines]);
-
-  const runRoutineNow = useCallback(async (id: string) => {
-    await fetch('/api/attache/routines?run=' + encodeURIComponent(id), { method: 'POST' }).catch(() => {});
-    setNotice('Routine lancée — le résultat arrivera dans le fil « pendant votre absence ».');
-  }, []);
-
   const grantKeys = useCallback(async () => {
     if (!status?.scopesAttendus?.length) return;
     if (!window.confirm(
@@ -995,91 +838,6 @@ export function AdminAttachePanel() {
       refresh();
     } finally {
       setWorking(null);
-    }
-  }, [refresh]);
-
-  const checkMail = useCallback(async () => {
-    setWorking('mail');
-    try {
-      const res = await fetch('/api/attache/inbox', { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      setNotice(data.ok ? `Relève effectuée${data.ingested?.length ? ` — ${data.ingested.length} nouveau(x) message(s)` : ' — rien de nouveau'}` : `Relève impossible : ${data.error || ''}`);
-      refresh();
-    } finally {
-      setWorking(null);
-    }
-  }, [refresh]);
-
-  /** Diagnostic boîte mail : teste la connexion IMAP (lecture seule, rien n'est relevé). */
-  const testMail = useCallback(async () => {
-    setShowMailDiag(true);
-    setMailTesting(true);
-    setMailTest(null);
-    try {
-      const res = await fetch('/api/attache/mail-test', { method: 'POST' });
-      const data = await res.json().catch(() => ({ ok: false, error: 'réponse illisible du service' }));
-      setMailTest(data);
-    } catch (e) {
-      setMailTest({ ok: false, error: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setMailTesting(false);
-    }
-  }, []);
-
-  /** Ouvre le formulaire de réglages mail, pré-rempli avec la config connue (jamais le mot de passe). */
-  const openMailForm = useCallback(() => {
-    const m = status?.mail || {};
-    setMailForm({
-      open: true,
-      imapHost: m.imapHost || '',
-      imapPort: String(m.imapPort || 993),
-      imapSecure: m.imapSecure !== false,
-      imapUser: m.imapUser || '',
-      imapPassword: '',
-    });
-  }, [status]);
-
-  /** Enregistre les réglages IMAP saisis dans l'app, puis teste aussitôt la connexion. */
-  const saveMailForm = useCallback(async () => {
-    setMailSaving(true);
-    try {
-      const body: Record<string, unknown> = {
-        imapHost: mailForm.imapHost.trim(),
-        imapPort: Number(mailForm.imapPort) || 993,
-        imapSecure: mailForm.imapSecure,
-        imapUser: mailForm.imapUser.trim(),
-      };
-      if (mailForm.imapPassword) body.imapPassword = mailForm.imapPassword;
-      const res = await fetch('/api/attache/mail-config', {
-        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({ ok: false } as { ok?: boolean; error?: string }));
-      if (data.ok) {
-        setMailForm((f) => ({ ...f, open: false, imapPassword: '' }));
-        setNotice('Réglages mail enregistrés — test de connexion en cours…');
-        await refresh();
-        await testMail();
-      } else {
-        setNotice(`Enregistrement refusé : ${data.error || res.status}`);
-      }
-    } catch (e) {
-      setNotice(`Enregistrement impossible : ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setMailSaving(false);
-    }
-  }, [mailForm, refresh, testMail]);
-
-  /** Efface les réglages in-app : retour aux variables d'environnement du serveur. */
-  const revertMailConfig = useCallback(async () => {
-    if (!window.confirm('Revenir aux réglages du serveur (.env) et effacer ceux saisis dans l\'app ?')) return;
-    setMailSaving(true);
-    try {
-      const res = await fetch('/api/attache/mail-config', { method: 'DELETE' });
-      const data = await res.json().catch(() => ({ ok: false } as { ok?: boolean; error?: string }));
-      setNotice(data.ok ? 'Réglages in-app effacés — retour aux réglages du serveur.' : `Échec : ${data.error || res.status}`);
-      await refresh();
-    } finally {
-      setMailSaving(false);
     }
   }, [refresh]);
 
@@ -1224,10 +982,9 @@ export function AdminAttachePanel() {
           <span className="text-sm">
             <span className="font-semibold text-gray-900">Masquer toutes les fonctionnalités</span>
             <span className="mt-0.5 block text-xs leading-relaxed text-gray-500">
-              Retire de l&apos;application l&apos;entrée « Assistant de justice », sa page, le raccourci de la
-              barre du haut, les actes rédigés des fiches dossier, le chat de dossier, les propositions
-              de renseignement et les boutons attaché de la cartographie (« Détecter les camps »,
-              « Enrichir »). Rien n&apos;est supprimé et le service continue son travail de fond :
+              Retire de l&apos;application les boutons d&apos;actualisation (description, mis en cause), les
+              propositions et la chronologie des fiches dossier, les propositions de renseignement et les
+              boutons de la cartographie (« Détecter les camps », « Enrichir »). Rien n&apos;est supprimé et le service continue son travail de fond :
               seule la présence à l&apos;écran change. Cet onglet, lui, reste accessible — sans quoi
               vous ne pourriez plus revenir en arrière.
             </span>
@@ -1283,7 +1040,7 @@ export function AdminAttachePanel() {
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
           Le service attaché n'est pas joignable
           {status?.code ? <> — réponse <code>{status.code}</code>{status?.motif ? <> : {status.motif}</> : null}</> : null}.
-          Rien n'est perdu : actes rédigés, propositions et conversations restent sur le serveur.
+          Rien n'est perdu : propositions, trames, skills et base de connaissances restent sur le serveur.
           Vérifiez sur le serveur :
           <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-gray-500">
             <li><code>SIRAL_ATTACHE_URL</code> défini pour l'app (ex. <code>http://attache:8787</code>)</li>
@@ -1324,9 +1081,9 @@ export function AdminAttachePanel() {
 
       <p className="text-xs leading-relaxed text-gray-500">
         Assistant réservé à l'administrateur — invisible des autres utilisateurs. TJ : <b>{status?.tj}</b> ·
-        contentieux confié : <b>{status?.contentieux}</b>. Il prépare et agit dans SIRAL (réversible, journalisé) ;
-        ses livrables et réponses s'affichent <b>dans l'application</b> (fil « pendant votre absence », actes rédigés) —
-        aucun mail sortant.
+        contentieux confié : <b>{status?.contentieux}</b>. Le service sert le connecteur Claude web (interrogation
+        et rédaction se font dans Claude web) et, dans l'application, actualise descriptions et mis en cause, rédige
+        les CR des pièces versées et propose des liens et des camps sur la cartographie — toujours réversible et journalisé.
       </p>
 
       {/* L'ENDROIT UNIQUE — vivant ? voit-il quelque chose ? que fournit-il ?
@@ -1340,11 +1097,6 @@ export function AdminAttachePanel() {
         <Dot ok={status?.masterKey} label="Clé-maître du service" />
         <Dot ok={kr?.granted} label={kr?.granted ? `Trousseau remis (${(kr.scopes || []).join(', ')})` : 'Trousseau non remis'} />
         <Dot ok={status?.claude?.ok} label={status?.claude?.ok ? `Claude Code ${status.claude.version || ''}` : 'Claude Code non authentifié'} />
-        <Dot ok={status?.mail?.imap} label="Boîte dédiée (IMAP)" />
-        <span className="text-xs text-gray-500">
-          Boîte : {status?.inbox ? `${status.inbox.nonTraites} à traiter / ${status.inbox.total}` : '—'}
-          {status?.state?.lastFetchAt ? ` · relevée ${new Date(status.state.lastFetchAt).toLocaleString('fr-FR')}` : ''}
-        </span>
       </div>
 
       {notice && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{notice}</div>}
@@ -1366,14 +1118,6 @@ export function AdminAttachePanel() {
         >
           {working === 'revoke' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldOff className="h-3.5 w-3.5" />}
           Révoquer
-        </button>
-        <button
-          onClick={checkMail}
-          disabled={working !== null || !kr?.granted}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-        >
-          {working === 'mail' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          Relever la boîte
         </button>
         <button
           onClick={loadAudit}
@@ -1500,157 +1244,6 @@ export function AdminAttachePanel() {
               </div>
             </div>
           )}
-        </div>
-      </div>
-
-      {/* Boîte mail — diagnostic : vérifier que la boîte dédiée fonctionne */}
-      <div className="rounded-xl border border-gray-200">
-        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
-          <Mail className="h-4 w-4 text-[#2B5746]" />
-          <span className="text-sm font-semibold text-gray-800">Boîte mail (diagnostic)</span>
-          <span className="text-[11px] text-gray-400">vérifier que la boîte dédiée répond — sans rien relever</span>
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              onClick={openMailForm}
-              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
-              title="Saisir l'adresse, le serveur IMAP et le mot de passe de la boîte dédiée directement dans l'app"
-            >
-              <PenLine className="h-3 w-3" />Régler
-            </button>
-            <button
-              onClick={testMail}
-              disabled={mailTesting}
-              className="inline-flex items-center gap-1 rounded-lg bg-[#2B5746] px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
-              title="Se connecte à la boîte dédiée en lecture seule et compte les messages — aucun message n'est relevé ni marqué lu."
-            >
-              {mailTesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wifi className="h-3 w-3" />}Tester la connexion
-            </button>
-            <button
-              onClick={() => setShowMailDiag((v) => !v)}
-              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
-            >
-              {showMailDiag ? 'Masquer' : 'Détails'}
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-2 px-3 py-2.5">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <Dot ok={status?.mail?.imapReady} label={status?.mail?.imapReady ? 'Boîte configurée' : 'Boîte non configurée'} />
-            {status?.state?.lastFetchAt && (
-              <span className="text-[11px] text-gray-500">
-                Dernière relève : {new Date(status.state.lastFetchAt).toLocaleString('fr-FR')}
-                {status.state.lastFetchOk === false ? ' · en échec' : status.state.lastFetchOk ? ' · réussie' : ''}
-              </span>
-            )}
-          </div>
-
-          {status?.mail && (
-            <div className="flex items-center gap-2 text-[10.5px] text-gray-400">
-              <span>Réglages {status.mail.overrideActive ? "saisis dans l'app" : 'du serveur (.env)'}.</span>
-              {status.mail.overrideActive && (
-                <button onClick={revertMailConfig} disabled={mailSaving} className="underline hover:text-gray-600 disabled:opacity-50">Revenir aux réglages du serveur</button>
-              )}
-            </div>
-          )}
-
-          {/* Formulaire de réglages IMAP saisis dans l'app */}
-          {mailForm.open && (
-            <div className="space-y-2 rounded-lg border border-[#2B5746]/25 bg-emerald-50/30 p-3">
-              <div className="text-[11px] font-semibold text-gray-700">Réglages de la boîte dédiée (IMAP)</div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <label className="block text-[11px] text-gray-600">Adresse de la boîte
-                  <input value={mailForm.imapUser} onChange={(e) => setMailForm({ ...mailForm, imapUser: e.target.value })}
-                    placeholder="crimorg@siral.fr"
-                    className="mt-0.5 w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
-                </label>
-                <label className="block text-[11px] text-gray-600">Mot de passe
-                  <input type="password" value={mailForm.imapPassword} onChange={(e) => setMailForm({ ...mailForm, imapPassword: e.target.value })}
-                    placeholder={status?.mail?.imapPasswordSet ? '•••••• (laisser vide = inchangé)' : 'mot de passe de la boîte'}
-                    className="mt-0.5 w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
-                </label>
-                <label className="block text-[11px] text-gray-600">Serveur IMAP
-                  <input value={mailForm.imapHost} onChange={(e) => setMailForm({ ...mailForm, imapHost: e.target.value })}
-                    placeholder="zimbra1.mail.ovh.net"
-                    className="mt-0.5 w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
-                </label>
-                <div className="flex items-end gap-3">
-                  <label className="block text-[11px] text-gray-600">Port
-                    <input value={mailForm.imapPort} onChange={(e) => setMailForm({ ...mailForm, imapPort: e.target.value.replace(/[^0-9]/g, '') })}
-                      className="mt-0.5 w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-[#2B5746]/50" />
-                  </label>
-                  <label className="inline-flex items-center gap-1.5 pb-1.5 text-[11px] text-gray-600">
-                    <input type="checkbox" checked={mailForm.imapSecure} onChange={(e) => setMailForm({ ...mailForm, imapSecure: e.target.checked })} />SSL/TLS
-                  </label>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <span className="mr-auto text-[10.5px] text-gray-400">Boîte OVH/Zimbra : <code>zimbra1.mail.ovh.net</code> · 993 · SSL · identifiant = adresse complète.</span>
-                <button onClick={() => setMailForm({ ...mailForm, open: false })} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">Annuler</button>
-                <button onClick={saveMailForm} disabled={mailSaving || !mailForm.imapHost.trim() || !mailForm.imapUser.trim()}
-                  className="rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
-                  {mailSaving ? 'Enregistrement…' : 'Enregistrer et tester'}
-                </button>
-              </div>
-              <p className="text-[10.5px] leading-relaxed text-gray-400">
-                Le mot de passe est confié au service attaché, qui le chiffre avec sa clé-maître — l'app ne le conserve jamais.
-                L'envoi (SMTP) reste désactivé : ces réglages ne servent qu'à <b>relever</b> la boîte.
-              </p>
-            </div>
-          )}
-
-          {/* Dernière erreur de relève automatique, si présente */}
-          {status?.state?.lastFetchOk === false && status?.state?.lastFetchError && (
-            <p className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
-              <AlertTriangle className="mr-1 inline h-3 w-3" />
-              Dernière relève automatique en échec : {String(status.state.lastFetchError).slice(0, 300)}
-            </p>
-          )}
-
-          {/* Résultat du test manuel */}
-          {mailTesting && (
-            <p className="inline-flex items-center gap-1.5 text-[11px] text-gray-500"><Loader2 className="h-3 w-3 animate-spin" />Connexion à la boîte dédiée…</p>
-          )}
-          {mailTest && !mailTesting && (
-            mailTest.ok ? (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-[11px] text-emerald-800">
-                <div className="font-semibold"><CheckCircle2 className="mr-1 inline h-3.5 w-3.5" />Connexion réussie.</div>
-                <div className="mt-0.5">
-                  {mailTest.messages} message(s) dans la boîte, dont {mailTest.unseen} non lu(s).
-                  {mailTest.messages === 0 && ' La boîte est réellement vide — c\'est normal tant qu\'aucun mail n\'y a été transféré.'}
-                  {mailTest.messages > 0 && mailTest.unseen === 0 && ' Tout est déjà relevé (les messages lus ne réapparaissent pas ici).'}
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-[11px] text-red-700">
-                <div className="font-semibold"><XCircle className="mr-1 inline h-3.5 w-3.5" />Connexion impossible.</div>
-                <div className="mt-0.5">{String(mailTest.error || 'erreur inconnue').slice(0, 400)}</div>
-                {mailTest.configured === false ? (
-                  <div className="mt-1 text-red-600">Renseignez sur le serveur <code>SIRAL_ATTACHE_IMAP_HOST</code>, <code>_USER</code> et <code>_PASSWORD</code> (voir <code>docs/ATTACHE.md</code>), puis redémarrez le service attaché.</div>
-                ) : (
-                  <div className="mt-1 text-red-600">Vérifiez l'adresse de la boîte, le mot de passe (mot de passe d'application si le fournisseur l'exige), l'hôte et le port IMAP ci-dessous.</div>
-                )}
-              </div>
-            )
-          )}
-
-          {/* Détail de configuration (non secret) */}
-          {showMailDiag && status?.mail && (
-            <div className="grid grid-cols-1 gap-x-6 gap-y-1 rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-[11px] text-gray-600 sm:grid-cols-2">
-              <div><span className="text-gray-400">Adresse de la boîte : </span>{status.mail.imapUser || <span className="text-red-500">non renseignée</span>}</div>
-              <div><span className="text-gray-400">Mot de passe : </span>{status.mail.imapPasswordSet ? 'défini' : <span className="text-red-500">absent</span>}</div>
-              <div><span className="text-gray-400">Serveur IMAP : </span>{status.mail.imapHost ? `${status.mail.imapHost}:${status.mail.imapPort} ${status.mail.imapSecure ? '(TLS)' : '(non chiffré)'}` : <span className="text-red-500">non renseigné</span>}</div>
-              <div><span className="text-gray-400">Relève automatique : </span>toutes les 5 min</div>
-            </div>
-          )}
-
-          <p className="text-[10.5px] leading-relaxed text-gray-400">
-            Une boîte <b>vide</b> n'est pas forcément un problème : elle le reste tant qu'aucun mail n'y est transféré,
-            et les messages déjà relevés n'y réapparaissent pas (ils passent dans le fil « pendant votre absence »).
-            Le test ci-dessus se connecte en <b>lecture seule</b> et ne relève rien — il sert à distinguer « boîte vide »
-            d'un vrai problème de connexion. Les identifiants de la boîte se règlent sur le serveur (<code>docs/ATTACHE.md</code>) ;
-            l'envoi de mails est désactivé (les réponses restent dans l'application).
-          </p>
         </div>
       </div>
 
@@ -2090,149 +1683,6 @@ export function AdminAttachePanel() {
         </div>
       </div>
 
-      {/* Apprentissage progressif — signaux captés gratuitement, mémoire consolidée sous budget */}
-      <div className="rounded-xl border border-gray-200">
-        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
-          <GraduationCap className="h-4 w-4 text-[#2B5746]" />
-          <span className="text-sm font-semibold text-gray-800">Apprentissage</span>
-          <span className="text-[11px] text-gray-400">il apprend de vos corrections — mémoire distillée sous budget</span>
-          <button
-            onClick={loadAppr}
-            disabled={apprLoading}
-            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3 w-3 ${apprLoading ? 'animate-spin' : ''}`} /> Actualiser
-          </button>
-        </div>
-        <div className="space-y-3 p-3">
-          <p className="text-[12px] leading-relaxed text-gray-600">
-            <b>Entièrement automatique — vous n&apos;avez rien à faire.</b> Chaque correction de votre part est
-            captée au vol, <b>sans consommer un seul jeton</b> : proposition refusée ✗ ou validée ✓, acte que
-            l&apos;attaché a dû réviser, acte que vous corrigez à la main, reprise en conversation (« non, refais »,
-            « je t&apos;avais dit… » — repérée d&apos;elle-même). Périodiquement, un <b>run court sur le modèle
-            économe</b> distille ces signaux en règles générales, réécrit sa mémoire <b>sous un budget strict</b> et
-            fait évoluer ses skills — l&apos;attaché s&apos;améliore <b>en faisant baisser</b> la consommation
-            (moins d&apos;erreurs, moins de retouches), pas en l&apos;alourdissant.
-          </p>
-
-          {(() => {
-            const a = appr;
-            if (!a) {
-              return <p className="rounded-lg bg-gray-50 px-3 py-3 text-center text-[12px] text-gray-500">Statut indisponible — service attaché injoignable ?</p>;
-            }
-            const mem = a.memoire;
-            const memPct = mem && mem.budget > 0 ? Math.min(999, Math.round((mem.chars / mem.budget) * 100)) : 0;
-            const types = Object.entries(a.parType || {}).filter(([, n]) => n > 0);
-            return (
-              <>
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
-                    <div className="text-[10px] uppercase tracking-wide text-gray-400">Signaux à distiller</div>
-                    <div className="text-lg font-bold text-gray-800">{a.keyring === false ? '—' : a.pending ?? 0}</div>
-                    <div className="text-[10px] text-gray-400">consolidation à {a.seuilSignaux ?? 12} signaux, ou tous les {a.cadenceJours ?? 7} j</div>
-                  </div>
-                  <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
-                    <div className="text-[10px] uppercase tracking-wide text-gray-400">Dernière consolidation</div>
-                    <div className="text-sm font-semibold text-gray-800">
-                      {a.running ? 'en cours…' : a.lastRunAt ? new Date(a.lastRunAt).toLocaleDateString('fr-FR') : 'jamais'}
-                    </div>
-                    <div className="text-[10px] text-gray-400">
-                      {a.running ? 'run économe lancé' : a.lastRunAt ? (a.lastRunOk === false ? 'échouée — retentera' : 'réussie') : 'rien encore à distiller'}
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
-                    <div className="text-[10px] uppercase tracking-wide text-gray-400">Mémoire</div>
-                    <div className="text-sm font-semibold" style={{ color: mem?.over ? '#d97706' : '#1f2937' }}>
-                      {mem ? `${memPct} % du budget` : '—'}
-                    </div>
-                    <div className="text-[10px] text-gray-400">{mem ? `${mem.chars.toLocaleString('fr-FR')} / ${mem.budget.toLocaleString('fr-FR')} caractères` : 'trousseau non remis'}</div>
-                  </div>
-                </div>
-
-                {a.progression && (() => {
-                  const p = a.progression;
-                  const retouches = (f: ApprFenetre) => f.revisions + f.editionsMain;
-                  const aDesDonnees = p.j30.tauxAcceptation != null || retouches(p.j30) + p.j30.portes + p.j30.corrections > 0
-                    || p.j30prec.tauxAcceptation != null || retouches(p.j30prec) + p.j30prec.portes + p.j30prec.corrections > 0;
-                  if (!aDesDonnees) return null;
-                  return (
-                    <div className="space-y-1.5">
-                      <div className="text-[11px] font-semibold text-gray-500">Progression mesurée (30 jours)</div>
-                      <div className="grid gap-2 sm:grid-cols-3">
-                        <ProgressionTile label="Propositions acceptées" now={p.j30.tauxAcceptation} before={p.j30prec.tauxAcceptation} unit=" %" />
-                        <ProgressionTile label="Actes retouchés" now={retouches(p.j30)} before={retouches(p.j30prec)} invert />
-                        <ProgressionTile label="Corrections & portes" now={p.j30.corrections + p.j30.portes} before={p.j30prec.corrections + p.j30prec.portes} invert />
-                      </div>
-                    </div>
-                  );
-                })()}
-                {types.length > 0 && (
-                  <div className="text-[11px] text-gray-500">
-                    En attente : {types.map(([t, n]) => `${n} ${SIGNAL_LABELS[t] || t}`).join(' · ')}
-                  </div>
-                )}
-                {a.due && !a.running && (
-                  <p className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-[11px] text-amber-700">
-                    Consolidation due ({a.due}) — elle partira automatiquement au prochain passage du service.
-                  </p>
-                )}
-              </>
-            );
-          })()}
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => runAppr()}
-              disabled={appr?.running === true || appr?.keyring === false}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#234639] disabled:opacity-50"
-              title="Run court sur le modèle économe : distille les signaux et la mémoire, puis dépose une carte « Apprentissage » dans le fil."
-            >
-              {appr?.running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              Consolider maintenant
-            </button>
-            <span className="text-[10.5px] text-gray-400">
-              Optionnel : tout part tout seul (accumulation, budget dépassé, ou au plus tard sous {appr?.cadenceJours ?? 7} jours dès le
-              premier signal) — ce bouton sert seulement à ne pas attendre. La mémoire distillée reste lisible et corrigeable
-              (icône livre du panneau) ; le coût des consolidations apparaît dans « Consommation », poste « Apprentissage ».
-            </span>
-          </div>
-
-          {/* Étude du corpus : vos actes validés (zones Actes/DML) deviennent des modèles */}
-          <div className="rounded-lg border border-gray-100 bg-gray-50/40 p-2.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-semibold text-gray-600">Étude du corpus d&apos;actes validés</span>
-              <span className="text-[10.5px] text-gray-400">
-                {appr?.etude
-                  ? <>{appr.etude.corpus} acte{appr.etude.corpus > 1 ? 's' : ''} en zones Actes/DML ({appr.etude.dossiers} dossier{appr.etude.dossiers > 1 ? 's' : ''})
-                    {appr.etude.nouveaux > 0 ? <> · <b className="text-gray-600">{appr.etude.nouveaux} nouveau{appr.etude.nouveaux > 1 ? 'x' : ''}</b> depuis la dernière étude</> : null}
-                    {appr.etude.lastRunAt ? <> · dernière étude {new Date(appr.etude.lastRunAt).toLocaleDateString('fr-FR')}{appr.etude.lastRunOk === false ? ' (échouée)' : ''}</> : ' · jamais étudié'}</>
-                  : 'statut indisponible'}
-              </span>
-              <button
-                onClick={() => runAppr('etude')}
-                disabled={appr?.etude?.running === true || appr?.keyring === false}
-                className="ml-auto inline-flex items-center gap-1 rounded-lg border border-[#2B5746]/30 px-2.5 py-1 text-[11px] font-semibold text-[#2B5746] hover:bg-[#2B5746]/5 disabled:opacity-50"
-                title="Dépouille les actes signés et ordonnances JLD téléversés (sous-agents, copies markdown) et en extrait des modèles par type d'acte (trames « modele-… », versionnées)."
-              >
-                {appr?.etude?.running ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                Étudier mes actes maintenant
-              </button>
-            </div>
-            <p className="mt-1.5 text-[10.5px] leading-relaxed text-gray-400">
-              Vos actes téléversés en zones <b>Actes</b> et <b>DML</b> sont des versions <b>validées</b> — vos actes signés, et les
-              ordonnances des JLD qui reprennent ou reformulent vos requêtes. L&apos;attaché les étudie tout seul (à l&apos;arrivée de{' '}
-              {appr?.etude?.seuil ?? 5} nouveaux actes, ou tous les {appr?.etude?.cadenceJours ?? 30} jours s&apos;il y a du nouveau) et en extrait des{' '}
-              <b>modèles par type d&apos;acte</b> (trames « modele-… », anonymisées, versionnées — supprimables d&apos;un geste), plus les exigences de
-              motivation des juges (paires requête ↔ ordonnance). Vos propres trames ne sont jamais modifiées.
-            </p>
-          </div>
-          {appr?.keyring === false && (
-            <p className="text-[11px] text-amber-700">Remettez d&apos;abord les clés à l&apos;attaché (bouton « Remettre les clés » en haut) pour consulter les signaux et consolider.</p>
-          )}
-          {apprMsg && <p className="rounded-lg bg-gray-50 px-3 py-2 text-[11.5px] text-gray-600">{apprMsg}</p>}
-        </div>
-      </div>
-
       {/* Propositions de méthode — trames/skills révisées par l'attaché, appliquées d'un ✓ */}
       {methodProps.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/30">
@@ -2657,100 +2107,6 @@ export function AdminAttachePanel() {
 
       {/* Base de connaissances — le cerveau documentaire, explorateur + arborescence */}
       <AttacheKbSection granted={Boolean(kr?.granted)} onNotice={setNotice} />
-
-      {/* Routines — consignes récurrentes exécutées sans vous */}
-      <div className="rounded-xl border border-gray-200">
-        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
-          <AlarmClock className="h-4 w-4 text-[#2B5746]" />
-          <span className="text-sm font-semibold text-gray-800">Routines</span>
-          <span className="text-[11px] text-gray-400">quotidiennes (HH:MM) ou toutes les N heures</span>
-          <button
-            onClick={() => setShowRoutineForm((v) => !v)}
-            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
-          >
-            <Plus className="h-3 w-3" />Nouvelle
-          </button>
-        </div>
-
-        {showRoutineForm && (
-          <div className="space-y-2 border-b border-gray-100 bg-gray-50/50 p-3">
-            <input
-              value={rForm.nom}
-              onChange={(e) => setRForm({ ...rForm, nom: e.target.value })}
-              placeholder="Nom (ex. Préparation d'audience)"
-              className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs outline-none focus:border-[#2B5746]/50"
-            />
-            <textarea
-              value={rForm.prompt}
-              onChange={(e) => setRForm({ ...rForm, prompt: e.target.value })}
-              rows={3}
-              placeholder="La consigne, comme vous la donneriez dans le panneau (ex. « Chaque veille d'audience, prépare pour chaque affaire du rôle une fiche : faits, personnalité, points faibles, réquisitions envisageables — et envoie-la-moi par mail. »)"
-              className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs leading-relaxed outline-none focus:border-[#2B5746]/50"
-            />
-            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
-              <label className="inline-flex items-center gap-1.5">
-                <input type="radio" checked={rForm.mode === 'heure'} onChange={() => setRForm({ ...rForm, mode: 'heure' })} />
-                Chaque jour à
-                <input
-                  type="time"
-                  value={rForm.heure}
-                  onChange={(e) => setRForm({ ...rForm, heure: e.target.value })}
-                  className="rounded border border-gray-200 px-1.5 py-0.5"
-                />
-              </label>
-              <label className="inline-flex items-center gap-1.5">
-                <input type="radio" checked={rForm.mode === 'intervalle'} onChange={() => setRForm({ ...rForm, mode: 'intervalle' })} />
-                Toutes les
-                <input
-                  type="number" min={1} max={168}
-                  value={rForm.intervalleHeures}
-                  onChange={(e) => setRForm({ ...rForm, intervalleHeures: Number(e.target.value) })}
-                  className="w-14 rounded border border-gray-200 px-1.5 py-0.5"
-                />
-                heures
-              </label>
-              <button
-                onClick={saveRoutine}
-                disabled={working === 'routine' || !rForm.nom.trim() || !rForm.prompt.trim()}
-                className="ml-auto rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
-              >
-                {working === 'routine' ? 'Enregistrement…' : 'Enregistrer'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {routines.length === 0 ? (
-          <p className="px-3 py-3 text-center text-xs text-gray-400">Aucune routine — rien ne tourne en fond pour l'instant.</p>
-        ) : (
-          <div className="divide-y divide-gray-50">
-            {routines.map((r) => (
-              <div key={r.id} className="flex items-center gap-2 px-3 py-2">
-                <button
-                  onClick={() => toggleRoutine(r)}
-                  title={r.actif ? 'Active — cliquer pour suspendre' : 'Suspendue — cliquer pour activer'}
-                  className={`h-4 w-7 rounded-full transition-colors ${r.actif ? 'bg-[#2B5746]' : 'bg-gray-300'}`}
-                >
-                  <span className={`block h-3 w-3 rounded-full bg-white transition-transform ${r.actif ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
-                </button>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs font-semibold text-gray-800">{r.nom}</div>
-                  <div className="text-[10.5px] text-gray-400">
-                    {r.heure ? `chaque jour à ${r.heure}` : `toutes les ${r.intervalleHeures} h`}
-                    {r.lastRunAt ? ` · dernier run ${new Date(r.lastRunAt).toLocaleString('fr-FR')} ${r.lastRunOk === false ? '⚠️' : r.lastRunOk ? '✓' : '…'}` : ' · jamais exécutée'}
-                  </div>
-                </div>
-                <button onClick={() => runRoutineNow(r.id)} title="Exécuter maintenant" className="rounded-md p-1 text-gray-400 hover:bg-emerald-50 hover:text-[#2B5746]">
-                  <Play className="h-3.5 w-3.5" />
-                </button>
-                <button onClick={() => removeRoutine(r.id)} title="Supprimer" className="rounded-md p-1 text-gray-400 hover:bg-red-50 hover:text-red-500">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
 
       {/* Journal d'audit */}
       {showAudit && (

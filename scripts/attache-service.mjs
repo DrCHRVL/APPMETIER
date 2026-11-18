@@ -16,20 +16,17 @@
  */
 import http from 'node:http'
 import crypto from 'node:crypto'
-import { loadMasterKey, decryptJson, encryptJson } from './attache/crypto.mjs'
+import { loadMasterKey } from './attache/crypto.mjs'
 import { loadKeyring, grantKeyring, revokeKeyring, keyringStatus, allowedScopes } from './attache/keyring.mjs'
 import { handleConnectorMessage } from './attache-mcp.mjs'
 import { attacheTj, docServerKey, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
 import { audit, publishFeed } from './attache/journal.mjs'
-import { fetchInbox, listInbox, mailConfig, inboxStats, markInboxStatus, readInboxMessage, describeMailConfig, testImapConnection, writeMailOverride, clearMailOverride, purgeInbox } from './attache/mail.mjs'
 import { inNightWindow, feuRecoupements, RECOUP_JOUR } from './attache/ordonnancement.mjs'
 import { writeClaudeToken, clearClaudeToken, clearAuthFailure } from './attache/claudeAuth.mjs'
-import { runAgent, checkClaudeCli, testClaudeAuth, listConversations, readConversationEnvelope, deleteConversation, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
+import { runAgent, checkClaudeCli, testClaudeAuth, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
 import { usageSummary } from './attache/usage.mjs'
 import { saveArchitecture, buildChronologie } from './attache/cotes.mjs'
-import { compilerFichierGlobal, entretenirFichiersGlobaux } from './attache/global.mjs'
-import { dossierRedaction } from './attache/redaction.mjs'
-import { genererGraphique } from './attache/statsGraphiques.mjs'
+import { entretenirFichiersGlobaux } from './attache/global.mjs'
 import { loadContentieux, numeroCanonique } from './attache/dossier.mjs'
 import { donneesDescription, couverturePieces, estimerTotalMs, estimerRedactionMs, observerRedaction, avancement } from './attache/description.mjs'
 import { ingestPass } from './attache/ingest.mjs'
@@ -39,17 +36,10 @@ import { versementsStep } from './attache/versement.mjs'
 import { interrogationsStep } from './attache/interrogation.mjs'
 import { entretenirRapports } from './attache/rapport.mjs'
 import { enfiler as fluxEnfiler, balayer as fluxBalayer, pomper as fluxPomper, fileAttente as fluxFileAttente, FLUX_QUIET_MS } from './attache/flux.mjs'
-import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
-import { analyseDocuments } from './attache/analyse.mjs'
 import { lirePieceEntraide, sauverLecture, lireLectures } from './attache/entraideAnalyse.mjs'
 import { classerTrames, classerKb, classerSkills } from './attache/classer.mjs'
-import { readDossierMemory } from './attache/dossierMemory.mjs'
-import { listEnvelopesDossier, writeEnvelope, deleteProduction, readProduction, sommaireProductions } from './attache/productions.mjs'
-import { recordLearningSignal, consolidationDue, consolidationPrompt, learningStatus, learningState, latestSignalTs } from './attache/apprentissage.mjs'
-import { corpusActesValides, etudeDue, etudePrompt, etudeState, etudeStatus } from './attache/etude.mjs'
-import { MEMORY_BUDGET } from './attache/memory.mjs'
-import { economicalModel, runSubagents } from './attache/subagents.mjs'
+import { runSubagents } from './attache/subagents.mjs'
 import { consumptionGovernor } from './attache/budget.mjs'
 import { prompt as promptConsigne, catalogueAvecSocles, SOCLES } from './attache/consignes.mjs'
 
@@ -125,380 +115,6 @@ async function readBody(req, maxBytes = 2 * 1024 * 1024) {
     })
     req.on('error', reject)
   })
-}
-
-// ── Runs proactifs : un mail = un run — POOL BORNÉ (plusieurs de front) ──
-// Le magistrat peut transférer 3 mails d'affilée : les traiter l'un après
-// l'autre faisait attendre le dernier ~1 h sur de gros dossiers. Les écritures
-// sont déjà sérialisées fichier par fichier (withFileLock) et le dédoublonnage
-// des propositions est vérifié au dépôt ET à l'application : une concurrence
-// bornée est sûre. Défaut 2 (mémoire du serveur oblige) ; 1 = retour à
-// l'ancien comportement strictement séquentiel.
-const PROACTIVE_CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.SIRAL_ATTACHE_PROACTIVE_CONCURRENCY || 2)))
-// Reprises d'un mail en échec : jusqu'à MAX_ATTEMPTS tentatives au total,
-// espacées d'un délai croissant — puis ABANDON EXPLICITE (carte au fil).
-// L'ancien mécanisme (`recentlyQueued`, jamais purgé) s'arrêtait en silence
-// après ~2 essais alors que le widget affichait « sera retenté ».
-const PROACTIVE_MAX_ATTEMPTS = Math.max(1, Math.min(6, Number(process.env.SIRAL_ATTACHE_MAIL_MAX_ATTEMPTS || 3)))
-const PROACTIVE_RETRY_BASE_MS = Math.max(60_000, Number(process.env.SIRAL_ATTACHE_MAIL_RETRY_MIN || 10) * 60 * 1000)
-const proactiveQueue = []
-const proactiveQueued = new Set() // mails en file ou en cours — jamais deux fois
-const proactiveAttempts = new Map() // mailId → { count, nextRetryAt, abandoned }
-let proactiveWorkers = 0
-let running = 0
-
-function queueProactiveRun(keys, mailId) {
-  if (proactiveQueued.has(mailId)) return
-  proactiveQueued.add(mailId)
-  proactiveQueue.push({ keys, mailId })
-  pumpProactive()
-}
-
-function pumpProactive() {
-  while (proactiveWorkers < PROACTIVE_CONCURRENCY && proactiveQueue.length) {
-    const { keys, mailId } = proactiveQueue.shift()
-    proactiveWorkers++
-    processProactiveRun(keys, mailId)
-      .catch((e) => console.error('[attache] run proactif :', e))
-      .finally(() => {
-        proactiveWorkers--
-        proactiveQueued.delete(mailId)
-        pumpProactive()
-      })
-  }
-}
-
-/** Comptabilise une tentative ; à l'échec, programme la reprise ou ABANDONNE avec une carte. */
-async function noteProactiveFailure(keys, mailId, erreur) {
-  const st = proactiveAttempts.get(mailId) || { count: 0 }
-  if (st.count >= PROACTIVE_MAX_ATTEMPTS) {
-    if (!st.abandoned) {
-      st.abandoned = true
-      proactiveAttempts.set(mailId, st)
-      await publishFeed(keys, {
-        type: 'alerte',
-        titre: 'Mail non traité — reprises épuisées',
-        resume: `Le mail ${mailId} a échoué ${st.count} fois (dernière erreur : ${String(erreur || 'inconnue').slice(0, 300)}). Il ne sera PLUS retenté automatiquement : relancez la relève depuis le panneau, ou re-transférez le message (éventuellement scindé si le dossier est volumineux).`,
-      }).catch(() => {})
-      await markInboxStatus(keys, mailId, 'erreur').catch(() => {})
-    }
-    return
-  }
-  // reprise programmée, à délai croissant (10 min, 20 min, 40 min…)
-  st.nextRetryAt = Date.now() + PROACTIVE_RETRY_BASE_MS * Math.pow(2, Math.max(0, st.count - 1))
-  proactiveAttempts.set(mailId, st)
-}
-
-async function processProactiveRun(keys, mailId) {
-  running++
-  const st = proactiveAttempts.get(mailId) || { count: 0 }
-  st.count++
-  proactiveAttempts.set(mailId, st)
-  try {
-    // statut visible dans le widget BAL : reçu → EN COURS → traité
-    await markInboxStatus(keys, mailId, 'en_cours').catch(() => {})
-    const prompt = [
-      `Un nouveau message vient d'arriver dans la boîte dédiée (id : ${mailId}).`,
-      'Traite-le ENTIÈREMENT selon ta méthode : boite_lire pour prendre connaissance de la consigne et des pièces jointes,',
-      'qualification, rapprochement RIGOUREUX avec le dossier SIRAL concerné, puis ACTUALISATION du dossier : rangement des',
-      'pièces (ranger_document / kb_ranger_piece), NATINF cités par la pièce et absents du dossier (ajouter_natinfs),',
-      'échéancier (modifier_acte / proposer_acte), mis en cause nouveaux (proposer_mec), CR de réception (proposer_cr ou',
-      'classer_note sur consigne), description actualisée (actualiser_description). Tes synthèses se remettent DANS SIRAL',
-      '(remettre_livrable, signaler) : aucun mail sortant n\'existe plus.',
-      'TU NE RÉDIGES PAS LES ACTES : si la consigne demande un acte (requête, prolongation, réquisitions, soit-transmis,',
-      'réponse DML), prépare le dossier pour que le magistrat le rédige dans Claude web — tout ce que la pièce apporte',
-      'doit être intégré (actes, NATINF, mis en cause, CR, description), l\'acte attendu enregistré en PROPOSITION',
-      '(proposer_acte, pré-rempli, statut en attente JLD s\'il y a lieu) — puis dis-le dans la carte signaler : quel(s)',
-      'acte(s) sont attendus, sur quel dossier, et ce qui est prêt. PLUSIEURS ACTES : un même mail peut en réclamer',
-      'PLUSIEURS (« une prolongation de la ligne X ET une géoloc du véhicule Y ») — liste-les tous, une proposition par acte.',
-      'COHÉRENCE : compare le numéro de procédure porté par la pièce jointe au dossier que tu as retenu — s\'ils',
-      'divergent, tranche par les mis en cause et les faits, et SIGNALE la divergence (elle peut révéler une erreur',
-      'de transfert).',
-      'DESTINATION DÉSIGNÉE : si la consigne du transfert dit OÙ ranger une pièce ou un livrable (« verse dans le dossier Y »,',
-      '« range hors dossier »), ce rangement-là PRIME et s\'exécute tel quel, même s\'il te paraît incohérent avec le',
-      'contenu — pas de question, pas de rectification : au plus une phrase de récapitulatif (RANGEMENT SUR CONSIGNE).',
-      'SI AUCUN dossier en cours ne correspond : (a) la consigne du transfert dit « créer procédure » (ou équivalent',
-      'sans ambiguïté) → crée le dossier (creer_dossier, tout renseigné depuis la pièce : directeur d\'enquête, service,',
-      'mis en cause recoupés, NATINF), puis traite-y la demande ;',
-      '(b) sinon → signale (type alerte) qu\'aucun dossier ne correspond, avec ce que la pièce contient et l\'acte',
-      'demandé, et laisse la pièce dans la boîte (sans la marquer traitée) : le magistrat décide.',
-      'Termine par boite_marquer_traite — le résumé ÉNUMÈRE ce qui a été fait (ex. « pièce rangée au dossier X,',
-      '2 actes proposés : prolongation ligne X, géoloc Y — CR proposé, NATINF ajoutés ») — puis signaler.',
-      'Si le message est hors sujet (spam, notification technique), marque-le traité avec un résumé d\'un mot et ne signale rien.',
-    ].join('\n')
-    const result = await runAgent({ keys, prompt, runLabel: 'proactif', title: `Mail ${mailId}` })
-    await audit(keys, 'run_proactif', { mailId, tentative: st.count, ok: result.ok, convId: result.convId, erreur: result.error })
-    if (!result.ok) {
-      await publishFeed(keys, {
-        type: 'alerte',
-        titre: 'Traitement automatique interrompu',
-        resume: `Le mail ${mailId} n'a pas pu être traité (tentative ${st.count}/${PROACTIVE_MAX_ATTEMPTS} — ${result.error || 'erreur inconnue'}). Il reste dans la boîte, non marqué traité.`,
-      })
-    }
-    // si l'agent n'a pas marqué traité (erreur, oubli), le statut redevient « reçu »
-    const rec = readInboxMessage(keys, mailId)
-    if (rec && !rec.traite) {
-      await markInboxStatus(keys, mailId, result.ok ? 'recu' : 'erreur').catch(() => {})
-      if (!result.ok) await noteProactiveFailure(keys, mailId, result.error)
-    } else if (result.ok) {
-      proactiveAttempts.delete(mailId) // traité : plus rien à suivre
-    }
-  } catch (e) {
-    console.error('[attache] run proactif :', e)
-    try {
-      const rec = readInboxMessage(keys, mailId)
-      if (rec && !rec.traite) {
-        await markInboxStatus(keys, mailId, 'erreur')
-        // Même visibilité qu'un échec « propre » : sans cette carte, une
-        // exception laissait le magistrat sans aucune explication au fil.
-        await publishFeed(keys, {
-          type: 'alerte',
-          titre: 'Traitement automatique interrompu',
-          resume: `Le mail ${mailId} n'a pas pu être traité (tentative ${st.count}/${PROACTIVE_MAX_ATTEMPTS} — ${String(e?.message || e).slice(0, 300)}). Il reste dans la boîte, non marqué traité.`,
-        }).catch(() => {})
-        await noteProactiveFailure(keys, mailId, e?.message || e)
-      }
-    } catch { /* statut best-effort */ }
-  } finally {
-    running--
-  }
-}
-
-// ── Routines du magistrat : exécutées à leur cadence, sérialisées ──
-
-// Une routine n'est PAS un run de chat : elle balaye, délègue à des sous-agents
-// (~8 min chacun) et n'a personne devant l'écran. Elle héritait pourtant du
-// plafond de 20 min d'un run de chat, ce qui la faisait tuer (« délai dépassé
-// (20 min) ») avant qu'elle n'ait déposé son travail. On lui accorde un plafond
-// propre, et le plafond CARTO à celles qui balayent la cartographie : l'analyse
-// transversale lance un sous-agent par dossier — le chat carto a déjà 90 min
-// pour cette raison exacte, une routine qui fait la même chose n'avait que 20.
-const ROUTINE_TIMEOUT_MIN = Number(process.env.SIRAL_ATTACHE_ROUTINE_TIMEOUT_MIN || 60)
-const ROUTINE_TIMEOUT_MS = Math.max(20, ROUTINE_TIMEOUT_MIN) * 60 * 1000
-/** La routine balaye-t-elle la cartographie (analyse transversale) ? */
-const CARTO_ROUTINE_RE = /cartograph|carto\b|transversal|liens? cach|recoupe|rapprochement|renseignement/i
-function routineTimeoutMs(routine) {
-  const texte = `${routine.nom || ''}\n${routine.prompt || ''}`
-  return CARTO_ROUTINE_RE.test(texte)
-    ? Math.max(ROUTINE_TIMEOUT_MS, CARTO_CHAT_TIMEOUT_MS)
-    : ROUTINE_TIMEOUT_MS
-}
-
-/** Propositions en attente de validation (✓/✗) — sert à dire au magistrat, quand
- * un run casse, si du travail exploitable a MALGRÉ TOUT été déposé et où le
- * trancher. Un run tué à mi-course laissait sinon croire que tout était perdu. */
-function propositionsEnAttente(keys) {
-  try { return listPropositions(keys, { enAttente: true }).length } catch { return 0 }
-}
-
-let routineRunning = false
-async function runRoutine(routine, trigger = 'planifiée') {
-  const keys = loadKeyring()
-  if (!keys) return { ok: false, error: 'trousseau non remis' }
-  console.log(`[attache] routine « ${routine.nom} » (${trigger})`)
-  const avant = propositionsEnAttente(keys)
-  // réserver l'exécution AVANT le run (évite un doublon si le run est long)
-  await markRun(keys, routine.id, null)
-  const prompt = [
-    `ROUTINE « ${routine.nom} » — consigne récurrente définie par le magistrat, exécutée automatiquement :`,
-    '',
-    routine.prompt,
-    '',
-    'OÙ REMETTRE TON TRAVAIL — tout apparaît sur la page « Assistant de justice » (visible du seul magistrat) :',
-    '- Si la routine SURVEILLE les dossiers (échéances qui approchent, actes qui expirent, incohérences, attentes',
-    '  JLD qui traînent, dossiers dormants à relancer) : signaler, UNE carte par point, dans le fil « pendant',
-    '  votre absence ». Dis QUOI préparer et POUR QUAND, et rattache la carte à son dossier (numero).',
-    '  Sois SÉLECTIF : un objet = une seule carte, jamais deux cartes pour la même mesure ou le même acte, et',
-    '  jamais un doublon de ce que tu as déjà signalé à l\'exécution précédente.',
-    '  N\'annonce PAS les actes qui expirent, les poses non confirmées ni les attentes JLD ordinaires : le tableau',
-    '  de bord les affiche déjà tout seul (widgets dédiés + notifications). Seulement ce qu\'il ne voit pas.',
-    '- Si la consigne demande une remise (« envoie-moi », « prépare-moi », une synthèse, un point d\'étape) :',
-    '  remettre_livrable — le livrable s\'affiche dans SIRAL. Tu ne rédiges pas d\'acte : un acte attendu se',
-    '  PROPOSE (proposer_acte) et se signale ; le magistrat le rédige dans Claude web.',
-    '- Si tu détectes une écriture à faire (lien de renseignement, personne ou dossier ex nihilo, mis en cause,',
-    '  acte, CR), PROPOSE-la (proposer_lien, proposer_mec_carto, proposer_dossier_carto, ajouter_mec…) : le',
-    '  magistrat tranche ✓/✗ dans le panneau Attaché et sur la Cartographie. Une proposition déposée SURVIT même',
-    '  si le run est ensuite interrompu — dépose au fil de l\'eau, ne garde jamais tes trouvailles pour la fin.',
-    '- Termine par signaler : un résumé d\'1-2 phrases de ce que tu as fait. Si rien de notable : ne publie rien.',
-    'Aucun mail ne part jamais.',
-  ].join('\n')
-  const timeoutMs = routineTimeoutMs(routine)
-  const result = await runAgent({
-    keys,
-    prompt,
-    runLabel: `routine:${routine.nom}`,
-    title: `Routine ${routine.nom} ${new Date().toISOString().slice(0, 10)}`,
-    timeoutMs,
-    mcpToolTimeoutMs: timeoutMs - 120_000,
-  })
-  await markRun(keys, routine.id, result.ok)
-  await audit(keys, 'routine_executee', { routine: routine.nom, trigger, ok: result.ok, convId: result.convId, erreur: result.error })
-  if (!result.ok) {
-    // Une routine en échec ne re-tentera pas avant sa prochaine échéance : le
-    // magistrat doit le voir au fil (le signaler final de l'agent n'a jamais
-    // été émis si le run est mort avant). On DIT AUSSI ce qui a survécu : un run
-    // tué à mi-course a souvent déjà déposé des propositions validables — sans
-    // cette phrase, le magistrat lisait « interrompue » et croyait tout perdu.
-    const deposees = Math.max(0, propositionsEnAttente(keys) - avant)
-    const suite = deposees > 0
-      ? `\n\nCE QUI A ÉTÉ DÉPOSÉ MALGRÉ TOUT : ${deposees} proposition${deposees > 1 ? 's' : ''} `
-        + `en attente de votre validation. Vous les tranchez ✓/✗ dans le bloc `
-        + `« Proposition à valider », en haut de cette même page « Assistant de justice » — `
-        + `également dans le panneau de l'attaché et en bas à gauche de la Cartographie. `
-        + `Rien n'est perdu : ce qui est déposé reste là.`
-      : "\n\nAucune proposition n'avait encore été déposée quand le run a été interrompu :"
-        + ' il n\'y a rien à valider pour cette exécution.'
-    await publishFeed(keys, {
-      type: 'alerte',
-      titre: `Routine « ${routine.nom} » interrompue`,
-      resume: `L'exécution (${trigger}) a échoué : ${String(result.error || 'erreur inconnue').slice(0, 300)}. `
-        + `Prochaine tentative à la prochaine échéance — ou « Exécuter maintenant » depuis Paramètres → Attaché IA.`
-        + suite,
-    }).catch(() => {})
-  }
-  return { ok: result.ok, convId: result.convId, error: result.error }
-}
-
-async function maybeDueRoutines() {
-  if (routineRunning) return
-  const keys = loadKeyring()
-  if (!keys) return
-  const due = dueRoutines(keys)
-  if (!due.length) return
-  if (await autonomousOnHold(keys, 'routines')) return
-  routineRunning = true
-  try {
-    for (const r of due) {
-      await runRoutine(r).catch((e) => console.error('[attache] routine :', e))
-    }
-  } finally {
-    routineRunning = false
-  }
-}
-
-// ── Apprentissage : consolidation périodique de la mémoire ──
-// Les signaux d'expérience (propositions ✓/✗, actes révisés/corrigés à la
-// main, leçons notées) sont captés au fil de l'eau SANS le modèle — la
-// consolidation est le seul moment payé en jetons : un run COURT, sur le
-// modèle économe des sous-agents, qui distille signaux + mémoire en un
-// document sous budget. Déclenchée par accumulation, dépassement du budget
-// mémoire ou cadence de fond (consolidationDue), et à la demande depuis
-// Paramètres → Attaché IA → Apprentissage.
-let apprentissageRunning = false
-async function runApprentissage(trigger = 'auto') {
-  if (apprentissageRunning) return { ok: false, error: 'consolidation déjà en cours' }
-  const keys = loadKeyring()
-  if (!keys) return { ok: false, error: 'trousseau non remis' }
-  apprentissageRunning = true
-  try {
-    console.log(`[attache] consolidation d'apprentissage (${trigger})`)
-    // borne haute des signaux couverts par CE run, figée AVANT (ceux qui
-    // arrivent pendant le run resteront pour la consolidation suivante) ;
-    // la tentative est réservée tout de suite (garde anti-rafale de 12 h).
-    const borne = latestSignalTs()
-    await writeState({ apprentissage: { ...learningState(), lastAttemptAt: new Date().toISOString() } })
-    const result = await runAgent({
-      keys,
-      prompt: consolidationPrompt({ budget: MEMORY_BUDGET, trigger }),
-      runLabel: 'apprentissage',
-      title: `Apprentissage ${new Date().toISOString().slice(0, 10)}`,
-      model: economicalModel(agentConfig()),
-      effort: 'medium',
-      maxTurns: 18,
-      timeoutMs: 15 * 60 * 1000,
-    })
-    await writeState({
-      apprentissage: {
-        ...learningState(),
-        lastRunAt: new Date().toISOString(),
-        lastRunOk: result.ok,
-        lastTrigger: trigger,
-        // le point de consolidation n'avance QUE si le run a abouti — sinon
-        // les signaux restent en attente pour la prochaine tentative
-        ...(result.ok ? { consolidatedTs: borne } : {}),
-      },
-    })
-    await audit(keys, 'apprentissage_consolide', { trigger, ok: result.ok, convId: result.convId, erreur: result.error })
-    return { ok: result.ok, convId: result.convId, error: result.error }
-  } finally {
-    apprentissageRunning = false
-  }
-}
-
-/** Consolide quand l'échéancier le justifie (vérifié à chaque tick de relève — comptage gratuit). */
-async function maybeScheduledApprentissage() {
-  if (apprentissageRunning) return
-  // Travail de FOND : réservé à la nuit (la consolidation à la demande reste
-  // possible à tout moment depuis Paramètres → Attaché IA).
-  if (!inNightWindow()) return
-  const keys = loadKeyring()
-  if (!keys) return
-  const raison = consolidationDue(keys)
-  if (!raison) return
-  if (await autonomousOnHold(keys, 'consolidation')) return
-  runApprentissage(`auto — ${raison}`).catch((e) => console.error('[attache] apprentissage :', e))
-}
-
-// ── Étude du corpus d'actes validés : extraction de modèles (trames modele-*) ──
-// Les pièces des zones Actes/DML sont des versions VALIDÉES (actes signés du
-// magistrat, ordonnances JLD) : un run périodique les dépouille (sous-agents,
-// copies markdown) et en extrait des GABARITS par type d'acte, plus les
-// exigences de motivation des juges (paires requête ↔ ordonnance). Déclenché
-// par l'arrivée de nouveaux actes validés ou par cadence — comptage
-// déterministe à chaque tick, aucun jeton hors du run lui-même.
-let etudeRunning = false
-async function runEtude(trigger = 'auto') {
-  if (etudeRunning) return { ok: false, error: 'étude déjà en cours' }
-  const keys = loadKeyring()
-  if (!keys) return { ok: false, error: 'trousseau non remis' }
-  etudeRunning = true
-  try {
-    console.log(`[attache] étude du corpus d'actes validés (${trigger})`)
-    // le niveau du corpus couvert par CETTE étude est figé AVANT le run ;
-    // la tentative est réservée tout de suite (garde anti-rafale de 24 h)
-    const corpus = corpusActesValides()
-    await writeState({ etude: { ...etudeState(), lastAttemptAt: new Date().toISOString() } })
-    // dépouillement délégué aux sous-agents (un lot par dossier) : le plafond
-    // s'échelonne comme les autres analyses de lot
-    const timeoutMs = batchTimeoutMs(Math.max(2, corpus.dossiers))
-    const result = await runAgent({
-      keys,
-      prompt: etudePrompt(trigger),
-      runLabel: 'etude',
-      title: `Étude corpus ${new Date().toISOString().slice(0, 10)}`,
-      maxTurns: 30,
-      timeoutMs,
-      mcpToolTimeoutMs: timeoutMs - 120_000,
-    })
-    await writeState({
-      etude: {
-        ...etudeState(),
-        lastRunAt: new Date().toISOString(),
-        lastRunOk: result.ok,
-        lastTrigger: trigger,
-        // le niveau couvert n'avance QUE si l'étude a abouti
-        ...(result.ok ? { corpusAtRun: corpus.count } : {}),
-      },
-    })
-    await audit(keys, 'etude_corpus', { trigger, corpus: corpus.count, dossiers: corpus.dossiers, ok: result.ok, convId: result.convId, erreur: result.error })
-    return { ok: result.ok, convId: result.convId, error: result.error }
-  } finally {
-    etudeRunning = false
-  }
-}
-
-/** Étudie quand l'échéancier le justifie (comptage d'index en clair — gratuit). */
-async function maybeScheduledEtude() {
-  if (etudeRunning) return
-  // Travail de FOND (dépouillement en sous-agents) : réservé à la nuit ;
-  // « Étudier mes actes maintenant » force l'étude à tout moment.
-  if (!inNightWindow()) return
-  const keys = loadKeyring()
-  if (!keys) return
-  const raison = etudeDue()
-  if (!raison) return
-  if (await autonomousOnHold(keys, 'étude du corpus')) return
-  runEtude(`auto — ${raison}`).catch((e) => console.error('[attache] étude :', e))
 }
 
 // ── Actualisation « à la demande » de la description (« l'objet ») d'un dossier ──
@@ -698,8 +314,8 @@ function demarrerAnalyseCarto(consigne, libelle) {
     title: `Cartographie — ${libelle}`,
     runLabel: 'chat-carto', // même régime qu'une demande directe (sous-agents non bridés)
     model: agentConfig().model || undefined,
-    timeoutMs: CARTO_CHAT_TIMEOUT_MS,
-    mcpToolTimeoutMs: CARTO_CHAT_TIMEOUT_MS - 120_000,
+    timeoutMs: CARTO_TIMEOUT_MS,
+    mcpToolTimeoutMs: CARTO_TIMEOUT_MS - 120_000,
   })
     .catch((e) => ({ ok: false, error: String(e?.message || e) }))
     .then((r) => {
@@ -943,30 +559,13 @@ async function fluxTick() {
   await fluxPomperMaintenant()
 }
 
-// Plafond de durée d'une analyse de LOT (trames, base de connaissances) : ces
-// runs délèguent à des sous-agents en parallèle (vagues bornées par la
-// concurrence, ~8 min/tâche) et dépassent facilement les 20 min d'un run de
-// chat. On échelonne selon la taille du lot, borné à ~2 h, ajustable par env.
-const BATCH_TIMEOUT_MIN_BASE = Number(process.env.SIRAL_ATTACHE_BATCH_TIMEOUT_MIN || 25)
-const BATCH_TIMEOUT_MIN_MAX = Number(process.env.SIRAL_ATTACHE_BATCH_TIMEOUT_MAX_MIN || 120)
-function batchTimeoutMs(count) {
-  const n = Math.max(1, Number(count) || 1)
-  const minutes = Math.min(BATCH_TIMEOUT_MIN_MAX, BATCH_TIMEOUT_MIN_BASE + n * 6)
-  return minutes * 60 * 1000
-}
 
-// Analyse transversale de renseignement lancée depuis le CHAT carto : comme
-// l'étude du corpus, elle délègue à des sous-agents (un par dossier) et dépasse
-// très largement les 20 min d'un run de chat ordinaire — c'est ce qui la
-// faisait TUER avant d'avoir déposé la moindre proposition (« jamais de
-// résultat »). On accorde donc aux runs carto le même ordre de grandeur qu'un
-// run de lot, plafonné et ajustable par env. Ce plafond n'est qu'un garde-fou
-// de durée : une question carto brève finit en quelques secondes (le minuteur
-// est alors annulé), il ne ralentit rien. Le run se poursuit côté serveur même
-// si le flux SSE se coupe : les propositions se déposent quand même et
-// apparaissent dans le module de revue de la carte.
-const CARTO_CHAT_TIMEOUT_MIN = Number(process.env.SIRAL_ATTACHE_CARTO_TIMEOUT_MIN || 90)
-const CARTO_CHAT_TIMEOUT_MS = Math.max(20, CARTO_CHAT_TIMEOUT_MIN) * 60 * 1000
+// Analyse cartographique (« Détecter les camps », « Enrichir ») : elle peut
+// déléguer à des sous-agents (un par dossier) et dépasser largement 20 min —
+// plafond propre, ajustable par env. Simple garde-fou : une analyse brève
+// finit en quelques secondes.
+const CARTO_TIMEOUT_MIN = Number(process.env.SIRAL_ATTACHE_CARTO_TIMEOUT_MIN || 90)
+const CARTO_TIMEOUT_MS = Math.max(20, CARTO_TIMEOUT_MIN) * 60 * 1000
 
 // ── Classement des trames de la bibliothèque (description par trame) ──
 // « Ranger / classer » est une passe de DESCRIPTION rapide (classer.mjs) : un
@@ -974,7 +573,7 @@ const CARTO_CHAT_TIMEOUT_MS = Math.max(20, CARTO_CHAT_TIMEOUT_MIN) * 60 * 1000
 // bouton déléguait UNE analyse juridique approfondie à N sous-agents rassemblés
 // par un run principal qui ré-ingérait tout — lent, souvent tué avant de rendre
 // quoi que ce soit, et ruineux en jetons. L'analyse en profondeur d'UNE trame
-// reste possible à la demande, dans le chat de l'attaché.
+// reste possible à la demande, depuis Claude web (connecteur).
 let trameAnalyseRunning = false
 async function runTrameAnalyse(noms) {
   const keys = loadKeyring()
@@ -1072,18 +671,17 @@ async function runSkillAnalyse(noms) {
 
 // ── Gouverneur de consommation : mettre en PAUSE les runs de fond quand le
 // forfait sature ─────────────────────────────────────────────────────────────
-// Les runs AUTONOMES (routines planifiées, étude du corpus, consolidation)
-// sont la première source de sous-agents en parallèle — le poste qui fait
-// exploser la fenêtre glissante de 5 h. Quand elle est pleine (config.cap5h),
+// Les runs AUTONOMES (ingestion, registre, versements, interrogations,
+// rapports) sont la première source de sous-agents en parallèle — le poste
+// qui fait exploser la fenêtre glissante de 5 h. Quand elle est pleine (config.cap5h),
 // on les DIFFÈRE : rien n'est perdu, ils repartiront tout seuls au prochain tick
-// une fois la fenêtre redescendue. On NE met JAMAIS en pause le chat du magistrat
-// ni le traitement des mails (sa demande directe) — ceux-là sont seulement
-// resserrés par le gouverneur des sous-agents. Sans plafond configuré, le
+// une fois la fenêtre redescendue. On NE met JAMAIS en pause une demande
+// directe du magistrat (actualisation, analyse de la carte) — elle est
+// seulement resserrée par le gouverneur des sous-agents. Sans plafond configuré, le
 // gouverneur est inerte (aucun run n'est différé).
-// Fenêtre de NUIT réservée aux travaux de FOND lourds — étude du corpus,
-// consolidation de l'apprentissage. Hors de la journée de travail, ils ne
-// disputent jamais le forfait aux mails et au chat du magistrat (sa priorité :
-// répondre à ses demandes et rédiger les actes). Repli 22 h → 7 h, HEURE DU
+// Fenêtre de NUIT réservée aux travaux de FOND lourds. Hors de la journée de
+// travail, ils ne disputent jamais le forfait aux demandes directes du
+// magistrat. Repli 22 h → 7 h, HEURE DU
 // MAGISTRAT (fuseau déclaré, pas celle du conteneur), réglable et
 // désactivable. La fenêtre vit dans ordonnancement.mjs : règle pure, sans
 // état, testable.
@@ -1210,48 +808,6 @@ async function maybeRecoupements() {
 }
 
 // ── Boucle de relève ──
-let polling = false
-async function pollOnce(trigger = 'planifié') {
-  if (polling) return { ok: false, error: 'relève déjà en cours' }
-  polling = true
-  try {
-    const keys = loadKeyring()
-    if (!keys) return { ok: false, error: 'trousseau non remis' }
-    const res = await fetchInbox(keys)
-    if (res.ok && res.ingested.length) {
-      console.log(`[attache] ${res.ingested.length} message(s) ingéré(s) (${trigger})`)
-      for (const id of res.ingested) queueProactiveRun(keys, id)
-    }
-    // Rattrapage : messages ingérés mais jamais traités (crash, redémarrage,
-    // run en échec). Reprise pilotée par proactiveAttempts : jusqu'à
-    // PROACTIVE_MAX_ATTEMPTS tentatives espacées d'un délai croissant, puis
-    // abandon EXPLICITE (carte au fil) — plus d'arrêt silencieux.
-    const now = Date.now()
-    const pending = listInbox(keys).filter((m) => !m.traite)
-    const known = new Set(res.ingested)
-    for (const m of pending) {
-      if (known.has(m.id)) continue
-      const st = proactiveAttempts.get(m.id)
-      // Relève MANUELLE (bouton du panneau) : le magistrat demande une reprise —
-      // on remet le compteur à zéro, y compris pour un mail abandonné.
-      if (trigger === 'manuel' && st) { proactiveAttempts.delete(m.id); queueProactiveRun(keys, m.id); continue }
-      if (st?.abandoned) continue
-      if (st && st.count >= PROACTIVE_MAX_ATTEMPTS) { await noteProactiveFailure(keys, m.id, 'reprises épuisées'); continue }
-      if (st?.nextRetryAt && now < st.nextRetryAt) continue // backoff en cours
-      queueProactiveRun(keys, m.id)
-    }
-    // Purge douce de l'état des mails traités/disparus (le service peut tourner des mois).
-    if (proactiveAttempts.size > 200) {
-      const alive = new Set(pending.map((m) => m.id))
-      for (const id of proactiveAttempts.keys()) if (!alive.has(id)) proactiveAttempts.delete(id)
-    }
-    return res
-  } finally {
-    polling = false
-  }
-}
-
-// ── API HTTP interne ──
 const server = http.createServer(async (req, res) => {
   if (!authorized(req)) return json(res, 401, { error: 'Non autorisé' })
   const url = new URL(req.url, 'http://internal')
@@ -1271,12 +827,10 @@ const server = http.createServer(async (req, res) => {
           tj: attacheTj(),
           contentieux: attacheContentieux(),
           masterKey: Boolean(master),
-          runsEnCours: running,
         })
       }
       const keys = master ? loadKeyring() : null
       const cli = await checkClaudeCli()
-      const mail = mailConfig()
       return json(res, 200, {
         enabled: true,
         tj: attacheTj(),
@@ -1285,13 +839,6 @@ const server = http.createServer(async (req, res) => {
         keyring: keyringStatus(),
         scopesAttendus: allowedScopes(),
         claude: cli,
-        mail: {
-          imap: mail.imapReady, smtp: mail.smtpReady,
-          owner: mail.owner ? mail.owner.replace(/^(..).*(@.*)$/, '$1…$2') : null,
-          ...describeMailConfig(),
-        },
-        inbox: keys ? inboxStats(keys) : null,
-        runsEnCours: running,
         state: readState(),
         config: agentConfig(),
         governor: consumptionGovernor(agentConfig()),
@@ -1340,7 +887,6 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, {
         demarreA: SERVICE_DEMARRE_A,
         activites: Object.values(activites),
-        runsEnCours: running,
         flux: (() => { try { return fluxFileAttente() } catch { return null } })(),
         eventLoop,
         memoire: { rssMB: Math.round(mem.rss / (1024 * 1024)), heapMB: Math.round(mem.heapUsed / (1024 * 1024)) },
@@ -1410,45 +956,6 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, removed })
     }
 
-    if (route === 'POST /check-mail') {
-      const out = await pollOnce('manuel')
-      return json(res, 200, out)
-    }
-
-    if (route === 'POST /mail-test') {
-      // diagnostic seul : ouvre INBOX en lecture seule, ne relève rien
-      const out = await testImapConnection()
-      const keys = loadKeyring()
-      if (keys) await audit(keys, 'mail_test', { ok: out.ok, messages: out.messages ?? null, erreur: out.error || null })
-      return json(res, 200, out)
-    }
-
-    if (route === 'PUT /mail-config') {
-      // réglages IMAP/SMTP saisis dans l'app — chiffrés au repos par la clé-maître
-      const body = await readBody(req)
-      const str = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : undefined)
-      const patch = {}
-      if ('imapHost' in body) patch.imapHost = str(body.imapHost, 255)
-      if ('imapUser' in body) patch.imapUser = str(body.imapUser, 320)
-      if ('imapPassword' in body) patch.imapPassword = typeof body.imapPassword === 'string' ? body.imapPassword.slice(0, 1024) : undefined
-      if ('imapPort' in body) patch.imapPort = Number(body.imapPort) || 993
-      if ('imapSecure' in body) patch.imapSecure = body.imapSecure !== false
-      if ('smtpHost' in body) patch.smtpHost = str(body.smtpHost, 255)
-      if ('smtpUser' in body) patch.smtpUser = str(body.smtpUser, 320)
-      if ('smtpPassword' in body) patch.smtpPassword = typeof body.smtpPassword === 'string' ? body.smtpPassword.slice(0, 1024) : undefined
-      if ('smtpPort' in body) patch.smtpPort = Number(body.smtpPort) || 465
-      if ('smtpSecure' in body) patch.smtpSecure = body.smtpSecure !== false
-      if ('from' in body) patch.from = str(body.from, 320)
-      try {
-        writeMailOverride(patch, String(body.par || 'admin'))
-      } catch (e) {
-        return json(res, 500, { ok: false, error: String(e?.message || e) })
-      }
-      const keys = loadKeyring()
-      if (keys) await audit(keys, 'mail_config_modifiee', { imapHost: patch.imapHost ?? null, imapUser: patch.imapUser ?? null, par: String(body.par || 'admin') })
-      return json(res, 200, { ok: true, mail: describeMailConfig() })
-    }
-
     if (route === 'PUT /claude-token') {
       // Connexion du CLI à l'abonnement, SANS docker exec : le magistrat colle
       // ici le jeton rendu par « claude setup-token » (machine de confiance).
@@ -1483,13 +990,6 @@ const server = http.createServer(async (req, res) => {
       const keys = loadKeyring()
       if (keys) await audit(keys, 'claude_test', { ok: out.ok, erreur: out.error || null })
       return json(res, 200, out)
-    }
-
-    if (route === 'DELETE /mail-config') {
-      const removed = clearMailOverride()
-      const keys = loadKeyring()
-      if (keys) await audit(keys, 'mail_config_effacee', { removed })
-      return json(res, 200, { ok: true, removed, mail: describeMailConfig() })
     }
 
     if (route === 'POST /reveil') {
@@ -1566,143 +1066,6 @@ const server = http.createServer(async (req, res) => {
       return json(res, out.ok ? 200 : 502, out)
     }
 
-    if (route === 'GET /apprentissage') {
-      // statut de l'apprentissage : signaux en attente, dernière consolidation,
-      // mémoire face à son budget, étude du corpus — lisible même trousseau
-      // non remis (dégradé)
-      return json(res, 200, {
-        apprentissage: {
-          ...learningStatus(loadKeyring()),
-          running: apprentissageRunning,
-          etude: { ...etudeStatus(), running: etudeRunning },
-        },
-      })
-    }
-
-    if (route === 'POST /apprentissage') {
-      // consolidation à la demande — lancée en fond, comme les autres runs de fond
-      if (apprentissageRunning) return json(res, 409, { ok: false, error: 'Consolidation déjà en cours' })
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
-      runApprentissage('manuelle').catch((e) => console.error('[attache] apprentissage :', e))
-      return json(res, 202, { ok: true, started: true })
-    }
-
-    if (route === 'POST /etude') {
-      // étude du corpus à la demande — lancée en fond
-      if (etudeRunning) return json(res, 409, { ok: false, error: 'Étude déjà en cours' })
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
-      runEtude('manuelle').catch((e) => console.error('[attache] étude :', e))
-      return json(res, 202, { ok: true, started: true })
-    }
-
-    if (route === 'GET /productions') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      // Variantes d'écriture du numéro comprises : l'atelier « Actes rédigés »
-      // de l'enquête « 85103/843/2026 - GRIVESNES 2 » voit aussi les actes
-      // rangés sous « 85103/843/2026 » (même dossier, écriture courte).
-      return json(res, 200, { productions: listEnvelopesDossier(keys, url.searchParams.get('numero') || '') })
-    }
-
-    if (route === 'GET /productions/sommaire') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      // Page « Assistant de justice » : chaque dossier qui a des actes. Chiffré
-      // (clé globale) — le navigateur admin le déchiffre, l'app ne voit pas la
-      // liste des dossiers en clair.
-      return json(res, 200, { envelope: encryptJson(keys.global, { dossiers: sommaireProductions(keys) }) })
-    }
-
-    if (route === 'PUT /production') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      const body = await readBody(req, 4 * 1024 * 1024)
-      const env = body.envelope
-      if (!env || env.encrypted !== true || typeof env.iv !== 'string' || typeof env.ct !== 'string') {
-        return json(res, 400, { error: 'Enveloppe chiffrée requise' })
-      }
-      const numero = String(body.numero || '')
-      const id = String(body.id || '')
-      if (!/^[a-f0-9]{6,32}$/.test(id)) return json(res, 400, { error: 'id invalide' })
-      // État AVANT (le jet de l'attaché) puis contenu APRÈS (la correction du
-      // magistrat) : le service détient la clé globale et compare dans SON
-      // enceinte, sans jamais exposer le texte à l'app. On ne capte un signal
-      // d'apprentissage QUE si le CONTENU a réellement changé — une simple
-      // validation (✓) ou une réouverture (qui ré-enregistrent aussi l'acte)
-      // ne sont pas des corrections et ne doivent rien « apprendre ».
-      const avant = readProduction(keys, numero, id)
-      let apres = null
-      try { apres = decryptJson(keys.global, env) } catch { /* enveloppe d'une autre clé : on stocke sans analyser */ }
-      const { archivedAt } = await writeEnvelope(numero, id, env)
-      await audit(keys, 'production_editee_main', { numero, id })
-      // REFUS du magistrat : transition vers refuse=true (le contenu, lui, n'a
-      // pas changé). Signal FORT — le motif, saisi pour l'apprentissage, est en
-      // clair dans le detail (chiffré au repos comme tout signal) pour que la
-      // consolidation comprenne le rejet et n'y retombe pas. Une simple
-      // réouverture (refuse repassé à false) n'apprend rien.
-      const refusMaintenant = !!(apres && apres.refuse && !(avant && avant.refuse))
-      if (refusMaintenant) {
-        const source = apres.source
-        const titre = String(apres.titre || '').slice(0, 80)
-        const motif = String(apres.refuseMotif || '').replace(/\s+/g, ' ').trim().slice(0, 320)
-        await audit(keys, 'production_refusee', { numero, id })
-        await recordLearningSignal(keys, {
-          type: 'acte_refuse',
-          dossier: numero,
-          source: source ? `trame ${source}` : undefined,
-          // Motif en fin de chaîne : si le detail dépasse le plafond de capture,
-          // c'est sa queue qui est tronquée, jamais le fait ni le début du motif.
-          detail: `acte ${id}${titre ? ` « ${titre} »` : ''} REFUSÉ par le magistrat`
-            + `${motif ? ` — motif : ${motif}` : ' (sans motif précisé)'}`,
-        })
-      }
-      const contenuChange = !!(apres && avant && String(avant.contenu || '') !== String(apres.contenu || ''))
-      if (contenuChange) {
-        // Signal FORT : le magistrat a corrigé l'acte À LA MAIN — le premier
-        // jet ne répondait pas pleinement à ses exigences. Le texte reste
-        // chiffré : on capte le FAIT + un POINTEUR (versionAt) vers le diff
-        // exact, que la consolidation lira (production_diff) pour comprendre
-        // la correction et la mémoriser. On porte la trame suivie (source)
-        // pour relier une trame à des retouches répétées.
-        const source = apres.source || avant.source
-        const titre = String(apres.titre || avant.titre || '').slice(0, 80)
-        await recordLearningSignal(keys, {
-          type: 'acte_edite_main',
-          dossier: numero,
-          source: source ? `trame ${source}` : undefined,
-          detail: `acte ${id}${titre ? ` « ${titre} »` : ''} corrigé à la main — `
-            + `production_diff numero="${numero}" id="${id}"${archivedAt ? ` versionAt="${archivedAt}"` : ''} `
-            + 'montre exactement ce que le magistrat a retiré/ajouté ; distille-le en règle.',
-        })
-      }
-      return json(res, 200, { ok: true, contenuChange })
-    }
-
-    if (route === 'DELETE /production') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      const ok = await deleteProduction(url.searchParams.get('numero') || '', url.searchParams.get('id') || '')
-      if (ok) await audit(keys, 'production_supprimee', { numero: url.searchParams.get('numero'), id: url.searchParams.get('id') })
-      return json(res, 200, { ok })
-    }
-
-    if (route === 'GET /dossier-memoire') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      return json(res, 200, { memoire: readDossierMemory(keys, url.searchParams.get('numero') || '') })
-    }
-
-    if (route === 'PUT /dossier-memoire') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      const body = await readBody(req)
-      const { setDossierMemory } = await import('./attache/dossierMemory.mjs')
-      await setDossierMemory(keys, String(body.numero || ''), String(body.contenu || ''))
-      return json(res, 200, { ok: true })
-    }
-
     if (route === 'GET /propositions') {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
@@ -1722,24 +1085,6 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    if (route === 'POST /analyse-documents') {
-      // Extraction stateless : ne touche à AUCUNE donnée chiffrée du coffre —
-      // le navigateur admin envoie le texte des PDF et le résumé des actes.
-      // Pas besoin du trousseau ; seul le CLI claude est sollicité.
-      const body = await readBody(req, 8 * 1024 * 1024)
-      const docs = Array.isArray(body.docs) ? body.docs : []
-      if (!docs.length) return json(res, 400, { ok: false, error: 'Aucun document fourni' })
-      try {
-        const out = await analyseDocuments({ docs, actesExistants: body.actesExistants || [], enquete: body.enquete || null })
-        return json(res, out.ok ? 200 : 502, out)
-      } catch (e) {
-        return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 400) })
-      }
-    }
-
-    // Entraide : lecture d'une pièce téléversée (octets en clair, non conservés).
-    // La fiche de lecture n'est gardée que si la demande est désignée et le
-    // trousseau remis — chiffrée, dans l'espace de l'attaché.
     if (route === 'POST /entraide-analyse') {
       const body = await readBody(req, 30 * 1024 * 1024)
       const keys = loadKeyring()
@@ -1767,40 +1112,6 @@ const server = http.createServer(async (req, res) => {
       const keys = loadKeyring()
       if (!keys) return json(res, 200, { lectures: [] })
       return json(res, 200, { lectures: lireLectures(keys, url.searchParams.get('id') || '') })
-    }
-
-    if (route === 'GET /routines') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      return json(res, 200, { routines: listRoutines(keys) })
-    }
-
-    if (route === 'POST /routines') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      const body = await readBody(req)
-      const out = await upsertRoutine(keys, body)
-      await audit(keys, 'routine_enregistree', { nom: body.nom, par: String(body.par || 'admin') })
-      return json(res, 200, { ok: true, ...out })
-    }
-
-    if (route === 'DELETE /routines') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      const id = url.searchParams.get('id') || ''
-      const out = await deleteRoutine(keys, id)
-      return json(res, 200, { ok: true, ...out })
-    }
-
-    if (route === 'POST /routines/run') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      const id = url.searchParams.get('id') || ''
-      const routine = listRoutines(keys).find((r) => r.id === id)
-      if (!routine) return json(res, 404, { error: 'Routine inconnue' })
-      // lancée en fond : la réponse ne bloque pas sur le run
-      runRoutine(routine, 'manuelle').catch((e) => console.error('[attache] routine :', e))
-      return json(res, 202, { ok: true, started: true })
     }
 
     if (route === 'POST /trames/analyse') {
@@ -1849,70 +1160,6 @@ const server = http.createServer(async (req, res) => {
       return chrono ? json(res, 200, chrono) : json(res, 404, { error: 'Dossier introuvable' })
     }
 
-    if (route === 'GET /dossier-global') {
-      // FICHIER GLOBAL d'un dossier — toutes les pièces en texte, un seul
-      // fichier (sommaire + un bloc par pièce), téléchargé depuis la page
-      // Assistant de justice pour être versé dans un projet Claude web.
-      // Lecture de caches (ingestion de fond) : rien n'est ré-extrait, sauf
-      // un nombre borné de pièces encore jamais extraites.
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      const numero = url.searchParams.get('numero') || ''
-      if (!numero) return json(res, 400, { error: 'numero requis' })
-      try {
-        const g = await compilerFichierGlobal(keys, numero, {
-          pochette: url.searchParams.get('pochette') || undefined,
-          theme: url.searchParams.get('theme') || undefined,
-        })
-        await audit(keys, 'fichier_global', { numero: g.dossier, theme: g.theme, pieces: g.stats.pieces, caracteres: g.stats.caracteres }).catch(() => {})
-        return json(res, 200, { dossier: g.dossier, theme: g.theme, themes: g.themes, stats: g.stats, sommaire: g.sommaire, texte: g.texte })
-      } catch (e) {
-        return json(res, 500, { error: String(e?.message || e).slice(0, 300) })
-      }
-    }
-
-    if (route === 'GET /dossier-redaction') {
-      // DOSSIER DE RÉDACTION : une archive .zip prête à verser dans un projet
-      // Claude web — fichier global, trames et skills applicables à l'acte
-      // visé, documents ★ de la base de connaissances, actes précédents du
-      // même type, instructions du projet, LISEZMOI.
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      const numero = url.searchParams.get('numero') || ''
-      if (!numero) return json(res, 400, { error: 'numero requis' })
-      try {
-        const r = await dossierRedaction(keys, numero, { acte: url.searchParams.get('acte') || '' })
-        await audit(keys, 'dossier_redaction', { numero: r.dossier, acte: r.acte || undefined, fichiers: r.fichiers.length, octets: r.zip.length }).catch(() => {})
-        res.writeHead(200, {
-          'content-type': 'application/zip',
-          'content-length': String(r.zip.length),
-          'x-siral-nom': encodeURIComponent(r.nom),
-          'x-siral-fichiers': encodeURIComponent(JSON.stringify(r.fichiers)),
-        })
-        return res.end(r.zip)
-      } catch (e) {
-        return json(res, 500, { error: String(e?.message || e).slice(0, 300) })
-      }
-    }
-
-    if (route === 'GET /stats-graphique') {
-      // Un graphique statistique (PNG + données), régénéré à la demande avec
-      // les MÊMES règles et couleurs que la page Statistiques — sert à
-      // remplacer les marqueurs [GRAPHIQUE : …] des bilans à l'export PDF/Word.
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      try {
-        const { titre, note, donnees, png } = genererGraphique(keys, {
-          graphique: url.searchParams.get('graphique') || '',
-          du: url.searchParams.get('du') || undefined,
-          au: url.searchParams.get('au') || undefined,
-        })
-        return json(res, 200, { titre, note, donnees, png: png.toString('base64') })
-      } catch (e) {
-        return json(res, 400, { error: String(e?.message || e) })
-      }
-    }
-
     if (route === 'POST /cotes') {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
@@ -1922,14 +1169,6 @@ const server = http.createServer(async (req, res) => {
       return json(res, out.ok ? 200 : 400, out)
     }
 
-    if (route === 'GET /inbox') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      return json(res, 200, { messages: listInbox(keys) })
-    }
-
-    // Le catalogue des prompts métier (socles intégrés) — servi au panneau
-    // d'administration pour que le magistrat voie ce qu'il complète ou remplace.
     if (route === 'GET /consignes-catalogue') {
       return json(res, 200, { catalogue: catalogueAvecSocles() })
     }
@@ -1972,17 +1211,6 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Vider la boîte : les messages traités (défaut) ou tout (mode=tous).
-    if (route === 'DELETE /inbox') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
-      const mode = url.searchParams.get('mode') === 'tous' ? 'tous' : 'traites'
-      return json(res, 200, await purgeInbox(keys, { mode }))
-    }
-
-    // ── Relais d'écriture des collections (trames, skills, kb) ──
-    // L'app web écrit d'abord elle-même sur le volume partagé ; quand son
-    // utilisateur non-root se heurte à un répertoire créé par le service
-    // (EACCES), elle relaie ici — le service écrit la même enveloppe opaque.
     if (route === 'PUT /collection') {
       const body = await readBody(req, 4 * 1024 * 1024)
       const env = body.envelope
@@ -2039,88 +1267,6 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    if (route === 'GET /conversations') {
-      return json(res, 200, { conversations: listConversations() })
-    }
-
-    if (route === 'GET /conversation') {
-      const id = url.searchParams.get('id') || ''
-      const envelope = readConversationEnvelope(id)
-      return envelope ? json(res, 200, { envelope }) : json(res, 404, { error: 'Introuvable' })
-    }
-
-    if (route === 'DELETE /conversation') {
-      const id = url.searchParams.get('id') || ''
-      return json(res, 200, { ok: deleteConversation(id) })
-    }
-
-    if (route === 'POST /chat') {
-      const keys = loadKeyring()
-      if (!keys) return json(res, 409, { error: 'Trousseau non remis — remettez les clés depuis Paramètres → Attaché' })
-      const body = await readBody(req)
-      const message = String(body.message || '').slice(0, 100_000)
-      if (!message.trim()) return json(res, 400, { error: 'Message vide' })
-
-      // Chat rattaché à un dossier précis (chat flottant) : on injecte le
-      // contexte au PREMIER message de la conversation, pour cadrer l'agent
-      // sans le répéter à chaque tour.
-      let prompt = message
-      if (body.carto && !body.convId) {
-        prompt = promptConsigne(keys, 'carto_chat', {
-          entete: 'CONTEXTE : le magistrat te consulte depuis le module CARTOGRAPHIE (vue réseau des personnes et affaires du contentieux).',
-          donnees: ['', `Question du magistrat : ${message}`],
-        })
-      } else if (body.dossier && !body.convId) {
-        const cadre = body.cadre === 'instruction' ? 'à l\'instruction' : 'en enquête préliminaire'
-        const memoire = readDossierMemory(keys, String(body.dossier))
-        prompt = [
-          `CONTEXTE : le magistrat te consulte sur le dossier « ${String(body.dossier).slice(0, 80)} » (${cadre}), depuis le chat flottant ouvert sur ce dossier.`,
-          'Sauf mention contraire, TOUTES ses questions portent sur ce dossier. Commence par lire_dossier (aperçu compact : objet, parties, actes + échéances, index des CR). Pour une donnée PRÉCISE (un propriétaire, une date, une échéance, une ligne), NE relis pas tout : cible-la — lire_dossier section:"fiche" cible:"<nom/ligne>", section:"cr" offset/limit pour un CR entier, ou lire_document sur une pièce. Pour LOCALISER une information dans les PIÈCES (« où parle-t-on de… », un nom, un numéro, une plaque) : registre_lire numero filtre:"…" (sommaire pièce par pièce — type, date, personnes, entités, résumé) puis pieces_chercher pour le texte intégral — les deux à coût nul, chemins + extraits en main ; relance pieces_chercher si des pièces restent nonExtraites. diagnostic_dossier, chronologie_lire, verifier_completude selon le besoin.',
-          'RÔLE — aide au contrôle et à la maîtrise : surveiller la direction d\'enquête (éparpillement des enquêteurs : partent-ils dans tous les sens ?), la cohérence entre actes demandés et réalisés, et LES DÉLAIS (en préliminaire, les TSE sont enserrés dans des délais courts — 2 mois typiquement — qui contraignent l\'action ; signale tout risque de dépassement et son incidence).',
-          'Réponses concises, factuelles, chiffrées, orientées décision. Tu peux déposer des propositions (proposer_mec/acte/cr) mais tu n\'écris jamais directement au dossier sans instruction explicite.',
-          'CANTONNEMENT : tu es l\'attaché de CE dossier et tu deviens progressivement SON expert. Les outils transversaux (carto_*, lister_dossiers, recoupements hors dossier) ne servent que sur demande EXPLICITE du magistrat. S\'il veut comparer ou relier ce dossier à d\'autres : pieces_chercher SANS numero (tout le fonds), registre_recouper numero:"<ce dossier>", recoupements_lire numero:"<ce dossier>".',
-          'TRAVAIL DE FOND : dossier_global (toutes les pièces en texte, classées par thème, avec le registre en tête) ; pour LOCALISER, pieces_chercher ou registre_lire, puis lire_document pour lire la pièce EN ENTIER avant de conclure — un extrait ne suffit pas.',
-          'MÉMOIRE DU DOSSIER : ci-dessous l\'essentiel retenu. Deux registres, à respecter strictement — « [fait] … (cote) » : un élément du dossier, TOUJOURS coté ; « [échange] JJ/MM/AAAA — … » : une position, décision ou orientation exprimée par le magistrat, datée. Ne sers JAMAIS un [échange] comme un fait établi : c\'est un souvenir de conversation, à rappeler comme tel (« on en avait parlé : … »). Quand un échange apporte du neuf, ajoute UNE ligne télégraphique du bon registre avec memoire_dossier_noter. Reste bref : cette mémoire est volontairement petite.',
-          memoire ? `--- mémoire du dossier ---\n${memoire}\n--- fin ---` : '(mémoire du dossier vide pour l\'instant)',
-          '',
-          `Question du magistrat : ${message}`,
-        ].join('\n')
-      }
-
-      res.writeHead(200, {
-        'content-type': 'text/event-stream; charset=utf-8',
-        'cache-control': 'no-cache, no-transform',
-        connection: 'keep-alive',
-        'x-accel-buffering': 'no',
-      })
-      const send = (ev) => { try { res.write(`data: ${JSON.stringify(ev)}\n\n`) } catch {} }
-      const heartbeat = setInterval(() => { try { res.write(': ping\n\n') } catch {} }, 15_000)
-      // Si le navigateur se déconnecte en cours de run (onglet fermé, veille
-      // iPhone), le heartbeat continuait d'écrire toutes les 15 s dans une
-      // socket morte jusqu'à la fin du run (jusqu'à 20 min) : on coupe le timer
-      // dès la fermeture. Le run, lui, va au bout pour déposer ses propositions.
-      req.on('close', () => clearInterval(heartbeat))
-
-      await audit(keys, 'chat_message', { convId: body.convId || '(nouvelle)', dossier: body.dossier || null, carto: Boolean(body.carto), apercu: message.slice(0, 200) })
-      const result = await runAgent({
-        keys,
-        prompt,
-        convId: body.convId || undefined,
-        title: body.carto ? 'Cartographie' : body.dossier ? `Dossier ${body.dossier}` : undefined,
-        runLabel: body.carto ? 'chat-carto' : body.dossier ? 'chat-dossier' : 'chat',
-        onEvent: send,
-        model: body.model,
-        effort: body.effort,
-        // Le chat carto peut déclencher une analyse transversale (sous-agents
-        // sur des dizaines de dossiers) : plafond de durée élargi, sinon le run
-        // est tué à 20 min avant de déposer ses propositions.
-        ...(body.carto ? { timeoutMs: CARTO_CHAT_TIMEOUT_MS, mcpToolTimeoutMs: CARTO_CHAT_TIMEOUT_MS - 120_000 } : {}),
-      })
-      clearInterval(heartbeat)
-      send({ type: 'final', convId: result.convId, ok: result.ok, error: result.error, replace: result.replace })
-      return res.end()
-    }
-
     return json(res, 404, { error: 'Route inconnue' })
   } catch (e) {
     console.error('[attache]', e)
@@ -2149,7 +1295,6 @@ if (!bridgeSecret()) {
 
 server.listen(PORT, () => {
   console.log(`[attache] service prêt sur :${PORT} — TJ ${attacheTj()}, contentieux ${attacheContentieux()}`)
-  console.log(`[attache] relève boîte toutes les ${POLL_MINUTES} min`)
 })
 
 // Les travaux du tick sont ÉTALÉS dans la fenêtre (au lieu de partir tous en
@@ -2162,10 +1307,6 @@ const decale = (ms, nom, libelle, fn) => {
   }, ms)
 }
 setInterval(() => {
-  decale(0, 'releve', 'relève boîte mail', () => pollOnce())
-  decale(5_000, 'routines', 'routines planifiées', () => maybeDueRoutines())
-  decale(10_000, 'apprentissage', 'apprentissage planifié', () => maybeScheduledApprentissage())
-  decale(15_000, 'etude', 'étude planifiée', () => maybeScheduledEtude())
   decale(20_000, 'flux', 'flux tendu (file d\'attente)', () => fluxTick())
   decale(30_000, 'ingestion', 'ingestion des pièces', () => maybeIngest())
   decale(90_000, 'registre', 'mini-fiches du registre', () => maybeRegistreFiches())
@@ -2175,6 +1316,4 @@ setInterval(() => {
   decale(120_000, 'recoupements', 'recoupements entre dossiers', () => maybeRecoupements())
   decale(150_000, 'global', 'fichiers globaux', () => maybeGlobaux())
 }, POLL_MINUTES * 60 * 1000)
-// première relève 20 s après le démarrage (laisse le réseau docker s'établir)
-setTimeout(() => { pollOnce('démarrage').catch(() => {}) }, 20_000)
 writeState({ startedAt: new Date().toISOString() }).catch(() => {})

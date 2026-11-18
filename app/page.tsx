@@ -193,7 +193,7 @@ import { AuditLogger } from '@/utils/auditLogger';
 
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
 
-// Rapprochement souple d'un numéro de dossier : règle PARTAGÉE avec le service et syncProductionActe —
+// Rapprochement souple d'un numéro de dossier : règle PARTAGÉE avec le service —
 // voir utils/numeroDossier.ts (normNumero, numerosProches, findEnqueteParNumero).
 
 function AppContent() {
@@ -1437,7 +1437,7 @@ function AppContent() {
   const handleOpenDossierByNumero = useCallback((numero: string) => {
     if (!normNumero(numero)) return;
     for (const [ctxId, list] of overboardData) {
-      // Même règle de rapprochement que le service et que syncProductionActe :
+      // Même règle de rapprochement que le service :
       // parmi plusieurs candidates (« …GRIVESNES » / « …GRIVESNES 2 »), la
       // plus vraisemblable — et non la première venue.
       const found = findEnqueteParNumero(list, numero);

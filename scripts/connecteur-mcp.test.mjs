@@ -141,14 +141,6 @@ try {
   const instr = await mcp({ jsonrpc: '2.0', id: 32, method: 'tools/call', params: { name: 'instructions_projet_lire', arguments: {} } })
   attendu('instructions_projet_lire rend le squelette par défaut', (instr.body?.result?.content?.[0]?.text || '').includes('Instructions du projet Claude web'))
 
-  // ── dossier de rédaction : l'archive .zip que le projet Claude web attend
-  const zipRes = await fetch(`http://127.0.0.1:${PORT}/dossier-redaction?numero=${encodeURIComponent('2026/000123 - RESEAU TEST')}&acte=${encodeURIComponent('réquisitoire définitif')}`, { headers: { 'x-attache-secret': BRIDGE } })
-  const zipBuf = Buffer.from(await zipRes.arrayBuffer())
-  let zipFichiers = []
-  try { zipFichiers = JSON.parse(decodeURIComponent(zipRes.headers.get('x-siral-fichiers') || '[]')) } catch { /* en-tête absent */ }
-  attendu('dossier de rédaction : zip valide', zipRes.status === 200 && zipRes.headers.get('content-type') === 'application/zip' && zipBuf.subarray(0, 2).toString('binary') === 'PK', `${zipRes.status} ${zipRes.headers.get('content-type')} ${zipBuf.length} octets`)
-  attendu('dossier de rédaction : LISEZMOI, fichier global et instructions du projet', zipFichiers.includes('LISEZMOI.md') && zipFichiers.some((f) => f.startsWith('GLOBAL_')) && zipFichiers.includes('INSTRUCTIONS-PROJET.md'), zipFichiers.join(', '))
-
   // ── écriture : ajouter_todo — versionnée, auditée sous contexte « connecteur »
   const todo = await mcp({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'ajouter_todo', arguments: { numero: '2026/000123 - RESEAU TEST', texte: 'Vérifier la ligne du connecteur' } } })
   attendu('ajouter_todo sans erreur', todo.status === 200 && !todo.body?.result?.isError, JSON.stringify(todo.body).slice(0, 200))

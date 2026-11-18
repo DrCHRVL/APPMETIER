@@ -1,5 +1,4 @@
 'use client';
-import { estSuperAdmin } from '@/lib/web/identite';
 
 import React, { useState } from 'react';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
@@ -13,7 +12,6 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { CopyButton } from '../ui/CopyButton';
 import { useToast } from '@/contexts/ToastContext';
-import { ProductionsSection } from '../attache/ProductionsSection';
 import { DmlArchiveSection } from '../instruction/DmlArchiveSection';
 import { DossierCompletSection } from '../instruction/DossierCompletSection';
 import { useInstructionCabinets } from '@/hooks/useInstructionCabinets';
@@ -1006,10 +1004,6 @@ export const InstructionDetailModal = ({
                   <DossierCompletSection numero={dossier.numeroInstruction || dossier.numeroParquet || ''} />
                 )}
 
-                {/* Atelier des actes rédigés (attaché IA) — admin only. */}
-                {estSuperAdmin() && (dossier.numeroInstruction || dossier.numeroParquet) && (
-                  <ProductionsSection numero={dossier.numeroInstruction || dossier.numeroParquet || ''} />
-                )}
               </div>
             </div>
           )}

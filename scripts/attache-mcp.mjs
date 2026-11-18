@@ -34,7 +34,6 @@ import { creerInterrogation, arreterInterrogation, sommaireInterrogations, detai
 import { detailRapport } from './attache/rapport.mjs'
 import { detecterPiecesMalClassees } from './attache/classement.mjs'
 import { piecesIntrouvables, rattacherPieces } from './attache/piecesIntrouvables.mjs'
-import { listRoutines, upsertRoutine, deleteRoutine } from './attache/routines.mjs'
 import { searchNatinf } from './attache/natinf.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { saveTrame, listTrames, readTrame, setTrameDescription, safeTrameName, MODELE_PREFIX } from './attache/trames.mjs'
@@ -45,7 +44,7 @@ import { listInstructionDossiers, instructionDossierMarkdown } from './attache/i
 import { modifierDossierInstruction, elementInstruction, misEnExamenInstruction, COLLECTIONS_INSTRUCTION } from './attache/instruEcriture.mjs'
 import { enregistrerAudience, resultatAudienceMarkdown, ISSUES_AUDIENCE, DECISIONS_AUDIENCE } from './attache/audience.mjs'
 import { listerEntraide, lireEntraide, statsEntraide, referentielEntraide, creerEntraide, importerEntraide, modifierEntraide, completerEntraide, evenementEntraide, autoriteEntraide, EVENEMENTS_ENTRAIDE } from './attache/entraide.mjs'
-import { listDepot, readDepotText, readMailPieceText, rangerDocument, rangerPieceDansKb, verserDocumentCarto, ecarterDepot, ZONES } from './attache/depot.mjs'
+import { listDepot, readDepotText, rangerDocument, rangerPieceDansKb, verserDocumentCarto, ecarterDepot, ZONES } from './attache/depot.mjs'
 import { addProposition, listPropositions, modifierProposition, retirerProposition } from './attache/propositions.mjs'
 import { lireRegistre, recouperRegistres } from './attache/registre.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
@@ -59,7 +58,6 @@ import { appendMemory, rewriteMemory, memoryStats, MEMORY_BUDGET } from './attac
 import { recordLearningSignal, pendingSignals, learningState, learningMetrics, metricsSummary } from './attache/apprentissage.mjs'
 import { readConversation } from './attache/agent.mjs'
 import { controlerProduction } from './attache/qualite.mjs'
-import { listInbox, readInboxMessage, markInboxProcessed } from './attache/mail.mjs'
 import { bilanStatistiques } from './attache/statistiques.mjs'
 import { genererGraphique, genererGraphiques, GRAPHIQUES } from './attache/statsGraphiques.mjs'
 import { ecranStatistiques, anneesDisponibles } from './attache/statsEcran.mjs'
@@ -150,7 +148,6 @@ const OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME = new Set([
   'instru_modifier_dossier', 'instru_element', 'instru_mis_en_examen',
   'entraide_creer', 'entraide_modifier', 'entraide_completer', 'entraide_evenement', 'entraide_autorite', 'entraide_importer',
   'actualiser_description', 'ranger_document', 'carto_verser_document', 'depot_ecarter',
-  'routine_enregistrer', 'routine_suspendre', 'routine_supprimer',
   'instructions_projet_enregistrer',
 ])
 
@@ -547,43 +544,6 @@ const TOOLS = [
       required: ['numero', 'codes'],
     },
     handler: async (a) => ajouterNatinfs(keys, a),
-    write: true,
-  },
-  {
-    name: 'boite_lister',
-    description: 'Liste la boîte mail dédiée (messages transférés par le magistrat) : id, expéditeur, sujet, traité ou non.',
-    inputSchema: { type: 'object', properties: {} },
-    handler: async () => listInbox(keys),
-  },
-  {
-    name: 'boite_lire',
-    description: 'Lit un message de la boîte : consigne du magistrat (corps du transfert), texte du mail d\'origine, liste des pièces jointes.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
-    handler: async (a) => {
-      const rec = readInboxMessage(keys, a.id)
-      if (!rec) return { erreur: 'Message introuvable' }
-      return { ...rec, attachments: (rec.attachments || []).map(({ b64, ...meta }) => meta) }
-    },
-  },
-  {
-    name: 'boite_lire_piece',
-    description: 'Lit le TEXTE d\'une pièce jointe d\'un mail transféré (PDF — OCR de secours si scan —, ODT/DOCX/RTF, texte/HTML, classeurs Excel XLSX/XLS/ODS rendus en tableaux markdown feuille par feuille) pour l\'IDENTIFIER ou la CLASSER avant de la ranger. Sortie bornée (défaut ~12 000 caractères : c\'est une aide à la lecture, pas le stockage). Un scan illisible ou un type non textuel est signalé — ne devine alors jamais le contenu. Pour ranger la pièce : au dossier → ranger_document (source mail) ; à la base de connaissances → kb_ranger_piece.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Identifiant du message (boite_lister)' },
-        piece: { type: 'string', description: 'Nom exact de la pièce jointe (boite_lire)' },
-        max: { type: 'number', description: 'Longueur maximale du texte retourné (défaut 12000)' },
-      },
-      required: ['id', 'piece'],
-    },
-    handler: async (a) => readMailPieceText(keys, { mailId: a.id, piece: a.piece, max: a.max }),
-  },
-  {
-    name: 'boite_marquer_traite',
-    description: 'Marque un message comme traité, avec un résumé d\'une phrase de ce qui a été fait.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' }, resume: { type: 'string' } }, required: ['id', 'resume'] },
-    handler: async (a) => ({ ok: await markInboxProcessed(keys, a.id, a.resume) }),
     write: true,
   },
   {
@@ -2021,62 +1981,6 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
     description: 'Écarte une pièce du dépôt sans la ranger (doublon, pièce non pertinente) — déplacée en Corbeille/ du dépôt, jamais détruite. Dis toujours au magistrat pourquoi (signaler ou réponse en chat).',
     inputSchema: { type: 'object', properties: { rel: { type: 'string' } }, required: ['rel'] },
     handler: async (a) => ecarterDepot(a.rel),
-    write: true,
-  },
-  {
-    name: 'routine_lister',
-    description: 'Liste les routines enregistrées (consignes récurrentes exécutées automatiquement) : id, nom, cadence (heure quotidienne ou intervalle en heures), actif, dernière exécution. À consulter avant d\'en créer une (pas de doublon) et pour répondre à « quelles sont mes routines ? ».',
-    inputSchema: { type: 'object', properties: {} },
-    handler: async () => ({
-      routines: listRoutines(keys).map((r) => ({
-        id: r.id, nom: r.nom, heure: r.heure, intervalleHeures: r.intervalleHeures,
-        actif: r.actif, lastRunAt: r.lastRunAt, lastRunOk: r.lastRunOk,
-        prompt: String(r.prompt || '').slice(0, 400),
-      })),
-    }),
-  },
-  {
-    name: 'routine_enregistrer',
-    description: 'Crée ou met à jour une ROUTINE — quand le magistrat te confie une tâche RÉCURRENTE en conversation (« chaque matin vérifie… », « toutes les semaines fais le point… », « chaque nuit analyse… ») : c\'est TOI qui l\'enregistres, au lieu de lui demander d\'ouvrir Paramètres. Rédige le prompt de la routine comme une consigne AUTONOME et précise (le run ne verra pas cette conversation) : quoi faire, sur quels dossiers, où remettre le travail (signaler pour une carte au fil « pendant votre absence », remettre_livrable pour une remise, proposer_* pour une écriture à valider). heure « HH:MM » pour une quotidienne, OU intervalleHeures. Pour une tâche lourde (balayage de tous les dossiers), préfère une heure de NUIT. id pour modifier une routine existante (routine_lister). Confirme au magistrat ce que tu as enregistré (nom + cadence).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'id d\'une routine existante à modifier (sinon création)' },
-        nom: { type: 'string', description: 'Nom court (ex: « Point hebdo échéances »)' },
-        prompt: { type: 'string', description: 'La consigne complète et autonome exécutée à chaque échéance' },
-        heure: { type: 'string', description: 'HH:MM pour une routine quotidienne (ex: 22:30 pour la nuit)' },
-        intervalleHeures: { type: 'number', description: 'OU toutes les N heures (1-168)' },
-        actif: { type: 'boolean', description: 'Défaut true' },
-      },
-      required: ['nom', 'prompt'],
-    },
-    handler: async (a) => upsertRoutine(keys, { ...a, actif: a.actif !== false }),
-    write: true,
-  },
-  {
-    name: 'routine_suspendre',
-    description: 'Suspend (actif:false) ou réactive (actif:true) une routine existante, sans la supprimer — quand le magistrat dit « mets en pause la routine X » / « relance-la ».',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'id de la routine (routine_lister)' },
-        actif: { type: 'boolean', description: 'false = suspendre, true = réactiver' },
-      },
-      required: ['id', 'actif'],
-    },
-    handler: async (a) => {
-      const r = listRoutines(keys).find((x) => x.id === a.id)
-      if (!r) throw new Error('Routine inconnue — voir routine_lister')
-      await upsertRoutine(keys, { ...r, actif: a.actif === true })
-      return { id: r.id, nom: r.nom, actif: a.actif === true }
-    },
-    write: true,
-  },
-  {
-    name: 'routine_supprimer',
-    description: 'Supprime une routine — UNIQUEMENT sur demande explicite du magistrat (« supprime la routine X »). Pour arrêter temporairement : routine_suspendre.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
-    handler: async (a) => deleteRoutine(keys, a.id),
     write: true,
   },
   {
