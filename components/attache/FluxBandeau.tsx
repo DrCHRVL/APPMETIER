@@ -27,6 +27,8 @@ interface Bilan {
   numero: string; at: string; pieces?: number; enAttente?: number; crs?: number; actes?: number;
   crEcrit?: number; mecProposes?: number; actesProposes?: number; descriptionChangee?: boolean;
   run?: boolean; massif?: boolean; differe?: boolean; message?: string; erreur?: string;
+  /** Contrôles de cohérence des pièces versées (incohérences, chaîne légale). */
+  alertes?: string[];
 }
 interface Etat { attente: Attente | null; enCours: boolean; dernier: Bilan | null }
 
@@ -46,7 +48,9 @@ function causeLisible(raisons: string[]): string {
 function ilYA(iso: string): string {
   const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
   if (min < 1) return "à l'instant";
-  return `il y a ${min} min`;
+  if (min < 60) return `il y a ${min} min`;
+  if (min < 48 * 60) return `il y a ${Math.floor(min / 60)} h`;
+  return `il y a ${Math.floor(min / 1440)} j`;
 }
 
 export function FluxBandeau({ numero }: { numero: string }) {
@@ -96,7 +100,21 @@ export function FluxBandeau({ numero }: { numero: string }) {
 
   const { attente, enCours, dernier } = etat;
   const bilanFrais = dernier && Date.now() - new Date(dernier.at).getTime() < BILAN_FRAIS_MS ? dernier : null;
-  if (!attente && !enCours && !bilanFrais) return null;
+  // Les contrôles de cohérence restent affichés jusqu'au passage suivant.
+  const alertes = dernier?.alertes?.length ? dernier.alertes : null;
+  if (!attente && !enCours && !bilanFrais && !alertes) return null;
+  const alertesBloc = alertes && (
+    <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50/70 px-2.5 py-1.5">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-800">
+        <AlertTriangle className="h-3 w-3" />
+        Contrôles de cohérence des pièces versées ({ilYA(dernier!.at)})
+      </div>
+      <ul className="mt-0.5 space-y-0.5 pl-4 text-[11px] leading-snug text-amber-900">
+        {alertes.map((a, i) => <li key={i}>{a}</li>)}
+      </ul>
+    </div>
+  );
+  if (!attente && !enCours && !bilanFrais) return alertesBloc;
 
   let Icone = Clock;
   let ton = 'border-slate-200 bg-slate-50/60';
@@ -159,6 +177,7 @@ export function FluxBandeau({ numero }: { numero: string }) {
         <span className="text-[10.5px] text-gray-400">visible de vous seul</span>
       </div>
       {detail && <p className="mt-0.5 pl-5 text-[11px] leading-snug text-gray-500">{detail}</p>}
+      {alertes && alertesBloc}
     </div>
   );
 }

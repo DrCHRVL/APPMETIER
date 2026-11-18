@@ -3,7 +3,7 @@
 /**
  * SIRAL — Attaché de justice · panneau d'administration.
  *
- * - État du service (clé-maître, trousseau, Claude Code, boîte mail).
+ * - État du service (clé-maître, trousseau, Claude Code).
  * - Remise des clés : depuis CE navigateur déverrouillé, les clés brutes des
  *   seuls périmètres confiés partent en HTTPS vers le service attaché, qui
  *   les enveloppe aussitôt avec sa clé-maître. L'app ne les stocke jamais.
@@ -11,7 +11,7 @@
  * - Journal d'audit : chaque action de l'attaché, déchiffrée ici.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Wifi, Gauge, Leaf, Link2, Copy } from 'lucide-react';
+import { Scale, KeyRound, ShieldOff, RefreshCw, CheckCircle2, XCircle, Loader2, ScrollText, AlarmClock, Play, Trash2, Plus, SlidersHorizontal, Globe, PenLine, Sparkles, BookOpen, UploadCloud, AlertTriangle, Wifi, Gauge, Leaf, GraduationCap, Link2, Copy } from 'lucide-react';
 import { AttacheSante } from './AttacheSante';
 import { MODEL_OPTIONS, EFFORT_OPTIONS, SUBMODEL_OPTIONS, PLAN_PRESETS, AttacheConfig, saveAttacheConfig, formatTokens, formatCostEur } from '../attache/modelOptions';
 import { fileToMarkdown, titreDepuisFichier, decodeText } from '@/lib/web/fileToMarkdown';
@@ -38,6 +38,11 @@ function bridgeFn(name: string): AnyFn {
 }
 
 interface AuditEntry { action: string; at?: string; outil?: string; contexte?: string; [k: string]: unknown }
+
+interface Routine {
+  id: string; nom: string; prompt: string; heure?: string; intervalleHeures?: number;
+  actif: boolean; lastRunAt?: string; lastRunOk?: boolean | null;
+}
 
 interface Skill { nom: string; fileId?: string; description?: string; contenu: string; updatedAt?: string }
 interface Trame { nom: string; fileId?: string; description?: string; contenu: string; updatedAt?: string }
@@ -108,9 +113,9 @@ function UsageGauge({ label, hint, total, cap }: { label: string; hint: string; 
 }
 
 const USAGE_CATS: Record<string, { label: string; color: string }> = {
-  conversations: { label: 'Vos conversations', color: '#2B5746' },
+  conversations: { label: 'Analyses de la carte (et anciennes conversations)', color: '#2B5746' },
   'sous-agents': { label: 'Sous-agents (lots parallèles)', color: '#b45309' },
-  mails: { label: 'Mails traités automatiquement', color: '#0e7490' },
+  mails: { label: 'Mails (retiré)', color: '#0e7490' },
   brief: { label: 'Brief quotidien (retiré)', color: '#6d28d9' },
   routines: { label: 'Routines', color: '#be185d' },
   classements: { label: 'Classements (trames, base)', color: '#4b5563' },
@@ -125,6 +130,43 @@ function srcLabelOf(k?: string): string {
   const key = !k || k === 'autre' ? 'autres' : k;
   return (USAGE_CATS[key] || USAGE_CATS.autres).label;
 }
+
+/** Fenêtre de progression mesurée (30 j) — agrégats de signaux, aucun LLM. */
+interface ApprFenetre {
+  validees: number; refusees: number; revisions: number; editionsMain: number;
+  portes: number; lecons: number; corrections: number; tauxAcceptation: number | null;
+}
+
+/** Statut de l'apprentissage progressif (GET /api/attache/apprentissage). */
+interface ApprStatus {
+  keyring?: boolean;
+  pending?: number | null;
+  parType?: Record<string, number>;
+  memoire?: { chars: number; budget: number; over: boolean } | null;
+  progression?: { j30: ApprFenetre; j30prec: ApprFenetre };
+  lastRunAt?: string | null;
+  lastRunOk?: boolean | null;
+  lastTrigger?: string | null;
+  seuilSignaux?: number;
+  cadenceJours?: number;
+  due?: string | null;
+  running?: boolean;
+  etude?: {
+    corpus: number; dossiers: number; nouveaux: number; seuil: number; cadenceJours: number;
+    lastRunAt?: string | null; lastRunOk?: boolean | null; running?: boolean;
+  };
+}
+
+/** Libellés lisibles des types de signaux d'apprentissage. */
+const SIGNAL_LABELS: Record<string, string> = {
+  proposition_refusee: 'propositions refusées ✗',
+  proposition_validee: 'propositions validées ✓',
+  acte_revise: 'actes révisés',
+  acte_edite_main: 'actes corrigés à la main',
+  lecon: 'leçons notées',
+  garde_qualite: 'portes de qualité déclenchées',
+  correction_conversation: 'corrections repérées en conversation',
+};
 
 /** Proposition d'amélioration d'une trame/skill du magistrat, en attente de ✓/✗. */
 interface MethodProp {
@@ -214,6 +256,22 @@ function MethodPropDiff({ actuel, propose }: { actuel: string; propose: string }
   );
 }
 
+/** Une tuile de progression : valeur sur 30 j, flèche face aux 30 j précédents. */
+function ProgressionTile({ label, now, before, invert = false, unit = '' }: { label: string; now: number | null; before: number | null; invert?: boolean; unit?: string }) {
+  const delta = now != null && before != null ? now - before : null;
+  // invert : pour les compteurs d'erreurs, BAISSER est un progrès
+  const good = delta == null || delta === 0 ? null : (invert ? delta < 0 : delta > 0);
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
+      <div className="text-[10px] uppercase tracking-wide text-gray-400">{label}</div>
+      <div className="text-sm font-semibold text-gray-800">{now == null ? '—' : `${now}${unit}`}</div>
+      <div className="text-[10px]" style={{ color: good == null ? '#9ca3af' : good ? '#059669' : '#d97706' }}>
+        {delta == null ? '30 j précédents : n/a' : delta === 0 ? 'stable vs 30 j précédents' : `${delta > 0 ? '+' : ''}${delta}${unit} vs 30 j précédents`}
+      </div>
+    </div>
+  );
+}
+
 export function AdminAttachePanel() {
   const [status, setStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -221,6 +279,9 @@ export function AdminAttachePanel() {
   const [notice, setNotice] = useState<string | null>(null);
   const [audit, setAudit] = useState<Array<AuditEntry & { ts: number }>>([]);
   const [showAudit, setShowAudit] = useState(false);
+  const [routines, setRoutines] = useState<Routine[]>([]);
+  const [showRoutineForm, setShowRoutineForm] = useState(false);
+  const [rForm, setRForm] = useState({ nom: '', prompt: '', heure: '07:00', mode: 'heure' as 'heure' | 'intervalle', intervalleHeures: 4 });
   const [config, setConfig] = useState<AttacheConfig>({});
   const [usage, setUsage] = useState<any>(null);
   const [governor, setGovernor] = useState<any>(null);
@@ -374,7 +435,7 @@ export function AdminAttachePanel() {
     } catch { setConnMsg('Copie refusée par le navigateur — sélectionnez l\'URL à la main.'); }
   }, [conn]);
 
-  /** Modèle / effort / web : appliqué à TOUS les runs (chat, mails, routines). */
+  /** Modèle / effort / web : appliqué à TOUS les runs (actualisations, carte, routines…). */
   const updateConfig = useCallback(async (patch: AttacheConfig) => {
     const next = { ...config, ...patch };
     setConfig(next);
@@ -399,6 +460,42 @@ export function AdminAttachePanel() {
 
   useEffect(() => { loadUsage(); }, [loadUsage]);
 
+  // ── Apprentissage progressif : signaux captés, consolidation de la mémoire ──
+  const [appr, setAppr] = useState<ApprStatus | null>(null);
+  const [apprLoading, setApprLoading] = useState(false);
+  const [apprMsg, setApprMsg] = useState<string | null>(null);
+
+  const loadAppr = useCallback(async () => {
+    setApprLoading(true);
+    try {
+      const res = await fetch('/api/attache/apprentissage');
+      if (res.ok) setAppr((await res.json()).apprentissage || null);
+    } catch { /* silencieux : statut secondaire */ } finally {
+      setApprLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadAppr(); }, [loadAppr]);
+
+  const runAppr = useCallback(async (action: 'consolidation' | 'etude' = 'consolidation') => {
+    setApprMsg(null);
+    try {
+      const res = await fetch('/api/attache/apprentissage', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json().catch(() => ({} as { ok?: boolean; error?: string }));
+      setApprMsg(res.ok && data.ok
+        ? (action === 'etude'
+          ? 'Étude du corpus lancée — l\'attaché dépouille vos actes signés et ordonnances (sous-agents) ; les modèles extraits (trames « modele-… ») apparaîtront dans la bibliothèque de trames ci-dessous.'
+          : 'Consolidation lancée (run court, modèle économe) — la mémoire est distillée et les révisions de méthode arriveront dans « Propositions de méthode » ci-dessous, à valider ✓/✗.')
+        : `Lancement refusé : ${data.error || res.status}`);
+      setTimeout(loadAppr, 1500);
+    } catch (e) {
+      setApprMsg(`Lancement impossible : ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [loadAppr]);
+
   /** Applique un forfait de référence : remplit les plafonds repères. */
   const applyPlan = useCallback((plan: string) => {
     const preset = PLAN_PRESETS.find((p) => p.value === plan);
@@ -406,6 +503,13 @@ export function AdminAttachePanel() {
     if (plan === 'custom' || plan === '') updateConfig({ plan });
     else updateConfig({ plan, cap5h: preset.cap5h, capHebdo: preset.capHebdo });
   }, [updateConfig]);
+
+  const loadRoutines = useCallback(async () => {
+    try {
+      const res = await fetch('/api/attache/routines');
+      if (res.ok) setRoutines((await res.json()).routines || []);
+    } catch { /* silencieux */ }
+  }, []);
 
   // ── Skills (comme Claude web) : enveloppes déchiffrées dans CE navigateur ──
   // fileId = nom du fichier serveur (clé de suppression) — peut différer du
@@ -513,7 +617,7 @@ export function AdminAttachePanel() {
     }
   }, [loadMethodProps, loadTrames, loadSkills, loadInstrProjet]);
 
-  useEffect(() => { refresh(); loadSkills(); loadTrames(); loadMethodProps(); loadInstrProjet(); }, [refresh, loadSkills, loadTrames, loadMethodProps, loadInstrProjet]);
+  useEffect(() => { refresh(); loadRoutines(); loadSkills(); loadTrames(); loadMethodProps(); loadInstrProjet(); }, [refresh, loadRoutines, loadSkills, loadTrames, loadMethodProps, loadInstrProjet]);
 
   /** Conversion des fichiers choisis en trames — tout se passe dans CE navigateur (E2EE). */
   const stageFiles = useCallback(async (files: FileList | null) => {
@@ -575,7 +679,7 @@ export function AdminAttachePanel() {
       }).catch(() => null);
       setNotice(
         `${savedNoms.length} trame(s) enregistrée(s)${failed.length ? ` — échec : ${failed.join(', ')}` : ''}. ` +
-        (res?.ok ? 'Classement lancé : une description par trame arrivera dans le fil « pendant votre absence » (quelques secondes).'
+        (res?.ok ? 'Classement lancé : une description par trame apparaîtra dans la liste (quelques secondes — actualisez).'
           : 'Classement non lancé (service occupé ou injoignable) — relancez depuis ce panneau.')
       );
     } else {
@@ -670,7 +774,7 @@ export function AdminAttachePanel() {
     }).catch(() => null);
     const data = res ? await res.json().catch(() => ({} as { error?: string })) : { error: 'service injoignable' };
     setNotice(res?.ok
-      ? 'Classement des skills lancé — seules celles sans description sont décrites (le résultat arrive dans le fil « pendant votre absence »).'
+      ? 'Classement des skills lancé — seules celles sans description sont décrites (actualisez la liste dans quelques secondes).'
       : `Classement impossible : ${data.error || 'erreur'}`);
     setSkillAnalyseBusy(false);
   }, [status]);
@@ -696,7 +800,7 @@ export function AdminAttachePanel() {
     }).catch(() => null);
     const data = res ? await res.json().catch(() => ({} as { error?: string })) : { error: 'service injoignable' };
     const msg = res?.ok
-      ? `Classement de ${noms.length} trame(s) lancé — une description par trame ; le résultat arrive dans le fil « pendant votre absence » (quelques secondes).`
+      ? `Classement de ${noms.length} trame(s) lancé — une description par trame (actualisez la liste dans quelques secondes).`
       : `Classement impossible : ${data.error || 'erreur'}`;
     setTrameAnalyseMsg(msg);
     setNotice(msg);
@@ -795,6 +899,54 @@ export function AdminAttachePanel() {
     }
     loadSkills();
   }, [loadSkills]);
+
+  const saveRoutine = useCallback(async () => {
+    if (!rForm.nom.trim() || !rForm.prompt.trim()) return;
+    setWorking('routine');
+    try {
+      const res = await fetch('/api/attache/routines', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          nom: rForm.nom,
+          prompt: rForm.prompt,
+          heure: rForm.mode === 'heure' ? rForm.heure : undefined,
+          intervalleHeures: rForm.mode === 'intervalle' ? rForm.intervalleHeures : undefined,
+          actif: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setShowRoutineForm(false);
+        setRForm({ nom: '', prompt: '', heure: '07:00', mode: 'heure', intervalleHeures: 4 });
+        loadRoutines();
+      } else {
+        setNotice(data.error || 'Enregistrement refusé');
+      }
+    } finally {
+      setWorking(null);
+    }
+  }, [rForm, loadRoutines]);
+
+  const toggleRoutine = useCallback(async (r: Routine) => {
+    await fetch('/api/attache/routines', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...r, actif: !r.actif }),
+    }).catch(() => {});
+    loadRoutines();
+  }, [loadRoutines]);
+
+  const removeRoutine = useCallback(async (id: string) => {
+    if (!window.confirm('Supprimer cette routine ?')) return;
+    await fetch('/api/attache/routines?id=' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {});
+    loadRoutines();
+  }, [loadRoutines]);
+
+  const runRoutineNow = useCallback(async (id: string) => {
+    await fetch('/api/attache/routines?run=' + encodeURIComponent(id), { method: 'POST' }).catch(() => {});
+    setNotice('Routine lancée — ce qu\'elle dépose arrivera en propositions à valider ✓/✗.');
+  }, []);
 
   const grantKeys = useCallback(async () => {
     if (!status?.scopesAttendus?.length) return;
@@ -1383,7 +1535,7 @@ export function AdminAttachePanel() {
         <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
           <SlidersHorizontal className="h-4 w-4 text-[#2B5746]" />
           <span className="text-sm font-semibold text-gray-800">Cerveau</span>
-          <span className="text-[11px] text-gray-400">appliqué à tous les runs — chat, mails, routines</span>
+          <span className="text-[11px] text-gray-400">appliqué à tous les runs — actualisations, carte, routines</span>
         </div>
         <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
           <select
@@ -1464,7 +1616,7 @@ export function AdminAttachePanel() {
             if (!u || !u.entries) {
               return (
                 <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-[12px] text-gray-500">
-                  Aucun run mesuré pour l'instant. Dès que l'attaché travaille (chat, mails, routines, sous-agents),
+                  Aucun run mesuré pour l'instant. Dès que l'attaché travaille (actualisations, carte, routines, sous-agents),
                   sa consommation de jetons s'affiche ici, traduite en pourcentage de votre forfait.
                 </p>
               );
@@ -1500,7 +1652,7 @@ export function AdminAttachePanel() {
                   <p className="rounded-lg border border-red-200 bg-red-50/70 px-3 py-2 text-[11px] leading-relaxed text-red-700">
                     <b>Runs automatiques en pause</b> — forfait saturé ({governor.raison}). Vos routines, l'étude et les
                     routines de fond sont suspendus et repartiront seuls dès que la fenêtre de 5 h sera redescendue.
-                    Vos conversations et le traitement des mails continuent (les sous-agents sont automatiquement bridés).
+                    Vos demandes directes (actualisations, analyses de la carte) continuent (les sous-agents sont automatiquement bridés).
                     {governor.cause === '7j' && (
                       <> Les <b>analyses profondes</b>, elles, ne s'arrêtent pas sur le repère hebdomadaire — un plafond
                       estimé n'annule pas un dépouillement que vous avez validé : elles avancent seulement un lot à la fois.</>
@@ -1683,6 +1835,149 @@ export function AdminAttachePanel() {
         </div>
       </div>
 
+      {/* Apprentissage progressif — signaux captés gratuitement, mémoire consolidée sous budget */}
+      <div className="rounded-xl border border-gray-200">
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <GraduationCap className="h-4 w-4 text-[#2B5746]" />
+          <span className="text-sm font-semibold text-gray-800">Apprentissage</span>
+          <span className="text-[11px] text-gray-400">il apprend de vos corrections — mémoire distillée sous budget</span>
+          <button
+            onClick={loadAppr}
+            disabled={apprLoading}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3 w-3 ${apprLoading ? 'animate-spin' : ''}`} /> Actualiser
+          </button>
+        </div>
+        <div className="space-y-3 p-3">
+          <p className="text-[12px] leading-relaxed text-gray-600">
+            <b>Entièrement automatique — vous n&apos;avez rien à faire.</b> Chaque correction de votre part est
+            captée au vol, <b>sans consommer un seul jeton</b> : proposition refusée ✗ ou validée ✓, acte que
+            l&apos;attaché a dû réviser, acte que vous corrigez à la main, reprise en conversation (« non, refais »,
+            « je t&apos;avais dit… » — repérée d&apos;elle-même). Périodiquement, un <b>run court sur le modèle
+            économe</b> distille ces signaux en règles générales, réécrit sa mémoire <b>sous un budget strict</b> et
+            fait évoluer ses skills — l&apos;attaché s&apos;améliore <b>en faisant baisser</b> la consommation
+            (moins d&apos;erreurs, moins de retouches), pas en l&apos;alourdissant.
+          </p>
+
+          {(() => {
+            const a = appr;
+            if (!a) {
+              return <p className="rounded-lg bg-gray-50 px-3 py-3 text-center text-[12px] text-gray-500">Statut indisponible — service attaché injoignable ?</p>;
+            }
+            const mem = a.memoire;
+            const memPct = mem && mem.budget > 0 ? Math.min(999, Math.round((mem.chars / mem.budget) * 100)) : 0;
+            const types = Object.entries(a.parType || {}).filter(([, n]) => n > 0);
+            return (
+              <>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-400">Signaux à distiller</div>
+                    <div className="text-lg font-bold text-gray-800">{a.keyring === false ? '—' : a.pending ?? 0}</div>
+                    <div className="text-[10px] text-gray-400">consolidation à {a.seuilSignaux ?? 12} signaux, ou tous les {a.cadenceJours ?? 7} j</div>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-400">Dernière consolidation</div>
+                    <div className="text-sm font-semibold text-gray-800">
+                      {a.running ? 'en cours…' : a.lastRunAt ? new Date(a.lastRunAt).toLocaleDateString('fr-FR') : 'jamais'}
+                    </div>
+                    <div className="text-[10px] text-gray-400">
+                      {a.running ? 'run économe lancé' : a.lastRunAt ? (a.lastRunOk === false ? 'échouée — retentera' : 'réussie') : 'rien encore à distiller'}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2 text-center">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-400">Mémoire</div>
+                    <div className="text-sm font-semibold" style={{ color: mem?.over ? '#d97706' : '#1f2937' }}>
+                      {mem ? `${memPct} % du budget` : '—'}
+                    </div>
+                    <div className="text-[10px] text-gray-400">{mem ? `${mem.chars.toLocaleString('fr-FR')} / ${mem.budget.toLocaleString('fr-FR')} caractères` : 'trousseau non remis'}</div>
+                  </div>
+                </div>
+
+                {a.progression && (() => {
+                  const p = a.progression;
+                  const retouches = (f: ApprFenetre) => f.revisions + f.editionsMain;
+                  const aDesDonnees = p.j30.tauxAcceptation != null || retouches(p.j30) + p.j30.portes + p.j30.corrections > 0
+                    || p.j30prec.tauxAcceptation != null || retouches(p.j30prec) + p.j30prec.portes + p.j30prec.corrections > 0;
+                  if (!aDesDonnees) return null;
+                  return (
+                    <div className="space-y-1.5">
+                      <div className="text-[11px] font-semibold text-gray-500">Progression mesurée (30 jours)</div>
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        <ProgressionTile label="Propositions acceptées" now={p.j30.tauxAcceptation} before={p.j30prec.tauxAcceptation} unit=" %" />
+                        <ProgressionTile label="Actes retouchés" now={retouches(p.j30)} before={retouches(p.j30prec)} invert />
+                        <ProgressionTile label="Corrections & portes" now={p.j30.corrections + p.j30.portes} before={p.j30prec.corrections + p.j30prec.portes} invert />
+                      </div>
+                    </div>
+                  );
+                })()}
+                {types.length > 0 && (
+                  <div className="text-[11px] text-gray-500">
+                    En attente : {types.map(([t, n]) => `${n} ${SIGNAL_LABELS[t] || t}`).join(' · ')}
+                  </div>
+                )}
+                {a.due && !a.running && (
+                  <p className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-[11px] text-amber-700">
+                    Consolidation due ({a.due}) — elle partira automatiquement au prochain passage du service.
+                  </p>
+                )}
+              </>
+            );
+          })()}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => runAppr()}
+              disabled={appr?.running === true || appr?.keyring === false}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#234639] disabled:opacity-50"
+              title="Run court sur le modèle économe : distille les signaux et la mémoire, puis dépose une carte « Apprentissage » dans le fil."
+            >
+              {appr?.running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              Consolider maintenant
+            </button>
+            <span className="text-[10.5px] text-gray-400">
+              Optionnel : tout part tout seul (accumulation, budget dépassé, ou au plus tard sous {appr?.cadenceJours ?? 7} jours dès le
+              premier signal) — ce bouton sert seulement à ne pas attendre. La mémoire distillée reste lisible et corrigeable
+              (icône livre du panneau) ; le coût des consolidations apparaît dans « Consommation », poste « Apprentissage ».
+            </span>
+          </div>
+
+          {/* Étude du corpus : vos actes validés (zones Actes/DML) deviennent des modèles */}
+          <div className="rounded-lg border border-gray-100 bg-gray-50/40 p-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-semibold text-gray-600">Étude du corpus d&apos;actes validés</span>
+              <span className="text-[10.5px] text-gray-400">
+                {appr?.etude
+                  ? <>{appr.etude.corpus} acte{appr.etude.corpus > 1 ? 's' : ''} en zones Actes/DML ({appr.etude.dossiers} dossier{appr.etude.dossiers > 1 ? 's' : ''})
+                    {appr.etude.nouveaux > 0 ? <> · <b className="text-gray-600">{appr.etude.nouveaux} nouveau{appr.etude.nouveaux > 1 ? 'x' : ''}</b> depuis la dernière étude</> : null}
+                    {appr.etude.lastRunAt ? <> · dernière étude {new Date(appr.etude.lastRunAt).toLocaleDateString('fr-FR')}{appr.etude.lastRunOk === false ? ' (échouée)' : ''}</> : ' · jamais étudié'}</>
+                  : 'statut indisponible'}
+              </span>
+              <button
+                onClick={() => runAppr('etude')}
+                disabled={appr?.etude?.running === true || appr?.keyring === false}
+                className="ml-auto inline-flex items-center gap-1 rounded-lg border border-[#2B5746]/30 px-2.5 py-1 text-[11px] font-semibold text-[#2B5746] hover:bg-[#2B5746]/5 disabled:opacity-50"
+                title="Dépouille les actes signés et ordonnances JLD téléversés (sous-agents, copies markdown) et en extrait des modèles par type d'acte (trames « modele-… », versionnées)."
+              >
+                {appr?.etude?.running ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                Étudier mes actes maintenant
+              </button>
+            </div>
+            <p className="mt-1.5 text-[10.5px] leading-relaxed text-gray-400">
+              Vos actes téléversés en zones <b>Actes</b> et <b>DML</b> sont des versions <b>validées</b> — vos actes signés, et les
+              ordonnances des JLD qui reprennent ou reformulent vos requêtes. L&apos;attaché les étudie tout seul (à l&apos;arrivée de{' '}
+              {appr?.etude?.seuil ?? 5} nouveaux actes, ou tous les {appr?.etude?.cadenceJours ?? 30} jours s&apos;il y a du nouveau) et en extrait des{' '}
+              <b>modèles par type d&apos;acte</b> (trames « modele-… », anonymisées, versionnées — supprimables d&apos;un geste), plus les exigences de
+              motivation des juges (paires requête ↔ ordonnance). Vos propres trames ne sont jamais modifiées.
+            </p>
+          </div>
+          {appr?.keyring === false && (
+            <p className="text-[11px] text-amber-700">Remettez d&apos;abord les clés à l&apos;attaché (bouton « Remettre les clés » en haut) pour consulter les signaux et consolider.</p>
+          )}
+          {apprMsg && <p className="rounded-lg bg-gray-50 px-3 py-2 text-[11.5px] text-gray-600">{apprMsg}</p>}
+        </div>
+      </div>
+
       {/* Propositions de méthode — trames/skills révisées par l'attaché, appliquées d'un ✓ */}
       {methodProps.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/30">
@@ -1800,7 +2095,7 @@ export function AdminAttachePanel() {
         ) : (
           <p className="px-3 py-3 text-xs text-gray-400">
             Vos consignes libres (l'équivalent de vos instructions Claude web) : style, méthode, réflexes.
-            L'attaché les relit avant chaque chat, mail traité et routine.
+            L'attaché les relit avant chacun de ses runs (actualisations, CR au versement, carte, routines).
           </p>
         )}
       </div>
@@ -1935,7 +2230,7 @@ export function AdminAttachePanel() {
           <p className="px-3 py-3 text-xs text-gray-400">
             Aucune skill. Téléversez directement vos fichiers .skill exportés de Claude web (bouton Téléverser) ou
             collez-en une (nom, description, contenu) : l'attaché en voit la liste en permanence et charge la bonne
-            dès qu'une tâche correspond. En chat, « enregistre cette skill » fonctionne aussi.
+            dès qu'une tâche correspond. Depuis Claude web, « enregistre cette skill » fonctionne aussi.
           </p>
         ) : (
           <div className="divide-y divide-gray-50">
@@ -2020,7 +2315,7 @@ export function AdminAttachePanel() {
             <div className="flex flex-wrap items-center gap-2">
               <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-gray-600">
                 <input type="checkbox" checked={analyseAfter} onChange={(e) => setAnalyseAfter(e.target.checked)} />
-                Faire classer par l'attaché après l'enregistrement : une description par trame (rapide, fil « pendant votre absence »)
+                Faire classer par l'attaché après l'enregistrement : une description par trame (rapide)
               </label>
               <button onClick={() => setStaged([])} disabled={uploadBusy !== null}
                 className="ml-auto rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">Annuler</button>
@@ -2057,7 +2352,7 @@ export function AdminAttachePanel() {
         {trames.length === 0 && !trameForm.open && staged.length === 0 ? (
           <p className="px-3 py-3 text-xs text-gray-400">
             Aucune trame. Téléversez votre stock (.odt, .docx, .pdf…) : conversion en markdown ici même, puis
-            classement rapide (une description par trame) par l'attaché. En chat, « enregistre cette trame » fonctionne aussi.
+            classement rapide (une description par trame) par l'attaché. Depuis Claude web, « enregistre cette trame » fonctionne aussi.
           </p>
         ) : (
           <div className="divide-y divide-gray-50">
@@ -2087,7 +2382,7 @@ export function AdminAttachePanel() {
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => analyseTrames(trames.map((t) => t.nom))} disabled={trameAnalyseBusy}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-                title="L'attaché parcourt la bibliothèque et donne à chaque trame une description (type d'acte, cadre juridique, articles visés, régime 706-80). Passe rapide et économe — quelques secondes. Pour une analyse juridique en profondeur d'une trame (nullités, contrôle de légalité), demandez-la dans le chat de l'attaché.">
+                title="L'attaché parcourt la bibliothèque et donne à chaque trame une description (type d'acte, cadre juridique, articles visés, régime 706-80). Passe rapide et économe — quelques secondes. Pour une analyse juridique en profondeur d'une trame (nullités, contrôle de légalité), demandez-la dans Claude web.">
                 {trameAnalyseBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                 Classer la bibliothèque
               </button>
@@ -2107,6 +2402,100 @@ export function AdminAttachePanel() {
 
       {/* Base de connaissances — le cerveau documentaire, explorateur + arborescence */}
       <AttacheKbSection granted={Boolean(kr?.granted)} onNotice={setNotice} />
+
+      {/* Routines — consignes récurrentes exécutées sans vous */}
+      <div className="rounded-xl border border-gray-200">
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <AlarmClock className="h-4 w-4 text-[#2B5746]" />
+          <span className="text-sm font-semibold text-gray-800">Routines</span>
+          <span className="text-[11px] text-gray-400">quotidiennes (HH:MM) ou toutes les N heures</span>
+          <button
+            onClick={() => setShowRoutineForm((v) => !v)}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+          >
+            <Plus className="h-3 w-3" />Nouvelle
+          </button>
+        </div>
+
+        {showRoutineForm && (
+          <div className="space-y-2 border-b border-gray-100 bg-gray-50/50 p-3">
+            <input
+              value={rForm.nom}
+              onChange={(e) => setRForm({ ...rForm, nom: e.target.value })}
+              placeholder="Nom (ex. Préparation d'audience)"
+              className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs outline-none focus:border-[#2B5746]/50"
+            />
+            <textarea
+              value={rForm.prompt}
+              onChange={(e) => setRForm({ ...rForm, prompt: e.target.value })}
+              rows={3}
+              placeholder="La consigne autonome (ex. « Chaque nuit, cherche dans les pièces versées depuis la veille les liens de renseignement absents de la carte et propose-les. »). Le run ne converse pas : il dépose des propositions à valider ✓/✗."
+              className="w-full resize-y rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs leading-relaxed outline-none focus:border-[#2B5746]/50"
+            />
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+              <label className="inline-flex items-center gap-1.5">
+                <input type="radio" checked={rForm.mode === 'heure'} onChange={() => setRForm({ ...rForm, mode: 'heure' })} />
+                Chaque jour à
+                <input
+                  type="time"
+                  value={rForm.heure}
+                  onChange={(e) => setRForm({ ...rForm, heure: e.target.value })}
+                  className="rounded border border-gray-200 px-1.5 py-0.5"
+                />
+              </label>
+              <label className="inline-flex items-center gap-1.5">
+                <input type="radio" checked={rForm.mode === 'intervalle'} onChange={() => setRForm({ ...rForm, mode: 'intervalle' })} />
+                Toutes les
+                <input
+                  type="number" min={1} max={168}
+                  value={rForm.intervalleHeures}
+                  onChange={(e) => setRForm({ ...rForm, intervalleHeures: Number(e.target.value) })}
+                  className="w-14 rounded border border-gray-200 px-1.5 py-0.5"
+                />
+                heures
+              </label>
+              <button
+                onClick={saveRoutine}
+                disabled={working === 'routine' || !rForm.nom.trim() || !rForm.prompt.trim()}
+                className="ml-auto rounded-lg bg-[#2B5746] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                {working === 'routine' ? 'Enregistrement…' : 'Enregistrer'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {routines.length === 0 ? (
+          <p className="px-3 py-3 text-center text-xs text-gray-400">Aucune routine — rien ne tourne en fond pour l'instant.</p>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {routines.map((r) => (
+              <div key={r.id} className="flex items-center gap-2 px-3 py-2">
+                <button
+                  onClick={() => toggleRoutine(r)}
+                  title={r.actif ? 'Active — cliquer pour suspendre' : 'Suspendue — cliquer pour activer'}
+                  className={`h-4 w-7 rounded-full transition-colors ${r.actif ? 'bg-[#2B5746]' : 'bg-gray-300'}`}
+                >
+                  <span className={`block h-3 w-3 rounded-full bg-white transition-transform ${r.actif ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-semibold text-gray-800">{r.nom}</div>
+                  <div className="text-[10.5px] text-gray-400">
+                    {r.heure ? `chaque jour à ${r.heure}` : `toutes les ${r.intervalleHeures} h`}
+                    {r.lastRunAt ? ` · dernier run ${new Date(r.lastRunAt).toLocaleString('fr-FR')} ${r.lastRunOk === false ? '⚠️' : r.lastRunOk ? '✓' : '…'}` : ' · jamais exécutée'}
+                  </div>
+                </div>
+                <button onClick={() => runRoutineNow(r.id)} title="Exécuter maintenant" className="rounded-md p-1 text-gray-400 hover:bg-emerald-50 hover:text-[#2B5746]">
+                  <Play className="h-3.5 w-3.5" />
+                </button>
+                <button onClick={() => removeRoutine(r.id)} title="Supprimer" className="rounded-md p-1 text-gray-400 hover:bg-red-50 hover:text-red-500">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Journal d'audit */}
       {showAudit && (

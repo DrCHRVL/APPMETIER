@@ -445,8 +445,7 @@ const EnqueteDetailModalImpl = ({
             {/* Où en est l'attaché sur ce dossier (pièce en file, analyse en
                 cours, CR rédigé ou rien de neuf), puis ses propositions en
                 attente (✓/✗) et la chronologie probatoire — admin uniquement,
-                auto-masqués sinon. Les actes rédigés, eux, vivent sur la page
-                « Assistant de justice ». */}
+                auto-masqués sinon. */}
             {estSuperAdmin() && <FluxBandeau numero={enquete.numero} />}
             {estSuperAdmin() && <PropositionsBar numero={enquete.numero} reloadToken={propositionsToken} />}
             {estSuperAdmin() && <ChronologieSection numero={enquete.numero} />}

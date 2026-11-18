@@ -23,8 +23,7 @@
  * Travail de fond : déposé par le connecteur (Claude web) ou l'attaché, il
  * avance par lots à chaque tick du service, dès que le gouverneur de forfait
  * l'autorise, et reprend là où il s'est arrêté (curseur persistant). Le
- * résultat est remis en LIVRABLE (fil « pendant votre absence », actes
- * rédigés du dossier ou hors dossier) et reste lisible par interrogation_lire.
+ * résultat (synthèse et pièces retenues) se lit par interrogation_lire.
  *
  * Stockage : une enveloppe CHIFFRÉE (clé globale) par interrogation —
  * attache/interrogations/<id>.json : la question et les verdicts portent des
@@ -39,8 +38,7 @@ import { readRegistre } from './registre.mjs'
 import { lireRapport, assurerRapport } from './rapport.mjs'
 import { bloc as blocConsigne } from './consignes.mjs'
 import { extractUsage, recordUsage } from './usage.mjs'
-import { saveProduction } from './productions.mjs'
-import { audit, publishFeed } from './journal.mjs'
+import { audit } from './journal.mjs'
 import { runUnTour } from './unTour.mjs'
 
 const RUN_TIMEOUT_MS = Number(process.env.SIRAL_ATTACHE_INTERROGATION_TIMEOUT_MIN || 6) * 60 * 1000
@@ -53,8 +51,6 @@ const SYNTHESE_MODEL = process.env.SIRAL_ATTACHE_INTERROGATION_MODEL || 'sonnet'
 const RENFORCE = { verdict: 'sonnet', synthese: 'opus' }
 const modeleVerdict = (it) => (it.puissance === 'renforcee' ? RENFORCE.verdict : VERDICT_MODEL)
 const modeleSynthese = (it) => (it.puissance === 'renforcee' ? RENFORCE.synthese : SYNTHESE_MODEL)
-// Même rangement « hors dossier » que les livrables du connecteur (attache-mcp.mjs).
-const HORS_DOSSIER = '_hors-dossier'
 
 // Mêmes bornes de lot que le registre : le prompt part en UN argument (-p),
 // plafonné à 128 Kio sous Linux. Une pièce n'est JAMAIS tronquée : une pièce
@@ -74,7 +70,6 @@ const EXTRAITS_MAX = 5
 const JUSTIFICATION_MAX = 400
 const EXTRAIT_MAX = 400
 const SYNTHESE_DONNEES_MAX = 90_000
-const LIVRABLE_PIECES_MAX = 300
 const QUESTION_MIN = 10
 
 // Dépendances remplaçables (tests) : la brique qui parle au modèle.
@@ -525,32 +520,6 @@ function promptSynthese(keys, it) {
   ].join('\n')
 }
 
-function titreDe(it) {
-  const q = it.question.replace(/\s+/g, ' ').trim()
-  return `Interrogation du fonds — ${q.length > 90 ? q.slice(0, 87) + '…' : q}`
-}
-
-function corpsLivrable(it) {
-  const tri = [...it.pertinentes].sort((a, b) => b.score - a.score || a.dossier.localeCompare(b.dossier) || a.chemin.localeCompare(b.chemin))
-  const el = it.elusion
-  return [
-    `Question : ${it.question}`,
-    `Périmètre : ${it.numero ? `dossier « ${it.numero} »` : 'tout le fonds'}${it.pochette ? `, pochette « ${it.pochette} »` : ''} · niveau « ${it.niveau} » · ${it.plan.length} dossier(s), ${it.total} pièce(s).`,
-    '',
-    it.synthese,
-    '',
-    `───── PIÈCES RETENUES (${it.pertinentes.length}) ─────`,
-    ...tri.slice(0, LIVRABLE_PIECES_MAX).map((p) => `- [${p.dossier}] ${p.chemin} · ${p.score.toFixed(2)}${p.controle ? ' · contrôle' : ''}${p.justification ? ` — ${p.justification}` : ''}`),
-    ...(tri.length > LIVRABLE_PIECES_MAX ? [`(+${tri.length - LIVRABLE_PIECES_MAX} — interrogation_lire id:"${it.id}")`] : []),
-    '',
-    '───── COUVERTURE ─────',
-    `Lues : ${it.total - it.nonLues.length} / ${it.total} · écartées : ${it.ecartees.length} · non lues : ${it.nonLues.length}${it.doublonsExactsSautes ? ` · copies exactes sautées : ${it.doublonsExactsSautes}` : ''}`,
-    el ? `Contrôle d'élusion : ${el.echantillon} relue(s), ${el.trouvees} retrouvée(s) · taux d'élusion ${(el.taux * 100).toFixed(0)} % · manquées estimées ${el.manqueesEstimees} · rappel estimé ${(el.rappelEstime * 100).toFixed(0)} %` : 'Contrôle d\'élusion : sans objet',
-    ...(it.suiteId ? ['', `Approfondissement lancé : les ${it.suiteDossiers} dossier(s) retenu(s) sont relus pièce par pièce — interrogation ${it.suiteId} (interrogation_lire), résultat à venir en livrable.`] : []),
-    ...(it.suiteDe ? ['', `Approfondissement de l'interrogation ${it.suiteDe} (niveau rapports).`] : []),
-    ...(it.nonLues.length ? ['', `───── NON LUES (${it.nonLues.length}) ─────`, ...it.nonLues.slice(0, 100).map((x) => `- [${x.dossier}] ${x.chemin} — ${x.raison}`)] : []),
-  ].join('\n')
-}
 
 async function terminer(keys, it) {
   // Contrôle d'élusion : relecture d'un échantillon des pièces écartées.
@@ -590,13 +559,10 @@ async function terminer(keys, it) {
       it.suiteDossiers = dossiers.length
     } catch (e) { it.suiteErreur = String(e?.message || e) }
   }
-  const { id: prodId, numero } = await saveProduction(keys, { numero: it.numero || HORS_DOSSIER, type: 'livrable', titre: titreDe(it), contenu: corpsLivrable(it), source: 'interrogation' })
-  it.prodId = prodId
   it.etat = 'fait'
   it.faitLe = new Date().toISOString()
   it.echecs = 0
   delete it.erreur
-  await publishFeed(keys, { type: 'livrable', titre: titreDe(it), resume: texte.slice(0, 2000), ...(it.numero ? { numero } : {}), prodId }).catch(() => {})
   await audit(keys, 'interrogation_fait', { id: it.id, numero: it.numero, pieces: it.total, pertinentes: it.pertinentes.length, lots: it.lots })
   return { fini: true }
 }
@@ -635,7 +601,7 @@ export async function interrogationsStep(keys, { onHold = async () => false, max
   const fin = await terminer(keys, it)
   if (!fin.fini && it.echecs >= ECHECS_MAX) it.etat = 'echec'
   ecrire(keys, it)
-  return { ...bilan(), etape: fin.fini ? 'fait' : it.etat === 'echec' ? 'echec' : 'synthese_echouee', ...(it.erreur ? { erreur: it.erreur } : {}), ...(it.prodId ? { prodId: it.prodId } : {}) }
+  return { ...bilan(), etape: fin.fini ? 'fait' : it.etat === 'echec' ? 'echec' : 'synthese_echouee', ...(it.erreur ? { erreur: it.erreur } : {}) }
 }
 
 /** Pièces du plan pas encore atteintes par le curseur. */
@@ -668,7 +634,6 @@ const resume = (it) => ({
   ...(it.rapportsAttente ? { attente: it.rapportsAttente } : {}),
   ...(it.suiteId ? { suiteId: it.suiteId, suiteDossiers: it.suiteDossiers } : {}),
   ...(it.suiteDe ? { suiteDe: it.suiteDe } : {}),
-  ...(it.prodId ? { prodId: it.prodId } : {}),
   ...(it.erreur ? { erreur: it.erreur } : {}),
 })
 
@@ -693,7 +658,7 @@ export function detailInterrogation(keys, id, { offset = 0, limite = 50 } = {}) 
       ? `Les verdicts sont des SIGNALEMENTS motivés : lire la pièce (lire_document) avant d'en faire état. Le rappel estimé vient du contrôle d'élusion ; les pièces non lues sont nommées.${it.suiteId ? ` Approfondissement pièce par pièce en cours : interrogation_lire id:"${it.suiteId}".` : ''}`
       : it.etat === 'arretee' ? 'Interrogation arrêtée : résultats partiels.'
         : it.etat === 'echec' ? 'Interrogation en échec (voir erreur) : résultats partiels ; redéposer avec fonds_interroger si besoin.'
-          : it.niveau === 'rapports' && restantes(it) > 0 ? 'Interrogation en cours : les rapports de dossier du périmètre sont d\'abord mis à jour (mini-fiches puis rédaction, selon le forfait), puis interrogés. Le résultat sera remis en livrable ; rappeler interrogation_lire pour suivre.'
-            : 'Interrogation en cours : le service la fait avancer par lots, selon le forfait. Le résultat sera remis en livrable ; rappeler interrogation_lire pour suivre.',
+          : it.niveau === 'rapports' && restantes(it) > 0 ? 'Interrogation en cours : les rapports de dossier du périmètre sont d\'abord mis à jour (mini-fiches puis rédaction, selon le forfait), puis interrogés. Rappeler interrogation_lire pour suivre : la synthèse y figurera.'
+            : 'Interrogation en cours : le service la fait avancer par lots, selon le forfait. Rappeler interrogation_lire pour suivre : la synthèse y figurera.',
   }
 }

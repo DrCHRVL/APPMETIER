@@ -4,7 +4,7 @@
  * Le magistrat CONFIE une pièce (audition récupérée dans NPP, ordonnance,
  * retour d'expertise, memento, documentation ministère…) sans décider où elle
  * va : trombone du panneau (la pièce part chiffrée dans la zone de dépôt
- * `_depot`) ou pièce jointe d'un mail transféré. L'attaché l'identifie, la
+ * `_depot`). L'attaché l'identifie, la
  * NOMME proprement et la RANGE — soit dans la bonne zone d'un DOSSIER
  * (Geoloc/Ecoutes/Actes/PV/DML), soit dans la BASE DE CONNAISSANCES quand
  * c'est un document de référence durable — puis l'exploite (lecture,
@@ -21,7 +21,7 @@
  */
 import crypto from 'node:crypto'
 import { attacheTj, listDocsMeta, readDocBlob, writeDocBlob, deleteDocBlob, docServerKey } from './store.mjs'
-import { encryptDocBlob, decryptDocBlob } from './crypto.mjs'
+import { decryptDocBlob } from './crypto.mjs'
 import { extractPdfText } from './ocr.mjs'
 import { extractOfficeText, isOfficeExt, extractSpreadsheetText, isSpreadsheetExt } from './officeText.mjs'
 import { saveKbEntry, setKbReflexe } from './kb.mjs'
@@ -30,7 +30,6 @@ import { enfiler } from './flux.mjs'
 import { enqueteExiste, numeroCanonique } from './dossier.mjs'
 import { ajouterDocumentExNihilo, DOC_EXN_MAX_CHARS } from './carto.mjs'
 import { instructionExiste } from './instru.mjs'
-import { readInboxMessage } from './mail.mjs'
 
 export const ZONES = { geoloc: 'Geoloc', ecoutes: 'Ecoutes', actes: 'Actes', pv: 'PV', dml: 'DML' }
 
@@ -108,39 +107,11 @@ export async function readDepotText(keys, rel) {
 }
 
 /**
- * Texte d'une pièce JOINTE d'un mail transféré — pour l'identifier ou la
- * classer AVANT de la ranger (au dossier ou à la base de connaissances). La
- * longueur est bornée (`max`, défaut 12 000 caractères) : c'est une aide à
- * l'identification, pas le stockage — le rangement conserve la pièce entière.
- */
-export async function readMailPieceText(keys, { mailId, piece, max = 12_000 } = {}) {
-  const rec = readInboxMessage(keys, String(mailId || ''))
-  if (!rec) return { ok: false, error: 'Message introuvable dans la boîte — voir boite_lister' }
-  const att = (rec.attachments || []).find((a) => a.nom === piece)
-  if (!att) return { ok: false, error: `Pièce jointe « ${piece} » absente — pièces : ${(rec.attachments || []).map((a) => a.nom).join(', ') || '(aucune)'}` }
-  if (att.omise || !att.b64) return { ok: false, error: `Pièce « ${att.nom} » NON conservée (trop volumineuse : ${Math.round((att.taille || 0) / 1024 / 1024)} Mo, limite 15 Mo). Demande au magistrat de la déposer via le trombone du panneau ou de la re-transférer allégée — ne devine jamais son contenu.` }
-  const plain = Buffer.from(att.b64, 'base64')
-  const bound = Math.min(200_000, Math.max(500, Number(max) || 12_000))
-  const res = await extractTextByName(plain, att.nom, { max: bound })
-  if (!res.ok) return res
-  return { ok: true, piece: att.nom, type: att.type, taille: att.taille, texte: res.texte, source: res.source, tronque: res.tronque }
-}
-
-/**
- * Résout une pièce (mail transféré ou dépôt) en { blob (chiffré, prêt à
+ * Résout une pièce du dépôt en { blob (chiffré, prêt à
  * writeDocBlob), plain (octets en clair, pour extraction), originalName,
  * depotRel }. Source commune à rangerDocument et rangerPieceDansKb.
  */
-async function resolvePiece(keys, { source, rel, mailId, piece }) {
-  if (source === 'mail') {
-    const rec = readInboxMessage(keys, String(mailId || ''))
-    if (!rec) throw new Error('Message introuvable dans la boîte')
-    const att = (rec.attachments || []).find((a) => a.nom === piece)
-    if (!att) throw new Error(`Pièce jointe « ${piece} » absente — pièces : ${(rec.attachments || []).map((a) => a.nom).join(', ') || '(aucune)'}`)
-    if (att.omise || !att.b64) throw new Error(`Pièce « ${att.nom} » NON conservée (trop volumineuse, limite 15 Mo) : impossible de la ranger — demander une version allégée ou un dépôt via le trombone`)
-    const plain = Buffer.from(att.b64, 'base64')
-    return { blob: encryptDocBlob(keys.global, plain), plain, originalName: att.nom, depotRel: null }
-  }
+async function resolvePiece(keys, { rel }) {
   const depotRel = String(rel || '')
   const blob = readDocBlob(attacheTj(), DEPOT_KEY, depotRel)
   if (!blob) throw new Error(`Pièce « ${depotRel} » absente du dépôt — voir depot_lister`)
@@ -149,12 +120,11 @@ async function resolvePiece(keys, { source, rel, mailId, piece }) {
 }
 
 /**
- * Range une pièce dans un dossier : depuis le dépôt (`rel`) ou depuis une
- * pièce jointe de la boîte dédiée (`mailId` + `piece`).
+ * Range une pièce du dépôt (`rel`) dans un dossier.
  * `zone` : geoloc | ecoutes | actes | pv | dml. `nom` : nom final proposé
  * par l'attaché (daté, explicite) — l'extension d'origine est préservée.
  */
-export async function rangerDocument(keys, { source, rel, mailId, piece, numero, zone, nom }) {
+export async function rangerDocument(keys, { rel, numero, zone, nom }) {
   const prefix = ZONES[String(zone || '').toLowerCase()]
   if (!prefix) throw new Error(`Zone inconnue « ${zone} » — attendu : ${Object.keys(ZONES).join(', ')}`)
   if (!String(numero || '').trim()) throw new Error('Numéro de dossier requis')
@@ -166,7 +136,7 @@ export async function rangerDocument(keys, { source, rel, mailId, piece, numero,
   // GRIVESNES 2 » — le rangement suit la clé de l'enquête, pas la variante.
   if (enqueteExiste(keys, numero)) numero = numeroCanonique(keys, numero)
 
-  const { blob, plain, originalName, depotRel } = await resolvePiece(keys, { source, rel, mailId, piece })
+  const { blob, plain, originalName, depotRel } = await resolvePiece(keys, { rel })
   // Empreinte du clair — même contrat que le téléversement navigateur : base
   // du dédoublonnage STRICT (contenu identique octet à octet, rien d'autre).
   const sha = plain ? crypto.createHash('sha256').update(plain).digest('hex') : undefined
@@ -195,7 +165,7 @@ export async function rangerDocument(keys, { source, rel, mailId, piece, numero,
     originalName,
     ...(sha ? { sha } : {}),
   })
-  if (source !== 'mail' && depotRel) deleteDocBlob(attacheTj(), DEPOT_KEY, depotRel)
+  if (depotRel) deleteDocBlob(attacheTj(), DEPOT_KEY, depotRel)
   // Flux tendu : la pièce rangée entre dans la file de l'attaché — fiche,
   // actes, CR, mis en cause et description suivront d'eux-mêmes.
   try { enfiler(keys, { numero, raison: 'document (majordome)' }) } catch { /* jamais bloquant */ }
@@ -208,13 +178,13 @@ export async function rangerDocument(keys, { source, rel, mailId, piece, numero,
 }
 
 /**
- * Verse une pièce (dépôt ou mail transféré) sur un DOSSIER MANUEL de la carte
+ * Verse une pièce du dépôt sur un DOSSIER MANUEL de la carte
  * (dossier ex nihilo) : le TEXTE est extrait côté serveur, comme le
- * navigateur au téléversement — seul le texte est conservé. Une pièce du
- * dépôt est consommée après versement ; une pièce de mail reste dans la boîte.
+ * navigateur au téléversement — seul le texte est conservé. La pièce est
+ * consommée (retirée du dépôt) après versement.
  */
-export async function verserDocumentCarto(keys, { source, rel, mailId, piece, dossier, nom }) {
-  const { plain, originalName, depotRel } = await resolvePiece(keys, { source, rel, mailId, piece })
+export async function verserDocumentCarto(keys, { rel, dossier, nom }) {
+  const { plain, originalName, depotRel } = await resolvePiece(keys, { rel })
   if (!plain) throw new Error('Déchiffrement impossible (format inattendu) — rien n\'a été versé')
   const extrait = await extractTextByName(plain, originalName, { max: DOC_EXN_MAX_CHARS })
   if (!extrait.ok) {
@@ -224,7 +194,7 @@ export async function verserDocumentCarto(keys, { source, rel, mailId, piece, do
     throw new Error(`Pièce « ${originalName} » : ${extrait.error}. Impossible d'en extraire le texte — RIEN n'a été versé.`)
   }
   const res = await ajouterDocumentExNihilo(keys, { dossier, nom: String(nom || '').trim() || originalName, texte: extrait.texte })
-  if (source !== 'mail' && depotRel) deleteDocBlob(attacheTj(), DEPOT_KEY, depotRel)
+  if (depotRel) deleteDocBlob(attacheTj(), DEPOT_KEY, depotRel)
   return {
     ...res,
     ...(extrait.tronque ? { tronque: true, noteTronque: `Texte tronqué à ${DOC_EXN_MAX_CHARS} caractères.` } : {}),
@@ -233,19 +203,18 @@ export async function verserDocumentCarto(keys, { source, rel, mailId, piece, do
 }
 
 /**
- * Intègre une pièce à la BASE DE CONNAISSANCES : depuis le dépôt (`rel`) ou
- * une pièce jointe de la boîte dédiée (`mailId` + `piece`). Le TEXTE est
+ * Intègre une pièce du dépôt (`rel`) à la BASE DE CONNAISSANCES. Le TEXTE est
  * extrait côté serveur (comme le navigateur au téléversement) — seul le texte
  * est conservé, chiffré ; l'octet du PDF ne transite jamais par la
  * conversation. L'attaché CLASSE dès réception : titre, catégorie, chemin de
  * pochette, description ; `reflexe` épingle la pièce comme référence de
- * premier rang (Memento, etc.). Une pièce du dépôt est CONSOMMÉE (retirée du
- * dépôt) après intégration ; une pièce jointe de mail reste dans la boîte.
+ * premier rang (Memento, etc.). La pièce est CONSOMMÉE (retirée du dépôt)
+ * après intégration.
  */
-export async function rangerPieceDansKb(keys, { source, rel, mailId, piece, titre, categorie, chemin, description, reflexe }) {
+export async function rangerPieceDansKb(keys, { rel, titre, categorie, chemin, description, reflexe }) {
   if (!String(titre || '').trim()) throw new Error('Titre requis pour l\'entrée de base de connaissances')
 
-  const { plain, originalName, depotRel } = await resolvePiece(keys, { source, rel, mailId, piece })
+  const { plain, originalName, depotRel } = await resolvePiece(keys, { rel })
   if (!plain) throw new Error('Déchiffrement impossible (format inattendu) — rien n\'a été enregistré')
 
   const extrait = await extractTextByName(plain, originalName, { max: 400_000 })
@@ -272,7 +241,7 @@ export async function rangerPieceDansKb(keys, { source, rel, mailId, piece, titr
     catch (e) { reflexeNote = String(e?.message || e) }
   }
 
-  if (source !== 'mail' && depotRel) deleteDocBlob(attacheTj(), DEPOT_KEY, depotRel)
+  if (depotRel) deleteDocBlob(attacheTj(), DEPOT_KEY, depotRel)
 
   return {
     ok: true,

@@ -11,23 +11,21 @@
  *
  * Expose à l'agent les SEULES actions autorisées sur SIRAL : lecture des
  * dossiers du contentieux confié, écritures réversibles (acte, prolongation,
- * note, todo), boîte mail dédiée, mémoire, fil proactif. Chaque écriture est
+ * note, todo, description, CR…), propositions, mémoire. Chaque écriture est
  * journalisée (audit).
  *
  * Aucune autre capacité : pas de shell, pas de fichiers, pas de réseau.
  */
 import readline from 'node:readline'
-import crypto from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { loadKeyring } from './attache/keyring.mjs'
 import { attacheContentieux } from './attache/store.mjs'
-import { audit, publishFeed } from './attache/journal.mjs'
+import { audit } from './attache/journal.mjs'
 import {
   listEnquetes, dossierMarkdown, readDocumentText, verifierCompletude,
   enregistrerActe, acterProlongation, classerNote, ajouterTodo, terminerTodo, listerDml,
   actualiserDescription, diagnostiquerDossier, diagnostiquerAffichage, arborescenceDocuments,
   ajouterNatinfs, creerDossier, ajouterMec, modifierMec, modifierActe, modifierDossier, archiverDossier,
-  enqueteExiste,
 } from './attache/dossier.mjs'
 import { chercherDansPieces } from './attache/recherche.mjs'
 import { creerInterrogation, arreterInterrogation, sommaireInterrogations, detailInterrogation } from './attache/interrogation.mjs'
@@ -45,6 +43,7 @@ import { modifierDossierInstruction, elementInstruction, misEnExamenInstruction,
 import { enregistrerAudience, resultatAudienceMarkdown, ISSUES_AUDIENCE, DECISIONS_AUDIENCE } from './attache/audience.mjs'
 import { listerEntraide, lireEntraide, statsEntraide, referentielEntraide, creerEntraide, importerEntraide, modifierEntraide, completerEntraide, evenementEntraide, autoriteEntraide, EVENEMENTS_ENTRAIDE } from './attache/entraide.mjs'
 import { listDepot, readDepotText, rangerDocument, rangerPieceDansKb, verserDocumentCarto, ecarterDepot, ZONES } from './attache/depot.mjs'
+import { listRoutines, upsertRoutine, deleteRoutine } from './attache/routines.mjs'
 import { addProposition, listPropositions, modifierProposition, retirerProposition } from './attache/propositions.mjs'
 import { lireRegistre, recouperRegistres } from './attache/registre.mjs'
 import { readDossierMemory, appendDossierMemory } from './attache/dossierMemory.mjs'
@@ -53,11 +52,9 @@ import { analyseAvancee, cheminEntre } from './attache/cartoGraphe.mjs'
 import { lireSignaux } from './attache/recoupements.mjs'
 import { pageFichierGlobal, GLOBAL_EXTRACTIONS_MAX, THEMES } from './attache/global.mjs'
 import { readInstructionsProjet, writeInstructionsProjet } from './attache/instructionsProjet.mjs'
-import { saveProduction, listProductions, readProduction, deleteProduction, diffProduction, PRODUCTION_TYPES } from './attache/productions.mjs'
 import { appendMemory, rewriteMemory, memoryStats, MEMORY_BUDGET } from './attache/memory.mjs'
 import { recordLearningSignal, pendingSignals, learningState, learningMetrics, metricsSummary } from './attache/apprentissage.mjs'
 import { readConversation } from './attache/agent.mjs'
-import { controlerProduction } from './attache/qualite.mjs'
 import { bilanStatistiques } from './attache/statistiques.mjs'
 import { genererGraphique, genererGraphiques, GRAPHIQUES } from './attache/statsGraphiques.mjs'
 import { ecranStatistiques, anneesDisponibles } from './attache/statsEcran.mjs'
@@ -68,63 +65,8 @@ import { ecranStatistiques, anneesDisponibles } from './attache/statsEcran.mjs'
 let keys = loadKeyring()
 const runContext = process.env.SIRAL_ATTACHE_RUN || 'chat'
 
-/**
- * Pseudo-dossier « hors dossier » : une production (acte rangé depuis Claude
- * web, livrable, état de balayage) qui ne se rattache à aucun dossier, ou
- * qu'une consigne explicite du magistrat range ici (valable même quand un
- * dossier correspondant existe — sa destination désignée prime). Elle
- * apparaît dans la section « Actes rédigés — hors dossier » de la page
- * Assistant de justice.
- */
-export const HORS_DOSSIER = '_hors-dossier'
 
-/**
- * Porte de qualité auto-appliquée : contrôles déterministes (zéro jeton) au
- * moment de la remise. Violation → l'écriture N'A PAS LIEU, l'agent reçoit
- * une erreur actionnable et corrige dans le même run. Chaque rejet est capté
- * en signal d'apprentissage : une porte qui claque souvent devient un
- * réflexe consolidé.
- */
-async function porteQualiteOuSignal({ type, titre, contenu, numero }, mode) {
-  const violations = controlerProduction({ type, contenu, mode })
-  if (!violations.length) return
-  await recordLearningSignal(keys, {
-    type: 'garde_qualite',
-    dossier: numero,
-    detail: `${type || mode} — ${String(titre || '').slice(0, 80)} : ${violations.map((v) => v.code).join(', ')}`,
-  })
-  throw new Error(`PORTE DE QUALITÉ — production refusée, corrige puis re-soumets :\n- ${violations.map((v) => v.message).join('\n- ')}`)
-}
 
-/** Remise d'un livrable DANS SIRAL — corps commun de remettre_livrable et de son alias.
- *
- * Le livrable devient une PRODUCTION éditable (comme un acte) : le magistrat le
- * relit, le retouche (à la main ou via le chat), l'exporte PDF/Word et le
- * valide — depuis le journal « pendant votre absence » comme depuis le dossier.
- * La carte du fil ne porte plus qu'un extrait ; le texte vit dans la production
- * (source unique), qu'elle référence par son `prodId`. */
-async function publierLivrable(a) {
-  await porteQualiteOuSignal({ type: 'livrable', titre: a.sujet, contenu: a.corps, numero: a.numero }, 'livrable')
-  const numero = a.numero ? String(a.numero).slice(0, 80) : HORS_DOSSIER
-  const titre = String(a.sujet || 'Livrable').slice(0, 200)
-  const { id, numero: numeroCanonique } = await saveProduction(keys, {
-    numero,
-    type: 'livrable',
-    titre,
-    contenu: String(a.corps || ''),
-    source: 'livrable',
-  })
-  await publishFeed(keys, {
-    type: 'livrable',
-    titre,
-    resume: String(a.corps || '').slice(0, 2000),
-    // Numéro canonique (celui de l'enquête dans SIRAL) : « Ouvrir » depuis le
-    // journal et « Actes rédigés » du dossier désignent le même rangement.
-    numero: a.numero ? (numeroCanonique || numero) : undefined,
-    prodId: id,
-  })
-  return { ok: true, note: 'Livrable remis dans SIRAL (fil « pendant votre absence ») — éditable/exportable, rien n\'est parti par mail.' }
-}
 // Mode sous-agent : lancé par l'outil sous_agents — LECTURE SEULE (aucun
 // outil d'écriture, pas de sous_agents imbriqué : pas de récursion possible).
 const IS_SUBAGENT = process.env.SIRAL_ATTACHE_SUBAGENT === '1'
@@ -148,6 +90,7 @@ const OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME = new Set([
   'instru_modifier_dossier', 'instru_element', 'instru_mis_en_examen',
   'entraide_creer', 'entraide_modifier', 'entraide_completer', 'entraide_evenement', 'entraide_autorite', 'entraide_importer',
   'actualiser_description', 'ranger_document', 'carto_verser_document', 'depot_ecarter',
+  'routine_enregistrer', 'routine_suspendre', 'routine_supprimer',
   'instructions_projet_enregistrer',
 ])
 
@@ -360,7 +303,7 @@ const TOOLS = [
         devis: it.niveau === 'rapports'
           ? { dossiers: it.plan.length, pieces: it.total, lots: Math.ceil(it.plan.length / 6), note: 'Une lecture par dossier (son rapport). Les rapports absents ou périmés sont d\'abord rédigés (une rédaction par dossier, après ses mini-fiches). L\'approfondissement des dossiers retenus relira leurs pièces une à une.' }
           : { dossiers: it.plan.length, pieces: it.total, lots: Math.ceil(it.total / (it.niveau === 'fiches' ? 40 : 8)), copiesExactesSautees: it.doublonsExactsSautes },
-        note: 'Déposée : le service la fait avancer par lots (forfait permettant). Le résultat arrivera en livrable ; suivre avec interrogation_lire (id). Dis-le au magistrat : pas de réponse immédiate.',
+        note: 'Déposée : le service la fait avancer par lots (forfait permettant). Le résultat (synthèse et pièces retenues) se lira avec interrogation_lire (id). Dis-le au magistrat : pas de réponse immédiate.',
       }
     },
     write: true,
@@ -547,31 +490,8 @@ const TOOLS = [
     write: true,
   },
   {
-    name: 'remettre_livrable',
-    description: 'Remet un LIVRABLE complet au magistrat DANS SIRAL (synthèse, projet de mail à recopier, note, projet de réponse) : une carte « Livrable » apparaît dans le fil « pendant votre absence », avec le texte intégral et un bouton Copier. AUCUN mail ne part — les mails sortants sont supprimés (rejets de messagerie) : tout se remet dans l\'application. Jamais pour un ACTE de procédure : l\'acte se rédige et se livre dans Claude web, pas dans SIRAL.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        sujet: { type: 'string', description: 'Titre du livrable (une ligne)' },
-        corps: { type: 'string', description: 'Le livrable complet, prêt à lire ou à copier' },
-        numero: { type: 'string', description: 'Dossier concerné (optionnel)' },
-      },
-      required: ['sujet', 'corps'],
-    },
-    handler: publierLivrable,
-    write: true,
-  },
-  {
-    // Alias hérité : d'anciennes conversations/routines appellent encore ce nom.
-    name: 'envoyer_a_mon_magistrat',
-    description: 'DÉPRÉCIÉ — alias de remettre_livrable : le livrable s\'affiche DANS SIRAL (fil « pendant votre absence »), plus aucun mail ne part.',
-    inputSchema: { type: 'object', properties: { sujet: { type: 'string' }, corps: { type: 'string' }, numero: { type: 'string' } }, required: ['sujet', 'corps'] },
-    handler: publierLivrable,
-    write: true,
-  },
-  {
     name: 'creer_dossier',
-    description: 'Crée DIRECTEMENT un nouveau dossier (enquête) dans le contentieux — SANS validation préalable. Réservé à une instruction EXPLICITE du magistrat : mail transféré contenant « créer procédure » (ou équivalent sans ambiguïté), ou demande explicite en chat (« crée un dossier X avec tel enquêteur en directeur d\'enquête et telle unité »). Dans tous les autres cas de détection, utilise proposer_dossier (✓/✗). Renseigne tout depuis la pièce ou la demande — les MÊMES champs que le formulaire « Nouvelle enquête » : numero, dateDebut, services (unités), directeurEnquete, numeroParquet, numeroIDJ, natinfCodes, description (prise de notes), misEnCause (recoupe d\'abord avec recouper_personnes). Refus si le numéro existe déjà. Ensuite : range les pièces (ranger_document) dans CE dossier. Récapitule au magistrat ce qui a été créé.',
+    description: 'Crée DIRECTEMENT un nouveau dossier (enquête) dans le contentieux — SANS validation préalable. Réservé à une instruction EXPLICITE du magistrat (« crée un dossier X avec tel enquêteur en directeur d\'enquête et telle unité »). Dans tous les autres cas de détection, utilise proposer_dossier (✓/✗). Renseigne tout depuis la pièce ou la demande — les MÊMES champs que le formulaire « Nouvelle enquête » : numero, dateDebut, services (unités), directeurEnquete, numeroParquet, numeroIDJ, natinfCodes, description (prise de notes), misEnCause (recoupe d\'abord avec recouper_personnes). Refus si le numéro existe déjà. Ensuite : range les pièces (ranger_document) dans CE dossier. Récapitule au magistrat ce qui a été créé.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -587,7 +507,7 @@ const TOOLS = [
           type: 'array',
           items: { type: 'object', properties: { nom: { type: 'string' }, role: { type: 'string' }, statut: { type: 'string' } }, required: ['nom'] },
         },
-        source: { type: 'string', description: 'D\'où vient l\'instruction (ex: mail transféré du 15/07 « créer procédure », demande en chat)' },
+        source: { type: 'string', description: 'D\'où vient l\'instruction (ex: demande du magistrat du 15/07 « créer procédure »)' },
       },
       required: ['numero', 'source'],
     },
@@ -628,7 +548,7 @@ const TOOLS = [
   },
   {
     name: 'ajouter_mec',
-    description: 'Ajoute DIRECTEMENT un mis en cause au dossier — même effet que la saisie manuelle (statut « actif » par défaut). RÉSERVÉ à une instruction EXPLICITE du magistrat (« ajoute X aux mis en cause ») ou au traitement d\'un mail transféré qui le demande ; pour un nom DÉTECTÉ dans une pièce, c\'est proposer_mec (✓/✗). Refuse les doublons (nom normalisé).',
+    description: 'Ajoute DIRECTEMENT un mis en cause au dossier — même effet que la saisie manuelle (statut « actif » par défaut). RÉSERVÉ à une instruction EXPLICITE du magistrat (« ajoute X aux mis en cause ») ; pour un nom DÉTECTÉ dans une pièce, c\'est proposer_mec (✓/✗). Refuse les doublons (nom normalisé).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1207,119 +1127,6 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
     },
   },
   {
-    name: 'produire_document',
-    description: `Range dans « Actes rédigés » du dossier un ACTE que TU as rédigé ici, dans Claude web (le magistrat le visionne, l'édite, l'exporte en PDF/Word officiel, puis le VALIDE). Type : ${PRODUCTION_TYPES.join(', ')}. Avant de rédiger : la trame du magistrat (trames_lister/trame_lire — elle PRIME sur un modele-*), la skill de méthode (skills_lister/skill_lire), le dossier (lire_dossier, chronologie_lire) ; les instructions et la base de connaissances de ton projet Claude web priment sur ces ressources. COHÉRENCE NATINF OBLIGATOIRE : vise les qualifications enregistrées du dossier (section « Infractions (NATINF) » de lire_dossier) — si elles manquent, ajoute-les d'abord (natinf_chercher + ajouter_natinfs). Rédaction complète, prête à signer, texte brut (paragraphes séparés par des lignes vides). ` +
-      'Type "presentation" = un DIAPORAMA (le magistrat l\'exporte en PowerPoint) : texte structuré « # » page de garde / « ## » une diapositive / puces / tableaux markdown / [GRAPHIQUE : …] et [DIAGRAMME : …] — voir la section BUREAUTIQUE de tes consignes. ' +
-      'Renseigne `source` avec le nom EXACT de la trame suivie : il forme le 1ᵉʳ segment du nom de fichier à l\'export. Pour un acte d\'INTERCEPTION, d\'ÉCOUTE ou de GÉOLOCALISATION, renseigne aussi `objet` avec le n° de ligne interceptée ou l\'objet géolocalisé (ex. « 07 64 45 45 16 ») : il s\'ajoute en fin de nom de fichier. Pour MODIFIER un acte existant, passe son id. ' +
-      `RANGEMENT : numero désigne le dossier dans lequel l'acte apparaît — par défaut celui que le contenu concerne, MAIS une destination explicitement DÉSIGNÉE par le magistrat PRIME toujours, même incohérente avec le contenu (synthèse du dossier X à verser dans l'enquête Y ; acte du dossier A à ranger hors dossier) : exécute-la sans discuter ni la « corriger ». "${HORS_DOSSIER}" vaut sur simple demande du magistrat — l'acte apparaît alors dans « Actes rédigés — hors dossier » de la page Assistant de justice. ` +
-      'Un NOUVEL acte fait automatiquement apparaître une carte reliée (éditable) dans le journal « pendant votre absence » : ne la signale (signaler) pas en double.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        numero: { type: 'string', description: 'Dossier de RANGEMENT (l\'acte apparaît dans ses « Actes rédigés »), ou "_hors-dossier". Une destination désignée par le magistrat prime, même si elle diverge du dossier que le contenu concerne.' },
-        id: { type: 'string', description: 'id d\'une production à mettre à jour (sinon nouvelle)' },
-        type: { type: 'string', enum: PRODUCTION_TYPES },
-        titre: { type: 'string' },
-        contenu: { type: 'string', description: 'Le texte complet de l\'acte' },
-        source: { type: 'string', description: 'Trame suivie (ex: requisition-tse)' },
-        objet: { type: 'string', description: 'Objet de l\'acte pour le nom de fichier : n° de ligne interceptée / objet géolocalisé (écoutes, géoloc, interceptions). Omettre pour un acte sans objet (perquisition, saisine…).' },
-        acteMeta: {
-          type: 'object',
-          description: 'STRUCTURE de l\'acte, pour qu\'à la validation par le magistrat l\'app crée un acte IDENTIQUE à une saisie manuelle (rubrique + catégorie + statut). À renseigner dès que le document demande une mesure NOUVELLE. OBLIGATOIRE pour une requête ou autorisation d\'INTERCEPTION TÉLÉPHONIQUE (kind=ecoute + cible=n° de ligne + pendingJld=true tant que le JLD n\'a pas statué) et de GÉOLOCALISATION (kind=geolocalisation + objet) : sans ces métadonnées l\'acte ne serait pas rangé dans la bonne rubrique de l\'enquête. PROLONGATION (type prolongation_jld) : la mesure prolongée EXISTE DÉJÀ dans l\'enquête — la validation ne crée jamais un second acte, elle fait passer l\'acte visé « prolongation en attente JLD ». Renseigne alors acteId (id de l\'acte prolongé, visible dans lire_dossier) et, à défaut, la même cible/objet que l\'acte d\'origine, pour qu\'il soit retrouvé. Inutile pour note/fiche/livrable/réponse DML/projet de réponse.',
-          properties: {
-            kind: { type: 'string', enum: ['ecoute', 'geolocalisation', 'autre'], description: 'Rubrique : interception téléphonique = ecoute ; balise/suivi de véhicule ou objet = geolocalisation ; toute autre TSE = autre.' },
-            categorie: { type: 'string', description: 'Pour kind=autre : CLÉ de catégorie si applicable (art76 · imsi_donnees · imsi_interceptions · captation_images_public · captation_images_prive · sonorisation_prive · drone_public · drone_prive · captation_donnees_informatiques · activation_fixe · activation_mobile · infiltration) — durée/autorisation/date de fin sont alors pré-remplies. Sinon libellé libre (ex. « Comparution forcée (art. 78 CPP) »).' },
-            dateDebut: { type: 'string', description: 'AAAA-MM-JJ si connue (défaut : aujourd\'hui). Laisser vide si en attente d\'autorisation.' },
-            duree: { type: 'number', description: 'Durée de l\'autorisation (nombre). Ex. géoloc procureur = 15.' },
-            dureeUnit: { type: 'string', enum: ['jours', 'mois'] },
-            cible: { type: 'string', description: 'Écoute : ligne/personne visée.' },
-            objet: { type: 'string', description: 'Géoloc : objet suivi (véhicule, plaque…).' },
-            pendingJld: { type: 'boolean', description: 'true si la mesure est soumise au JLD et encore EN ATTENTE d\'autorisation (statut « en attente JLD »).' },
-            acteId: { type: 'number', description: 'PROLONGATION uniquement : id de l\'acte EXISTANT prolongé (lire_dossier l\'affiche). Aucun acte n\'est créé — l\'acte visé passe « prolongation en attente JLD », puis le magistrat valide la prolongation quand le JLD a signé.' },
-          },
-        },
-      },
-      required: ['numero', 'type', 'titre', 'contenu'],
-    },
-    handler: async (a) => {
-      // Porte de qualité AVANT toute écriture : inachevé, auto-désignation,
-      // HTML, acte squelettique → refus actionnable, l'agent corrige et re-soumet.
-      await porteQualiteOuSignal({ type: a.type, titre: a.titre, contenu: a.contenu, numero: a.numero }, 'acte')
-      const r = await saveProduction(keys, a)
-      // Numéro qui ne correspond à AUCUNE enquête (ni pseudo-dossier « _… ») :
-      // on écrit quand même — la destination désignée par le magistrat prime,
-      // jamais de blocage — mais on le DIT à l'agent : l'acte ne paraîtra dans
-      // aucune section « Actes rédigés » tant qu'aucune enquête ne porte ce
-      // numéro (il reste accessible par sa carte du fil). À lui de vérifier le
-      // numéro exact ou d'assumer le rangement si c'est bien la consigne.
-      if (!a.id && !String(a.numero || '').startsWith('_')) {
-        let existe = true
-        try { existe = enqueteExiste(keys, a.numero) } catch { /* trousseau incomplet : pas d'avertissement */ }
-        if (!existe) {
-          r.avertissement = `Aucune enquête ne porte le numéro « ${a.numero} » : l'acte est bien enregistré (rien n'est perdu, sa carte du fil y donne accès) mais il n'apparaîtra dans les « Actes rédigés » d'aucun dossier. Si le magistrat a désigné un dossier existant, vérifie l'écriture exacte du numéro (lister_dossiers) puis re-range avec le même id ; pour un rangement volontairement hors de tout dossier, utilise "${HORS_DOSSIER}".`
-        }
-      }
-      // Nouvel acte (pas une modification) : une carte reliée apparaît dans le
-      // journal « pendant votre absence » — inutile de la signaler en plus.
-      // La carte porte le numéro CANONIQUE rendu par saveProduction (celui de
-      // l'enquête telle qu'elle existe dans SIRAL), pour que « Ouvrir » et
-      // « Actes rédigés » du dossier désignent le même rangement.
-      if (!a.id) {
-        await publishFeed(keys, {
-          type: 'acte',
-          titre: r.titre,
-          resume: `Acte rédigé (${a.type}) — à relire, éditer et valider.`,
-          numero: r.numero || a.numero,
-          prodId: r.id,
-        })
-      } else {
-        // Révision d'un acte existant : signal d'apprentissage (le premier jet
-        // n'a pas suffi — retour du magistrat ou complément attendu).
-        await recordLearningSignal(keys, {
-          type: 'acte_revise',
-          dossier: a.numero,
-          detail: `${a.type} — ${String(a.titre).slice(0, 150)}`,
-          source: a.source ? `trame ${a.source}` : undefined,
-        })
-      }
-      return r
-    },
-    write: true,
-  },
-  {
-    name: 'productions_lister',
-    description: 'Liste les actes rédigés d\'un dossier (id, type, titre, dates) — pour retrouver un document à modifier.',
-    inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
-    handler: async (a) => listProductions(keys, a.numero),
-  },
-  {
-    name: 'production_lire',
-    description: 'Lit le texte complet d\'un acte rédigé ou d\'un livrable rangé dans SIRAL.',
-    inputSchema: { type: 'object', properties: { numero: { type: 'string' }, id: { type: 'string' } }, required: ['numero', 'id'] },
-    handler: async (a) => readProduction(keys, a.numero, a.id) ?? { erreur: 'Acte introuvable' },
-  },
-  {
-    name: 'production_diff',
-    description: 'Montre CE QUE le magistrat a changé DE SA MAIN dans un acte : diff ligne à ligne entre TON jet (version archivée) et sa correction — « - » ce qu\'il a retiré, « + » ce qu\'il a ajouté. À utiliser lors de la consolidation d\'apprentissage sur un signal « acte_edite_main » : tu comprends précisément la correction et tu en tires une RÈGLE durable (mémoire, trame, skill) pour ne pas la refaire. Passe versionAt (l\'horodatage porté par le signal) pour cibler exactement cette correction ; sans versionAt, compare les deux dernières versions (dernier changement).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        numero: { type: 'string' },
-        id: { type: 'string' },
-        versionAt: { type: 'string', description: 'Horodatage/jeton de la version à comparer (celui du signal acte_edite_main). Optionnel.' },
-      },
-      required: ['numero', 'id'],
-    },
-    handler: async (a) => diffProduction(keys, a.numero, a.id, a.versionAt),
-  },
-  {
-    name: 'production_supprimer',
-    description: 'Supprime un acte rédigé (réversible : version archivée).',
-    inputSchema: { type: 'object', properties: { numero: { type: 'string' }, id: { type: 'string' } }, required: ['numero', 'id'] },
-    handler: async (a) => ({ ok: await deleteProduction(a.numero, a.id) }),
-    write: true,
-  },
-  {
     name: 'trame_enregistrer',
     description: `Enregistre ou met à jour une trame de rédaction du magistrat (plan-type de DML, réquisition, TSE, consignes de style). Versionnée à chaque réécriture. À utiliser quand le magistrat colle une trame ou dit « enregistre cette trame » — et pour TES modèles « ${MODELE_PREFIX}* » extraits des actes validés (les seuls que tu écris de ta propre initiative).`,
     inputSchema: { type: 'object', properties: { nom: { type: 'string', description: 'ex: reponse-dml, requisition-tse' }, contenu: { type: 'string' }, description: { type: 'string' } }, required: ['nom', 'contenu'] },
@@ -1482,23 +1289,20 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'kb_ranger_piece',
-    description: `Intègre une PIÈCE CONFIÉE à la base de connaissances — pièce jointe d'un mail transféré (source "mail" : id + piece de boite_lire) ou pièce du dépôt (source "depot" : rel de depot_lister). Utilise-le quand le magistrat transmet un DOCUMENT DE RÉFÉRENCE DURABLE (« intègre ce memento / cette circulaire / cette documentation à ta base de connaissances et classe-la ») plutôt qu'une pièce de procédure (celle-là va au dossier via ranger_document). Le TEXTE est extrait côté serveur (PDF/ODT/DOCX/RTF/texte) et conservé chiffré — seul le texte, jamais l'octet du PDF. CLASSE dès réception : titre clair, categorie (${KB_CATEGORIES.join(', ')} — champ libre), chemin de pochette (ex: Circulaires/2026/memento-parquet.md), description d'une phrase (contenu + quand s'en servir). reflexe=true pour l'épingler comme référence de premier rang (Memento parquet…). Un scan illisible est REFUSÉ (rien enregistré) : demande une version texte. Une pièce du dépôt est retirée du dépôt après intégration.`,
+    description: `Intègre une PIÈCE DU DÉPÔT (rel de depot_lister) à la base de connaissances. Utilise-le quand le magistrat transmet un DOCUMENT DE RÉFÉRENCE DURABLE (« intègre ce memento / cette circulaire / cette documentation à ta base de connaissances et classe-la ») plutôt qu'une pièce de procédure (celle-là va au dossier via ranger_document). Le TEXTE est extrait côté serveur (PDF/ODT/DOCX/RTF/texte) et conservé chiffré — seul le texte, jamais l'octet du PDF. CLASSE dès réception : titre clair, categorie (${KB_CATEGORIES.join(', ')} — champ libre), chemin de pochette (ex: Circulaires/2026/memento-parquet.md), description d'une phrase (contenu + quand s'en servir). reflexe=true pour l'épingler comme référence de premier rang (Memento parquet…). Un scan illisible est REFUSÉ (rien enregistré) : demande une version texte. Une pièce du dépôt est retirée du dépôt après intégration.`,
     inputSchema: {
       type: 'object',
       properties: {
-        source: { type: 'string', enum: ['mail', 'depot'], description: '"mail" (id + piece) ou "depot" (rel)' },
-        id: { type: 'string', description: 'source=mail : identifiant du message (boite_lister)' },
-        piece: { type: 'string', description: 'source=mail : nom exact de la pièce jointe' },
-        rel: { type: 'string', description: 'source=depot : rel de la pièce (depot_lister)' },
+        rel: { type: 'string', description: 'rel de la pièce (depot_lister)' },
         titre: { type: 'string', description: 'Titre de l\'entrée (clair, daté si utile)' },
         categorie: { type: 'string', description: `Catégorie (${KB_CATEGORIES.join(', ')} — champ libre)` },
         chemin: { type: 'string', description: 'Pochette de rangement (arborescence, séparateur /)' },
         description: { type: 'string', description: 'Une phrase : ce que contient l\'entrée et quand s\'en servir' },
         reflexe: { type: 'boolean', description: 'true pour épingler comme document réflexe (référence de premier rang)' },
       },
-      required: ['source', 'titre'],
+      required: ['rel', 'titre'],
     },
-    handler: async (a) => rangerPieceDansKb(keys, { source: a.source, rel: a.rel, mailId: a.id, piece: a.piece, titre: a.titre, categorie: a.categorie, chemin: a.chemin, description: a.description, reflexe: a.reflexe }),
+    handler: async (a) => rangerPieceDansKb(keys, { rel: a.rel, titre: a.titre, categorie: a.categorie, chemin: a.chemin, description: a.description, reflexe: a.reflexe }),
     write: true,
   },
   {
@@ -1854,18 +1658,15 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'carto_verser_document',
-    description: 'VERSE une pièce confiée (dépôt du trombone ou pièce jointe d\'un mail transféré) sur un DOSSIER MANUEL de la cartographie (dossier « ex nihilo » — ni enquête ni instruction : ex. « Réseau X (quartier…) »). Pour une enquête ou une instruction, c\'est ranger_document. Le TEXTE est extrait côté serveur (PDF/ODT/DOCX/RTF/texte/Excel) et conservé sur le dossier, comme le trombone du formulaire du dossier sur la carte ; il devient lisible par carto_lire_document. Libellé du dossier : celui de carto_lire_fiches (casse et accents indifférents). Plafonds : 400 k caractères par document, 1 M par dossier. Un scan illisible est REFUSÉ (rien versé). Une pièce du dépôt est retirée du dépôt après versement. RÉSERVÉ à une instruction explicite du magistrat ou à une consigne de rangement désignant ce dossier.',
+    description: 'VERSE une pièce du dépôt sur un DOSSIER MANUEL de la cartographie (dossier « ex nihilo » — ni enquête ni instruction : ex. « Réseau X (quartier…) »). Pour une enquête ou une instruction, c\'est ranger_document. Le TEXTE est extrait côté serveur (PDF/ODT/DOCX/RTF/texte/Excel) et conservé sur le dossier, comme le trombone du formulaire du dossier sur la carte ; il devient lisible par carto_lire_document. Libellé du dossier : celui de carto_lire_fiches (casse et accents indifférents). Plafonds : 400 k caractères par document, 1 M par dossier. Un scan illisible est REFUSÉ (rien versé). Une pièce du dépôt est retirée du dépôt après versement. RÉSERVÉ à une instruction explicite du magistrat ou à une consigne de rangement désignant ce dossier.',
     inputSchema: {
       type: 'object',
       properties: {
-        source: { type: 'string', enum: ['depot', 'mail'] },
-        rel: { type: 'string', description: 'source=depot : rel exact de depot_lister' },
-        mailId: { type: 'string', description: 'source=mail : id du message' },
-        piece: { type: 'string', description: 'source=mail : nom exact de la pièce jointe' },
+        rel: { type: 'string', description: 'rel exact de depot_lister' },
         dossier: { type: 'string', description: 'Libellé du dossier manuel de la carte (carto_lire_fiches)' },
         nom: { type: 'string', description: 'Nom du document (défaut : nom d\'origine)' },
       },
-      required: ['source', 'dossier'],
+      required: ['rel', 'dossier'],
     },
     handler: async (a) => verserDocumentCarto(keys, a),
     write: true,
@@ -1959,19 +1760,16 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'ranger_document',
-    description: `Range une pièce dans la section documents du BON dossier (enquête ou instruction) — le magistrat te confie la pièce, TOI tu la classes. source "depot" (rel de depot_lister) ou "mail" (mailId + piece de boite_lire). zone : ${Object.keys(ZONES).join(' | ')} — audition/PV/garde à vue → pv ; ordonnance/réquisition/autorisation → actes ; DML et réponses → dml ; rapports de géolocalisation → geoloc ; retranscriptions d'interceptions → ecoutes. Donne un nom PROPRE et daté (ex: 2026-07-12_Audition_DUPONT). La pièce d'origine est conservée telle quelle (chiffrée) ; elle apparaît dans la fiche du dossier, signée du nom du magistrat. Après rangement : lis-la et déclenche tes détections (propositions).`,
+    description: `Range une pièce dans la section documents du BON dossier (enquête ou instruction) — la pièce vient du dépôt (rel de depot_lister), TOI tu la classes. zone : ${Object.keys(ZONES).join(' | ')} — audition/PV/garde à vue → pv ; ordonnance/réquisition/autorisation → actes ; DML et réponses → dml ; rapports de géolocalisation → geoloc ; retranscriptions d'interceptions → ecoutes. Donne un nom PROPRE et daté (ex: 2026-07-12_Audition_DUPONT). La pièce d'origine est conservée telle quelle (chiffrée) ; elle apparaît dans la fiche du dossier, signée du nom du magistrat. Après rangement : lis-la et déclenche tes détections (propositions).`,
     inputSchema: {
       type: 'object',
       properties: {
-        source: { type: 'string', enum: ['depot', 'mail'] },
-        rel: { type: 'string', description: 'source=depot : rel exact de depot_lister' },
-        mailId: { type: 'string', description: 'source=mail : id du message' },
-        piece: { type: 'string', description: 'source=mail : nom exact de la pièce jointe' },
+        rel: { type: 'string', description: 'rel exact de depot_lister' },
         numero: { type: 'string', description: 'Dossier cible (enquête ou n° instruction/parquet)' },
         zone: { type: 'string', enum: Object.keys(ZONES) },
         nom: { type: 'string', description: 'Nom final, daté et explicite (extension d\'origine préservée)' },
       },
-      required: ['source', 'numero', 'zone'],
+      required: ['rel', 'numero', 'zone'],
     },
     handler: async (a) => rangerDocument(keys, a),
     write: true,
@@ -1984,45 +1782,59 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
     write: true,
   },
   {
-    name: 'poser_question',
-    description: 'Pose une question au magistrat DANS SIRAL : une carte « Question » apparaît dans son panneau avec une zone de réponse — sa réponse revient directement dans CETTE conversation (tu garderas tout ton contexte). C\'est l\'UNIQUE canal pour lui demander une information (jamais par mail). Pose une question PRÉCISE et autoporteuse (rappelle le dossier, ce que tu sais déjà, ce qui te manque). Ne bloque pas ton travail en attendant : termine ce qui peut l\'être, marque [À CONFIRMER] ce qui dépend de la réponse.',
+    name: 'routine_lister',
+    description: 'Liste les routines enregistrées (consignes récurrentes exécutées automatiquement) : id, nom, cadence (heure quotidienne ou intervalle en heures), actif, dernière exécution. À consulter avant d\'en créer une (pas de doublon) et pour répondre à « quelles sont mes routines ? ».',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => ({
+      routines: listRoutines(keys).map((r) => ({
+        id: r.id, nom: r.nom, heure: r.heure, intervalleHeures: r.intervalleHeures,
+        actif: r.actif, lastRunAt: r.lastRunAt, lastRunOk: r.lastRunOk,
+        prompt: String(r.prompt || '').slice(0, 400),
+      })),
+    }),
+  },
+  {
+    name: 'routine_enregistrer',
+    description: 'Crée ou met à jour une ROUTINE — quand le magistrat te confie une tâche RÉCURRENTE en conversation (« chaque matin vérifie… », « toutes les semaines fais le point… », « chaque nuit analyse… ») : c\'est TOI qui l\'enregistres, au lieu de lui demander d\'ouvrir Paramètres. Rédige le prompt de la routine comme une consigne AUTONOME et précise (le run ne verra pas cette conversation) : quoi faire, sur quels dossiers, où déposer le travail (proposer_* pour ce qui est détecté — le magistrat tranche ✓/✗ ; une écriture directe seulement si la routine la demande expressément ; personne ne lit la réponse du run). heure « HH:MM » pour une quotidienne, OU intervalleHeures. Pour une tâche lourde (balayage de tous les dossiers), préfère une heure de NUIT. id pour modifier une routine existante (routine_lister). Confirme au magistrat ce que tu as enregistré (nom + cadence).',
     inputSchema: {
       type: 'object',
       properties: {
-        question: { type: 'string', description: 'La question, précise et autoporteuse (2-6 phrases max)' },
-        numero: { type: 'string', description: 'Dossier concerné (optionnel, pour le contexte de la carte)' },
+        id: { type: 'string', description: 'id d\'une routine existante à modifier (sinon création)' },
+        nom: { type: 'string', description: 'Nom court (ex: « Point hebdo échéances »)' },
+        prompt: { type: 'string', description: 'La consigne complète et autonome exécutée à chaque échéance' },
+        heure: { type: 'string', description: 'HH:MM pour une routine quotidienne (ex: 22:30 pour la nuit)' },
+        intervalleHeures: { type: 'number', description: 'OU toutes les N heures (1-168)' },
+        actif: { type: 'boolean', description: 'Défaut true' },
       },
-      required: ['question'],
+      required: ['nom', 'prompt'],
+    },
+    handler: async (a) => upsertRoutine(keys, { ...a, actif: a.actif !== false }),
+    write: true,
+  },
+  {
+    name: 'routine_suspendre',
+    description: 'Suspend (actif:false) ou réactive (actif:true) une routine existante, sans la supprimer — quand le magistrat dit « mets en pause la routine X » / « relance-la ».',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'id de la routine (routine_lister)' },
+        actif: { type: 'boolean', description: 'false = suspendre, true = réactiver' },
+      },
+      required: ['id', 'actif'],
     },
     handler: async (a) => {
-      await publishFeed(keys, {
-        type: 'question',
-        titre: a.numero ? `Question — dossier ${String(a.numero).slice(0, 60)}` : 'Question de votre attaché',
-        resume: String(a.question).slice(0, 4000),
-        numero: a.numero,
-        convId: process.env.SIRAL_ATTACHE_CONV_ID || undefined,
-        qid: crypto.randomBytes(8).toString('hex'),
-      })
-      return {
-        ok: true,
-        note: 'Question posée dans SIRAL. La réponse du magistrat arrivera comme un nouveau message dans cette conversation — n\'attends pas : termine le travail possible, marque [À CONFIRMER] ce qui dépend de la réponse.',
-      }
+      const r = listRoutines(keys).find((x) => x.id === a.id)
+      if (!r) throw new Error('Routine inconnue — voir routine_lister')
+      await upsertRoutine(keys, { ...r, actif: a.actif === true })
+      return { id: r.id, nom: r.nom, actif: a.actif === true }
     },
     write: true,
   },
   {
-    name: 'signaler',
-    description: 'Publie une carte d\'INFORMATION dans le journal « pendant votre absence » : ce qui a été fait/repéré, à titre indicatif. type: mail_traite | synthese | prolongation | alerte | note. N\'utilise PAS signaler pour un livrable déjà remis (remettre_livrable crée déjà une carte reliée, éditable) — ce serait un doublon. Pour une QUESTION au magistrat, utilise poser_question (jamais signaler, jamais le mail).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        type: { type: 'string' }, titre: { type: 'string' },
-        resume: { type: 'string', description: '2-4 phrases : ce qui a été fait et ce qui attend le magistrat' },
-        numero: { type: 'string', description: 'Dossier concerné (optionnel)' },
-      },
-      required: ['type', 'titre', 'resume'],
-    },
-    handler: async (a) => { await publishFeed(keys, a); return { ok: true } },
+    name: 'routine_supprimer',
+    description: 'Supprime une routine — UNIQUEMENT sur demande explicite du magistrat (« supprime la routine X »). Pour arrêter temporairement : routine_suspendre.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    handler: async (a) => deleteRoutine(keys, a.id),
     write: true,
   },
 ]
@@ -2096,7 +1908,7 @@ export async function dispatchMcp(req, options = {}) {
       }
       if ((IS_RUN_AUTONOME || contexte === 'apprentissage' || contexte === 'etude') && OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME.has(tool.name)) {
         return reply({
-          content: [{ type: 'text', text: JSON.stringify({ erreur: `Run autonome : ${tool.name} est réservé aux instructions du magistrat (chat, mail transféré). Dépose une proposition (proposer_*) ou signale (signaler) — jamais d'écriture d'office au dossier ni aux routines.` }) }],
+          content: [{ type: 'text', text: JSON.stringify({ erreur: `Run autonome : ${tool.name} est réservé aux instructions explicites du magistrat. Dépose une proposition (proposer_*) — jamais d'écriture d'office au dossier ni aux routines.` }) }],
           isError: true,
         })
       }
@@ -2129,15 +1941,10 @@ export async function dispatchMcp(req, options = {}) {
 }
 
 // ── Connecteur Claude web (importé par le service attaché — POST /mcp) ──
-// Même périmètre que le chat de l'attaché, MOINS :
-//  - sous_agents : lancerait des runs CLI parallèles sur l'abonnement depuis
-//    Claude web (piège de coût — Claude web orchestre déjà ses lectures) ;
-//  - poser_question : le magistrat est DÉJÀ dans la conversation Claude web,
-//    la carte Question du panneau n'aurait ni contexte ni retour possible ;
-//  - produire_document : l'acte rédigé dans Claude web y reste (livré dans la
-//    conversation) — SIRAL ne reçoit plus d'acte à valider, seulement des
-//    synthèses et analyses (remettre_livrable).
-const OUTILS_HORS_CONNECTEUR = new Set(['sous_agents', 'poser_question', 'produire_document'])
+// Même périmètre que les runs de l'attaché, MOINS sous_agents : il lancerait
+// des runs CLI parallèles sur l'abonnement depuis Claude web (piège de coût —
+// Claude web orchestre déjà ses lectures).
+const OUTILS_HORS_CONNECTEUR = new Set(['sous_agents'])
 
 const INSTRUCTIONS_CONNECTEUR = [
   `SIRAL — application métier du parquet (contentieux ${attacheContentieux()}). Tu agis pour le compte du magistrat administrateur, authentifié via OAuth.`,
@@ -2152,7 +1959,7 @@ const INSTRUCTIONS_CONNECTEUR = [
   'TRAVAIL DE FOND SUR UN DOSSIER (réquisitoire définitif, synthèse générale, dépouillement) : dossier_global — TOUTES les pièces en texte dans un seul fichier : en tête la fiche du dossier, la chronologie et le registre des pièces ; puis le sommaire et un bloc par pièce, classées par THÈME (auditions, synthese, telephonie, expertises, surveillances, decisions, autres — `theme` pour n\'en lire qu\'un), chaque pièce portant un numéro stable P-xxxx (citable d\'une conversation à l\'autre) et son chemin (la cote) ; paginé ; dossier volumineux : thème par thème ou pochette par pochette (panorama de dossier_arborescence). Pour LOCALISER sans tout lire : pieces_chercher (avec numero : un dossier ; SANS numero : TOUT le fonds — enquêtes archivées, instructions, documents de la carte — avec alternatives en OU et "expressions exactes"), registre_lire. Pour CROISER des affaires : registre_recouper (entités partagées, `entite` pour une valeur précise), recoupements_lire (veille hebdomadaire, `inedits:true` pour les ponts que rien ne montrait ; un signal marqué `pieceSuspecte` est un faux pont probable — pieces_mal_classees liste les pièces versées dans le mauvais dossier), carto_analyser et carto_chemin (sourcé).',
   'RÉDACTION DES ACTES : c\'est ICI, dans Claude web, qu\'ils se rédigent — l\'attaché de SIRAL ne rédige plus (il actualise, recoupe, prépare). Avant de rédiger : instructions_projet_lire (les instructions de référence du projet, tenues dans SIRAL et révisées sur les corrections du magistrat — elles peuvent être plus récentes que celles collées dans le projet), trames_lister / trame_lire (le plan-type du magistrat, qui PRIME sur un modele-* du même type), skills_lister / skill_lire (sa méthode), kb_chercher / kb_lire (son fond documentaire, documents ★ en réflexe), lire_dossier (NATINF enregistrés, mis en cause, échéancier) et chronologie_lire. Les instructions, la mémoire et la base de connaissances de ton projet Claude web PRIMENT sur ces ressources ; SIRAL les garde en mémoire et les améliore (propositions ✓/✗ du magistrat).',
   'Écritures (actes, CR, à-faire, NATINF, dossiers…) : réservées aux instructions explicites du magistrat — en cas de doute, demande-lui dans la conversation avant d\'écrire. Chaque écriture est versionnée (réversible) et journalisée dans son audit ; les données partagées sont signées de son nom, jamais « IA ».',
-  'Un acte rédigé ici se LIVRE ICI, dans la conversation (texte complet prêt à signer, ou fichier Word si le magistrat le demande) — il n\'est JAMAIS rangé dans SIRAL et il n\'y a AUCUN acte à valider dans SIRAL : ne l\'annonce jamais (« valider l\'acte dans SIRAL » est faux). SIRAL ne reçoit que des SYNTHÈSES et ANALYSES, avec remettre_livrable (fil « pendant votre absence »). Si le magistrat veut que la mesure (écoute, géolocalisation, prolongation) figure à l\'échéancier : enregistrer_acte / acter_prolongation, sur son instruction explicite.',
+  'Un acte rédigé ici se LIVRE ICI, dans la conversation (texte complet prêt à signer, ou fichier Word si le magistrat le demande) — il n\'est JAMAIS rangé dans SIRAL et il n\'y a AUCUN acte à valider dans SIRAL : ne l\'annonce jamais (« valider l\'acte dans SIRAL » est faux). Les analyses et synthèses restent elles aussi dans la conversation. Si le magistrat veut que la mesure (écoute, géolocalisation, prolongation) figure à l\'échéancier : enregistrer_acte / acter_prolongation, sur son instruction explicite.',
 ].join('\n')
 
 /**
@@ -2181,20 +1988,15 @@ export async function handleConnectorMessage(message) {
 }
 
 // ── Boucle stdio (une ligne = un message) — exécution directe par le CLI ──
-// L'attaché (runs CLI : chat, mails, routines, flux, apprentissage) est un
-// ANALYSTE : il actualise les dossiers, recoupe, améliore la donnée — il ne
-// rédige plus les actes. La rédaction se fait dans Claude web, avec le
-// connecteur, et l'acte y reste : produire_document n'est exposé nulle part
-// (ni CLI, ni connecteur — voir OUTILS_HORS_CONNECTEUR). Les
-// livrables d'analyse (remettre_livrable) restent.
-const OUTILS_HORS_CLI = new Set(['produire_document'])
+// Les runs de l'attaché (actualisation, flux, carte, routines, apprentissage)
+// voient tous les outils.
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
 if (isMain) {
   const rl = readline.createInterface({ input: process.stdin, terminal: false })
   rl.on('line', async (line) => {
     let req
     try { req = JSON.parse(line) } catch { return }
-    const res = await dispatchMcp(req, { exclure: OUTILS_HORS_CLI })
+    const res = await dispatchMcp(req, {})
     if (res) process.stdout.write(JSON.stringify(res) + '\n')
   })
   rl.on('close', () => process.exit(0))

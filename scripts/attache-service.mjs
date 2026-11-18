@@ -4,12 +4,12 @@
  *
  * SEUL processus détenteur de la clé-maître : l'app web ne voit jamais une
  * clé de l'attaché. Il assure :
- *  - la relève périodique de la boîte dédiée (IMAP) ;
- *  - les runs PROACTIFS : chaque mail transféré déclenche l'agent, qui
- *    qualifie, rapproche du dossier, agit dans SIRAL, prépare les projets
- *    et alimente le fil « pendant votre absence » ;
+ *  - le connecteur Claude web (POST /mcp, relayé par l'app) ;
+ *  - les tâches de FOND : ingestion et registre des pièces, flux tendu (CR au
+ *    versement), versements, interrogations, rapports, recoupements, routines,
+ *    apprentissage et étude du corpus ;
  *  - une API HTTP INTERNE (réseau docker uniquement, jamais publiée) pour
- *    l'app Next : chat streaming, remise/révocation du trousseau, statut.
+ *    l'app Next : actualisations, analyses de la carte, trousseau, statut.
  *
  * Authentification interne : en-tête X-Attache-Secret (SIRAL_ATTACHE_BRIDGE_SECRET,
  * à défaut dérivé de SIRAL_SECRET).
@@ -19,8 +19,8 @@ import crypto from 'node:crypto'
 import { loadMasterKey } from './attache/crypto.mjs'
 import { loadKeyring, grantKeyring, revokeKeyring, keyringStatus, allowedScopes } from './attache/keyring.mjs'
 import { handleConnectorMessage } from './attache-mcp.mjs'
-import { attacheTj, docServerKey, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw, setStatusMapEntryRaw } from './attache/store.mjs'
-import { audit, publishFeed } from './attache/journal.mjs'
+import { attacheTj, docServerKey, attacheContentieux, readState, writeState, fixSharedPermissions, writeCollectionEnvelopeRaw, deleteCollectionEnvelopeRaw, writeSingleEnvelopeRaw } from './attache/store.mjs'
+import { audit } from './attache/journal.mjs'
 import { inNightWindow, feuRecoupements, RECOUP_JOUR } from './attache/ordonnancement.mjs'
 import { writeClaudeToken, clearClaudeToken, clearAuthFailure } from './attache/claudeAuth.mjs'
 import { runAgent, checkClaudeCli, testClaudeAuth, agentConfig, sanitizeModel, sanitizeEffort, sanitizePlan, sanitizeCap, sanitizeSignature } from './attache/agent.mjs'
@@ -37,9 +37,13 @@ import { interrogationsStep } from './attache/interrogation.mjs'
 import { entretenirRapports } from './attache/rapport.mjs'
 import { enfiler as fluxEnfiler, balayer as fluxBalayer, pomper as fluxPomper, fileAttente as fluxFileAttente, FLUX_QUIET_MS } from './attache/flux.mjs'
 import { listPropositions, decideProposition } from './attache/propositions.mjs'
+import { listRoutines, upsertRoutine, deleteRoutine, markRun, dueRoutines } from './attache/routines.mjs'
+import { corpusActesValides, etudeDue, etudePrompt, etudeState, etudeStatus } from './attache/etude.mjs'
+import { MEMORY_BUDGET } from './attache/memory.mjs'
 import { lirePieceEntraide, sauverLecture, lireLectures } from './attache/entraideAnalyse.mjs'
 import { classerTrames, classerKb, classerSkills } from './attache/classer.mjs'
-import { runSubagents } from './attache/subagents.mjs'
+import { economicalModel, runSubagents } from './attache/subagents.mjs'
+import { consolidationDue, consolidationPrompt, learningStatus, learningState, latestSignalTs } from './attache/apprentissage.mjs'
 import { consumptionGovernor } from './attache/budget.mjs'
 import { prompt as promptConsigne, catalogueAvecSocles, SOCLES } from './attache/consignes.mjs'
 
@@ -115,6 +119,202 @@ async function readBody(req, maxBytes = 2 * 1024 * 1024) {
     })
     req.on('error', reject)
   })
+}
+
+// ── Routines du magistrat : exécutées à leur cadence, sérialisées ──
+
+// Une routine n'est PAS un run de chat : elle balaye, délègue à des sous-agents
+// (~8 min chacun) et n'a personne devant l'écran. Elle héritait pourtant du
+// plafond de 20 min d'un run de chat, ce qui la faisait tuer (« délai dépassé
+// (20 min) ») avant qu'elle n'ait déposé son travail. On lui accorde un plafond
+// propre, et le plafond CARTO à celles qui balayent la cartographie : l'analyse
+// transversale lance un sous-agent par dossier — le chat carto a déjà 90 min
+// pour cette raison exacte, une routine qui fait la même chose n'avait que 20.
+const ROUTINE_TIMEOUT_MIN = Number(process.env.SIRAL_ATTACHE_ROUTINE_TIMEOUT_MIN || 60)
+const ROUTINE_TIMEOUT_MS = Math.max(20, ROUTINE_TIMEOUT_MIN) * 60 * 1000
+/** La routine balaye-t-elle la cartographie (analyse transversale) ? */
+const CARTO_ROUTINE_RE = /cartograph|carto\b|transversal|liens? cach|recoupe|rapprochement|renseignement/i
+function routineTimeoutMs(routine) {
+  const texte = `${routine.nom || ''}\n${routine.prompt || ''}`
+  return CARTO_ROUTINE_RE.test(texte)
+    ? Math.max(ROUTINE_TIMEOUT_MS, CARTO_TIMEOUT_MS)
+    : ROUTINE_TIMEOUT_MS
+}
+
+let routineRunning = false
+async function runRoutine(routine, trigger = 'planifiée') {
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  console.log(`[attache] routine « ${routine.nom} » (${trigger})`)
+  // réserver l'exécution AVANT le run (évite un doublon si le run est long)
+  await markRun(keys, routine.id, null)
+  const prompt = [
+    `ROUTINE « ${routine.nom} » — consigne récurrente définie par le magistrat, exécutée automatiquement :`,
+    '',
+    routine.prompt,
+    '',
+    'OÙ REMETTRE TON TRAVAIL — personne ne lit ta réponse : seul compte ce que tu DÉPOSES dans SIRAL.',
+    '- Ce que tu détectes s\'écrit en PROPOSITION ✓/✗ (proposer_lien, proposer_mec_carto, proposer_dossier_carto,',
+    '  proposer_note_mec, proposer_camp_carto, proposer_mec, proposer_cr, proposer_acte, proposer_trame,',
+    '  proposer_skill, proposer_instructions_projet) : le magistrat tranche dans SIRAL. Une proposition déposée',
+    '  SURVIT même si le run est ensuite interrompu — dépose au fil de l\'eau, ne garde rien pour la fin.',
+    '- Une écriture DIRECTE seulement si la consigne de la routine la demande expressément.',
+    '- Tu ne rédiges pas d\'acte : le magistrat les rédige dans Claude web.',
+  ].join('\n')
+  const timeoutMs = routineTimeoutMs(routine)
+  const result = await runAgent({
+    keys,
+    prompt,
+    runLabel: `routine:${routine.nom}`,
+    title: `Routine ${routine.nom} ${new Date().toISOString().slice(0, 10)}`,
+    timeoutMs,
+    mcpToolTimeoutMs: timeoutMs - 120_000,
+  })
+  await markRun(keys, routine.id, result.ok)
+  await audit(keys, 'routine_executee', { routine: routine.nom, trigger, ok: result.ok, convId: result.convId, erreur: result.error })
+  return { ok: result.ok, convId: result.convId, error: result.error }
+}
+
+async function maybeDueRoutines() {
+  if (routineRunning) return
+  const keys = loadKeyring()
+  if (!keys) return
+  const due = dueRoutines(keys)
+  if (!due.length) return
+  if (await autonomousOnHold(keys, 'routines')) return
+  routineRunning = true
+  try {
+    for (const r of due) {
+      await runRoutine(r).catch((e) => console.error('[attache] routine :', e))
+    }
+  } finally {
+    routineRunning = false
+  }
+}
+
+// ── Apprentissage : consolidation périodique de la mémoire ──
+// Les signaux d'expérience (propositions ✓/✗, actes révisés/corrigés à la
+// main, leçons notées) sont captés au fil de l'eau SANS le modèle — la
+// consolidation est le seul moment payé en jetons : un run COURT, sur le
+// modèle économe des sous-agents, qui distille signaux + mémoire en un
+// document sous budget. Déclenchée par accumulation, dépassement du budget
+// mémoire ou cadence de fond (consolidationDue), et à la demande depuis
+// Paramètres → Attaché IA → Apprentissage.
+let apprentissageRunning = false
+async function runApprentissage(trigger = 'auto') {
+  if (apprentissageRunning) return { ok: false, error: 'consolidation déjà en cours' }
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  apprentissageRunning = true
+  try {
+    console.log(`[attache] consolidation d'apprentissage (${trigger})`)
+    // borne haute des signaux couverts par CE run, figée AVANT (ceux qui
+    // arrivent pendant le run resteront pour la consolidation suivante) ;
+    // la tentative est réservée tout de suite (garde anti-rafale de 12 h).
+    const borne = latestSignalTs()
+    await writeState({ apprentissage: { ...learningState(), lastAttemptAt: new Date().toISOString() } })
+    const result = await runAgent({
+      keys,
+      prompt: consolidationPrompt({ budget: MEMORY_BUDGET, trigger }),
+      runLabel: 'apprentissage',
+      title: `Apprentissage ${new Date().toISOString().slice(0, 10)}`,
+      model: economicalModel(agentConfig()),
+      effort: 'medium',
+      maxTurns: 18,
+      timeoutMs: 15 * 60 * 1000,
+    })
+    await writeState({
+      apprentissage: {
+        ...learningState(),
+        lastRunAt: new Date().toISOString(),
+        lastRunOk: result.ok,
+        lastTrigger: trigger,
+        // le point de consolidation n'avance QUE si le run a abouti — sinon
+        // les signaux restent en attente pour la prochaine tentative
+        ...(result.ok ? { consolidatedTs: borne } : {}),
+      },
+    })
+    await audit(keys, 'apprentissage_consolide', { trigger, ok: result.ok, convId: result.convId, erreur: result.error })
+    return { ok: result.ok, convId: result.convId, error: result.error }
+  } finally {
+    apprentissageRunning = false
+  }
+}
+
+/** Consolide quand l'échéancier le justifie (vérifié à chaque tick de relève — comptage gratuit). */
+async function maybeScheduledApprentissage() {
+  if (apprentissageRunning) return
+  // Travail de FOND : réservé à la nuit (la consolidation à la demande reste
+  // possible à tout moment depuis Paramètres → Attaché IA).
+  if (!inNightWindow()) return
+  const keys = loadKeyring()
+  if (!keys) return
+  const raison = consolidationDue(keys)
+  if (!raison) return
+  if (await autonomousOnHold(keys, 'consolidation')) return
+  runApprentissage(`auto — ${raison}`).catch((e) => console.error('[attache] apprentissage :', e))
+}
+
+// ── Étude du corpus d'actes validés : extraction de modèles (trames modele-*) ──
+// Les pièces des zones Actes/DML sont des versions VALIDÉES (actes signés du
+// magistrat, ordonnances JLD) : un run périodique les dépouille (sous-agents,
+// copies markdown) et en extrait des GABARITS par type d'acte, plus les
+// exigences de motivation des juges (paires requête ↔ ordonnance). Déclenché
+// par l'arrivée de nouveaux actes validés ou par cadence — comptage
+// déterministe à chaque tick, aucun jeton hors du run lui-même.
+let etudeRunning = false
+async function runEtude(trigger = 'auto') {
+  if (etudeRunning) return { ok: false, error: 'étude déjà en cours' }
+  const keys = loadKeyring()
+  if (!keys) return { ok: false, error: 'trousseau non remis' }
+  etudeRunning = true
+  try {
+    console.log(`[attache] étude du corpus d'actes validés (${trigger})`)
+    // le niveau du corpus couvert par CETTE étude est figé AVANT le run ;
+    // la tentative est réservée tout de suite (garde anti-rafale de 24 h)
+    const corpus = corpusActesValides()
+    await writeState({ etude: { ...etudeState(), lastAttemptAt: new Date().toISOString() } })
+    // dépouillement délégué aux sous-agents (un lot par dossier) : le plafond
+    // s'échelonne comme les autres analyses de lot
+    const timeoutMs = batchTimeoutMs(Math.max(2, corpus.dossiers))
+    const result = await runAgent({
+      keys,
+      prompt: etudePrompt(trigger),
+      runLabel: 'etude',
+      title: `Étude corpus ${new Date().toISOString().slice(0, 10)}`,
+      maxTurns: 30,
+      timeoutMs,
+      mcpToolTimeoutMs: timeoutMs - 120_000,
+    })
+    await writeState({
+      etude: {
+        ...etudeState(),
+        lastRunAt: new Date().toISOString(),
+        lastRunOk: result.ok,
+        lastTrigger: trigger,
+        // le niveau couvert n'avance QUE si l'étude a abouti
+        ...(result.ok ? { corpusAtRun: corpus.count } : {}),
+      },
+    })
+    await audit(keys, 'etude_corpus', { trigger, corpus: corpus.count, dossiers: corpus.dossiers, ok: result.ok, convId: result.convId, erreur: result.error })
+    return { ok: result.ok, convId: result.convId, error: result.error }
+  } finally {
+    etudeRunning = false
+  }
+}
+
+/** Étudie quand l'échéancier le justifie (comptage d'index en clair — gratuit). */
+async function maybeScheduledEtude() {
+  if (etudeRunning) return
+  // Travail de FOND (dépouillement en sous-agents) : réservé à la nuit ;
+  // « Étudier mes actes maintenant » force l'étude à tout moment.
+  if (!inNightWindow()) return
+  const keys = loadKeyring()
+  if (!keys) return
+  const raison = etudeDue()
+  if (!raison) return
+  if (await autonomousOnHold(keys, 'étude du corpus')) return
+  runEtude(`auto — ${raison}`).catch((e) => console.error('[attache] étude :', e))
 }
 
 // ── Actualisation « à la demande » de la description (« l'objet ») d'un dossier ──
@@ -560,6 +760,18 @@ async function fluxTick() {
 }
 
 
+// Plafond de durée d'une analyse de LOT (trames, base de connaissances) : ces
+// runs délèguent à des sous-agents en parallèle (vagues bornées par la
+// concurrence, ~8 min/tâche) et dépassent facilement les 20 min d'un run de
+// chat. On échelonne selon la taille du lot, borné à ~2 h, ajustable par env.
+const BATCH_TIMEOUT_MIN_BASE = Number(process.env.SIRAL_ATTACHE_BATCH_TIMEOUT_MIN || 25)
+const BATCH_TIMEOUT_MIN_MAX = Number(process.env.SIRAL_ATTACHE_BATCH_TIMEOUT_MAX_MIN || 120)
+function batchTimeoutMs(count) {
+  const n = Math.max(1, Number(count) || 1)
+  const minutes = Math.min(BATCH_TIMEOUT_MIN_MAX, BATCH_TIMEOUT_MIN_BASE + n * 6)
+  return minutes * 60 * 1000
+}
+
 // Analyse cartographique (« Détecter les camps », « Enrichir ») : elle peut
 // déléguer à des sous-agents (un par dossier) et dépasser largement 20 min —
 // plafond propre, ajustable par env. Simple garde-fou : une analyse brève
@@ -583,20 +795,6 @@ async function runTrameAnalyse(noms) {
     console.log(`[attache] classement de ${noms.length} trame(s)`)
     const result = await classerTrames(keys, noms)
     await audit(keys, 'trames_classees', { nb: noms.length, noms: noms.join(', ').slice(0, 500), classees: result.classees, ok: result.ok, erreur: result.error })
-    if (result.ok) {
-      const doublons = result.doublons?.length ? ` Doublons manifestes repérés : ${result.doublons.join(', ')}.` : ''
-      await publishFeed(keys, {
-        type: 'note',
-        titre: 'Bibliothèque de trames : classement',
-        resume: `${result.classees} trame(s) classée(s) (description mise à jour).${result.echecs?.length ? ` ${result.echecs.length} non classée(s).` : ''}${doublons}`,
-      })
-    } else {
-      await publishFeed(keys, {
-        type: 'alerte',
-        titre: 'Classement des trames interrompu',
-        resume: `Le classement des trames (${noms.slice(0, 5).join(', ')}${noms.length > 5 ? '…' : ''}) a échoué (${result.error || 'erreur inconnue'}). Relancez-le depuis Paramètres → Attaché IA.`,
-      })
-    }
     return { ok: result.ok, classees: result.classees, error: result.error }
   } finally {
     trameAnalyseRunning = false
@@ -615,23 +813,6 @@ async function runKbAnalyse(ids) {
     console.log(`[attache] classement de ${ids.length} entrée(s) de la base de connaissances`)
     const result = await classerKb(keys, ids)
     await audit(keys, 'kb_classee', { nb: ids.length, ids: ids.join(', ').slice(0, 500), classees: result.classees, ok: result.ok, erreur: result.error })
-    if (result.ok) {
-      const signalements = [
-        result.doublons?.length ? `Doublons : ${result.doublons.join(', ')}.` : '',
-        result.perimes?.length ? `Peut-être périmé(s) : ${result.perimes.join(', ')}.` : '',
-      ].filter(Boolean).join(' ')
-      await publishFeed(keys, {
-        type: 'note',
-        titre: 'Base de connaissances : classement',
-        resume: `${result.classees} entrée(s) classée(s) (description, catégorie, rangement).${result.echecs?.length ? ` ${result.echecs.length} non classée(s).` : ''}${signalements ? ' ' + signalements : ''}`,
-      })
-    } else {
-      await publishFeed(keys, {
-        type: 'alerte',
-        titre: 'Classement de la base de connaissances interrompu',
-        resume: `Le classement des entrées versées (${ids.slice(0, 5).join(', ')}${ids.length > 5 ? '…' : ''}) a échoué (${result.error || 'erreur inconnue'}). Relancez-le depuis Paramètres → Attaché IA.`,
-      })
-    }
     return { ok: result.ok, classees: result.classees, error: result.error }
   } finally {
     kbAnalyseRunning = false
@@ -650,19 +831,6 @@ async function runSkillAnalyse(noms) {
     console.log(`[attache] classement de ${noms.length} skill(s)`)
     const result = await classerSkills(keys, noms)
     await audit(keys, 'skills_classees', { nb: noms.length, classees: result.classees, ignorees: result.ignorees, ok: result.ok, erreur: result.error })
-    if (result.ok && (result.classees || result.total)) {
-      await publishFeed(keys, {
-        type: 'note',
-        titre: 'Skills : classement',
-        resume: `${result.classees} skill(s) décrite(s)${result.ignorees ? ` — ${result.ignorees} déjà décrite(s), laissée(s) intacte(s)` : ''}${result.echecs?.length ? ` — ${result.echecs.length} non décrite(s)` : ''}.`,
-      })
-    } else if (!result.ok) {
-      await publishFeed(keys, {
-        type: 'alerte',
-        titre: 'Classement des skills interrompu',
-        resume: `Le classement des skills a échoué (${result.error || 'erreur inconnue'}). Relancez-le depuis Paramètres → Attaché IA.`,
-      })
-    }
     return { ok: result.ok, classees: result.classees, ignorees: result.ignorees, error: result.error }
   } finally {
     skillAnalyseRunning = false
@@ -686,69 +854,19 @@ async function runSkillAnalyse(noms) {
 // désactivable. La fenêtre vit dans ordonnancement.mjs : règle pure, sans
 // état, testable.
 
-/** Carte de mise en pause — CONCISE par exigence du magistrat : ce qui est
- * différé, les jauges, la reprise. Rien d'autre (la pédagogie vit dans la
- * documentation des Paramètres, pas dans le fil). */
-function deferNoteResume(gov, quoi) {
-  const par7j = gov.cause === '7j'
-  const jauges = [
-    gov.cap5h ? `fenêtre 5 h : ${Math.round(gov.pct5h * 100)} %` : null,
-    gov.capHebdo ? `7 jours : ${Math.round(gov.pct7d * 100)} %` : null,
-  ].filter(Boolean).join(' · ')
-  return [
-    `Différé : ${quoi || 'travaux de fond'} — et tout autre travail de fond tant que le forfait est plein.`,
-    `${jauges}. ${par7j ? 'Reprise automatique (plafond 7 jours : comptez plusieurs jours).' : 'Reprise automatique dès que la fenêtre redescend.'}`,
-    'Conversations et mails : jamais mis en pause.',
-  ].join('\n')
-}
-
-// Anti-rafale : au plus UNE carte de mise en pause par période de 12 h, même
-// si plusieurs épisodes se succèdent (saturé → redescend → re-saturé) — une
-// journée chargée en produisait cinq identiques.
-const DEFER_CARD_COOLDOWN_MS = 12 * 3600 * 1000
-
-// Une SEULE carte par épisode de mise en pause — et non une par heure. Le
-// gouverneur reste « stop » tant que la consommation ne redescend pas : avec un
-// plafond HEBDOMADAIRE saturé, cela dure des jours, et l'ancienne cadence
-// horaire déposait des CENTAINES de cartes identiques au fil, chassant le vrai
-// travail hors des 200 entrées que le fil expose. Le repère est PERSISTÉ
-// (autoDeferNotedAt) : un redémarrage du service ne relance pas une carte.
-let deferEpisodeNoted = false
 async function autonomousOnHold(keys, quoi) {
   const gov = consumptionGovernor(agentConfig())
   if (gov.level !== 'stop') {
-    // Sortie de pause : on referme l'épisode, pour que la PROCHAINE saturation
-    // se signale à nouveau (une fois).
-    deferEpisodeNoted = false
     if (readState().autoDeferredAt) {
-      await writeState({ autoDeferredAt: null, autoDeferReason: null, autoDeferNotedAt: null })
+      await writeState({ autoDeferredAt: null, autoDeferReason: null })
         .catch(() => {})
     }
     return false
   }
   console.log(`[attache] ${quoi} différé — forfait saturé (${gov.raison})`)
-  const nowIso = new Date().toISOString()
-  const st = readState()
-  // readState() est SYNCHRONE : le test et l'affectation du repère mémoire
-  // n'encadrent aucun await — plusieurs runs de fond gated dans le même tick ne
-  // peuvent donc pas publier deux cartes.
-  const lastCardMs = Date.parse(st.autoDeferLastCardAt || 0) || 0
-  const cooldownOk = Date.now() - lastCardMs > DEFER_CARD_COOLDOWN_MS
-  const shouldNote = Boolean(keys) && !deferEpisodeNoted && !st.autoDeferNotedAt && cooldownOk
-  if (shouldNote) deferEpisodeNoted = true
+  // L'état de pause se lit dans Paramètres → Attaché IA (jauges de consommation).
   try {
-    await writeState({
-      autoDeferredAt: st.autoDeferredAt || nowIso,
-      autoDeferReason: gov.raison || null,
-      ...(shouldNote ? { autoDeferNotedAt: nowIso, autoDeferLastCardAt: nowIso } : {}),
-    })
-    if (shouldNote) {
-      await publishFeed(keys, {
-        type: 'note',
-        titre: 'Travaux de fond en pause — forfait saturé',
-        resume: deferNoteResume(gov, quoi),
-      })
-    }
+    await writeState({ autoDeferredAt: readState().autoDeferredAt || new Date().toISOString(), autoDeferReason: gov.raison || null })
   } catch { /* la mise en pause ne doit jamais gêner le service */ }
   return true
 }
@@ -829,7 +947,6 @@ const server = http.createServer(async (req, res) => {
           masterKey: Boolean(master),
         })
       }
-      const keys = master ? loadKeyring() : null
       const cli = await checkClaudeCli()
       return json(res, 200, {
         enabled: true,
@@ -896,8 +1013,8 @@ const server = http.createServer(async (req, res) => {
     if (route === 'POST /mcp') {
       // Connecteur Claude web : l'app (seule à connaître le secret de pont)
       // relaie ici les messages JSON-RPC MCP d'un magistrat authentifié par
-      // OAuth. Mêmes outils que le chat de l'attaché (moins sous_agents et
-      // poser_question), trousseau rechargé à chaque message, écritures
+      // OAuth. Mêmes outils que les runs de l'attaché (moins sous_agents),
+      // trousseau rechargé à chaque message, écritures
       // auditées sous le contexte « connecteur ».
       const message = await readBody(req, 16 * 1024 * 1024)
       const out = await handleConnectorMessage(message)
@@ -1066,6 +1183,37 @@ const server = http.createServer(async (req, res) => {
       return json(res, out.ok ? 200 : 502, out)
     }
 
+    if (route === 'GET /apprentissage') {
+      // statut de l'apprentissage : signaux en attente, dernière consolidation,
+      // mémoire face à son budget, étude du corpus — lisible même trousseau
+      // non remis (dégradé)
+      return json(res, 200, {
+        apprentissage: {
+          ...learningStatus(loadKeyring()),
+          running: apprentissageRunning,
+          etude: { ...etudeStatus(), running: etudeRunning },
+        },
+      })
+    }
+
+    if (route === 'POST /apprentissage') {
+      // consolidation à la demande — lancée en fond, comme les autres runs de fond
+      if (apprentissageRunning) return json(res, 409, { ok: false, error: 'Consolidation déjà en cours' })
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      runApprentissage('manuelle').catch((e) => console.error('[attache] apprentissage :', e))
+      return json(res, 202, { ok: true, started: true })
+    }
+
+    if (route === 'POST /etude') {
+      // étude du corpus à la demande — lancée en fond
+      if (etudeRunning) return json(res, 409, { ok: false, error: 'Étude déjà en cours' })
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { ok: false, error: 'Trousseau non remis' })
+      runEtude('manuelle').catch((e) => console.error('[attache] étude :', e))
+      return json(res, 202, { ok: true, started: true })
+    }
+
     if (route === 'GET /propositions') {
       const keys = loadKeyring()
       if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
@@ -1112,6 +1260,40 @@ const server = http.createServer(async (req, res) => {
       const keys = loadKeyring()
       if (!keys) return json(res, 200, { lectures: [] })
       return json(res, 200, { lectures: lireLectures(keys, url.searchParams.get('id') || '') })
+    }
+
+    if (route === 'GET /routines') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      return json(res, 200, { routines: listRoutines(keys) })
+    }
+
+    if (route === 'POST /routines') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const body = await readBody(req)
+      const out = await upsertRoutine(keys, body)
+      await audit(keys, 'routine_enregistree', { nom: body.nom, par: String(body.par || 'admin') })
+      return json(res, 200, { ok: true, ...out })
+    }
+
+    if (route === 'DELETE /routines') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const id = url.searchParams.get('id') || ''
+      const out = await deleteRoutine(keys, id)
+      return json(res, 200, { ok: true, ...out })
+    }
+
+    if (route === 'POST /routines/run') {
+      const keys = loadKeyring()
+      if (!keys) return json(res, 409, { error: 'Trousseau non remis' })
+      const id = url.searchParams.get('id') || ''
+      const routine = listRoutines(keys).find((r) => r.id === id)
+      if (!routine) return json(res, 404, { error: 'Routine inconnue' })
+      // lancée en fond : la réponse ne bloque pas sur le run
+      runRoutine(routine, 'manuelle').catch((e) => console.error('[attache] routine :', e))
+      return json(res, 202, { ok: true, started: true })
     }
 
     if (route === 'POST /trames/analyse') {
@@ -1252,21 +1434,6 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // …et pour les cartes de statut en clair (questions / journal).
-    if (route === 'PUT /status-map') {
-      const body = await readBody(req)
-      try {
-        await setStatusMapEntryRaw(String(body.file || ''), String(body.id || ''), {
-          status: String(body.status || '').slice(0, 20),
-          at: new Date().toISOString(),
-          by: String(body.by || 'admin').slice(0, 80),
-        })
-        return json(res, 200, { ok: true })
-      } catch (e) {
-        return json(res, 400, { error: String(e?.message || e) })
-      }
-    }
-
     return json(res, 404, { error: 'Route inconnue' })
   } catch (e) {
     console.error('[attache]', e)
@@ -1307,6 +1474,9 @@ const decale = (ms, nom, libelle, fn) => {
   }, ms)
 }
 setInterval(() => {
+  decale(5_000, 'routines', 'routines planifiées', () => maybeDueRoutines())
+  decale(10_000, 'apprentissage', 'apprentissage planifié', () => maybeScheduledApprentissage())
+  decale(15_000, 'etude', 'étude planifiée', () => maybeScheduledEtude())
   decale(20_000, 'flux', 'flux tendu (file d\'attente)', () => fluxTick())
   decale(30_000, 'ingestion', 'ingestion des pièces', () => maybeIngest())
   decale(90_000, 'registre', 'mini-fiches du registre', () => maybeRegistreFiches())

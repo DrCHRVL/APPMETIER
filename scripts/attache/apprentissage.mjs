@@ -20,8 +20,7 @@
  *
  * Tout reste sous le contrôle du magistrat : les signaux sont chiffrés
  * (clé globale), la mémoire consolidée demeure lisible, corrigeable et
- * effaçable depuis le panneau, et chaque consolidation laisse une carte
- * « Apprentissage » dans le fil « pendant votre absence ».
+ * effaçable, et chaque consolidation est journalisée (audit).
  */
 import { appendEncryptedLine, readEncryptedLines, readState } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
@@ -324,16 +323,14 @@ export function consolidationPrompt({ budget, trigger }) {
     '   - HYGIÈNE DU CATALOGUE : la liste des skills se paie dans CHAQUE prompt (plafond de skills auto-*',
     '     imposé). Si deux auto-* se recouvrent, FUSIONNE-les (skill_enregistrer l\'une enrichie,',
     '     skill_supprimer l\'autre) ; supprime une auto-* devenue inutile.',
-    '5. Termine par signaler (type note, titre « Apprentissage — consolidation ») : en 2-5 phrases, ce que tu',
-    '   as retenu de NEUF, ce que tu feras différemment, et CHAQUE évolution de méthode — écrite (auto-*/modele-*)',
-    '   ou proposée (proposer_trame / proposer_skill / proposer_instructions_projet en attente de ✓) : le magistrat doit pouvoir',
-    '   vérifier — et annuler — chacune.',
+    '5. Toute évolution de méthode est versionnée (auto-*/modele-*) ou soumise au ✓ du magistrat',
+    '   (proposer_trame / proposer_skill / proposer_instructions_projet) : il peut vérifier — et annuler — chacune.',
     '',
     'CAS PARTICULIERS : si les signaux n\'apportent RIEN de neuf et que la mémoire est déjà sous le budget et',
-    'bien structurée, ne réécris rien — signale simplement (même titre) qu\'il n\'y avait rien à retenir.',
+    'bien structurée, ne réécris rien.',
     'Si la mémoire dépasse le budget, la réécriture distillée est OBLIGATOIRE. Outils d\'écriture AUTORISÉS dans',
     'ce run : memoire_reecrire, skill_enregistrer (auto-*), skill_supprimer (auto-*), trame_enregistrer',
-    '(modele-*), proposer_trame, proposer_skill, proposer_instructions_projet, signaler — rien d\'autre : ce run',
+    '(modele-*), proposer_trame, proposer_skill, proposer_instructions_projet — rien d\'autre : ce run',
     'consolide les méthodes, il ne traite pas les dossiers.',
   ].join('\n')
 }

@@ -12,7 +12,6 @@ import path from 'path'
 import crypto from 'crypto'
 import { jsonResponse, requireTjSession } from './auth'
 import { tjDataDir, withFileLock, ensureDir, atomicWrite, readJson, DEFAULT_TJ_ID, readLogTailLines } from './store'
-import { normNumero } from '@/utils/numeroDossier'
 
 export function attacheEnabled(): boolean {
   return Boolean(process.env.SIRAL_ATTACHE_URL)
@@ -166,7 +165,7 @@ function attacheDir(...segments: string[]): string {
   return tjDataDir(attacheTjId(), 'attache', ...segments)
 }
 
-export function readEncryptedLog(file: 'feed.jsonl' | 'audit.jsonl' | 'outbox.jsonl', max = 500): Array<{ ts: number, id?: string, iv: string, ct: string }> {
+export function readEncryptedLog(file: 'audit.jsonl', max = 500): Array<{ ts: number, id?: string, iv: string, ct: string }> {
   const p = attacheDir(file)
   if (!fs.existsSync(p)) return []
   // Queue seulement : ces journaux grossissent sans fin (l'épisode des cartes
@@ -182,156 +181,7 @@ export function readEncryptedLog(file: 'feed.jsonl' | 'audit.jsonl' | 'outbox.js
 
 export interface AttacheEnvelope { v: number, encrypted: true, iv: string, ct: string, savedAt?: string, savedBy?: string }
 
-// ── Repli de LECTURE des actes rédigés (service endormi) ──
-// Les productions vivent sur le volume partagé `siral-data`, que l'app monte
-// elle aussi : quand le service ne répond pas, elle sait donc encore LISTER les
-// enveloppes — le navigateur les déchiffre comme d'habitude. Sans ce repli, un
-// conteneur attaché arrêté effaçait « Actes rédigés » de toutes les fiches
-// dossier, ce qui se lit comme une perte de travail alors que rien n'est perdu.
-// Écriture, validation et retouche IA restent, elles, refusées : elles passent
-// par le service, seul détenteur de la clé-maître.
-
-/** Clé de répertoire de stockage d'un dossier — miroir de docServerKey (service). */
-function docDirKey(numero: string): string {
-  const cleaned = String(numero)
-    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9._@-]/g, '_')
-  const safe = /^[a-zA-Z0-9]/.test(cleaned) ? cleaned : 'e_' + cleaned
-  return safe.slice(0, 121)
-}
-
-export function readProductionEnvelopes(numero: string): Array<{ id: string, envelope: AttacheEnvelope }> {
-  const root = attacheDir('productions')
-  if (!numero || !fs.existsSync(root)) return []
-  const exact = docDirKey(numero)
-  const wanted = normNumero(numero)
-  // Pseudo-dossiers (« _hors-dossier ») : jamais de rapprochement de variantes.
-  // Sinon : le répertoire exact, plus les écritures VARIANTES dont la clé se
-  // réduit au même numéro. Sans trousseau, l'app s'en tient à cette égalité
-  // normalisée — exactement ce que fait le service privé de clés, pour que deux
-  // dossiers voisins (« …GRIVESNES » / « …GRIVESNES 2 ») ne se mélangent jamais.
-  let dirs: string[] = [exact]
-  if (!numero.startsWith('_')) {
-    try {
-      dirs = fs.readdirSync(root).filter((d) => !d.startsWith('.') && (d === exact || normNumero(d) === wanted))
-    } catch { return [] }
-  }
-  const out: Array<{ id: string, envelope: AttacheEnvelope }> = []
-  const seen = new Set<string>()
-  for (const d of dirs) {
-    const dir = path.join(root, d)
-    let entries: string[]
-    try {
-      if (!fs.statSync(dir).isDirectory()) continue
-      entries = fs.readdirSync(dir)
-    } catch { continue }
-    for (const f of entries) {
-      if (!f.endsWith('.json') || f.startsWith('.')) continue
-      const id = f.slice(0, -'.json'.length)
-      if (seen.has(id)) continue
-      const envelope = readJson<AttacheEnvelope | null>(path.join(dir, f), null)
-      if (envelope) { seen.add(id); out.push({ id, envelope }) }
-    }
-  }
-  return out
-}
-
-/**
- * Repli du SOMMAIRE des actes par dossier (page « Assistant de justice »), même
- * logique : sans clé, l'app ne sait pas à quel dossier appartient un
- * répertoire. Elle rend donc, par répertoire, le nombre d'actes et UNE
- * enveloppe échantillon — le navigateur la déchiffre pour nommer le dossier.
- * Pseudo-dossiers (clé « e_… », dont « _hors-dossier ») exclus : section propre.
- */
-export function readProductionDossiers(): Array<{ nb: number, echantillon: AttacheEnvelope }> {
-  const root = attacheDir('productions')
-  if (!fs.existsSync(root)) return []
-  const out: Array<{ nb: number, echantillon: AttacheEnvelope }> = []
-  for (const d of fs.readdirSync(root)) {
-    if (d.startsWith('.') || d.startsWith('e_')) continue
-    const dir = path.join(root, d)
-    let fichiers: string[]
-    try {
-      if (!fs.statSync(dir).isDirectory()) continue
-      fichiers = fs.readdirSync(dir).filter((f) => f.endsWith('.json') && !f.startsWith('.'))
-    } catch { continue }
-    const echantillon = fichiers.length ? readJson<AttacheEnvelope | null>(path.join(dir, fichiers[0]), null) : null
-    if (echantillon) out.push({ nb: fichiers.length, echantillon })
-  }
-  return out
-}
-
-// ── Statuts des questions posées par l'attaché (répondu / ignoré) ──
-// Fichier en clair MAIS indexé par des ids opaques (qid aléatoires) : aucun
-// contenu n'y transite — l'app peut donc les écrire sans détenir de clé.
-
-export type QuestionStatus = 'repondu' | 'ignore'
-
-export function readQuestionStatuses(): Record<string, { status: QuestionStatus, at: string, by: string }> {
-  return readJson(attacheDir('questions-status.json'), {})
-}
-
-export async function setQuestionStatus(id: string, status: QuestionStatus, by: string): Promise<void> {
-  if (!/^[a-f0-9]{6,32}$/.test(id)) throw new Error('Identifiant invalide')
-  try {
-    await withFileLock('attache-questions-status', async () => {
-      const all = readQuestionStatuses()
-      all[id] = { status, at: new Date().toISOString(), by }
-      atomicWrite(attacheDir('questions-status.json'), JSON.stringify(all, null, 2))
-    })
-  } catch (e) {
-    await relayStatusMap('questions-status', id, status, by, e)
-  }
-}
-
-// ── État du journal « pendant votre absence » (cartes rangées, repère « vu ») ──
-// Même modèle que les statuts des questions : fichier en clair MAIS indexé par
-// des EMPREINTES opaques (le navigateur hache `ts|titre` avant d'envoyer —
-// aucun contenu n'y transite). Partagé entre tous les appareils : ranger une
-// carte ou consulter le journal sur l'ordinateur vaut aussi sur le téléphone,
-// et inversement — le localStorage n'est plus qu'un cache de secours.
-
-export function readJournalStatuses(): Record<string, { status: string, at: string, by: string }> {
-  return readJson(attacheDir('journal-status.json'), {})
-}
-
-/** Repère « vu » d'un utilisateur : id opaque dérivé du nom (jamais le nom en clair). */
-export function journalSeenId(user: string): string {
-  return crypto.createHash('sha256').update('journal-vu:' + user).digest('hex').slice(0, 16)
-}
-
-export async function setJournalStatus(id: string, status: string, by: string): Promise<void> {
-  if (!/^[a-f0-9]{6,32}$/.test(id)) throw new Error('Identifiant invalide')
-  try {
-    await withFileLock('attache-journal-status', async () => {
-      const all = readJournalStatuses()
-      all[id] = { status, at: new Date().toISOString(), by }
-      atomicWrite(attacheDir('journal-status.json'), JSON.stringify(all, null, 2))
-    })
-  } catch (e) {
-    await relayStatusMap('journal-status', id, status, by, e)
-  }
-}
-
-/** Repli commun des cartes de statut : écriture relayée au service attaché. */
-async function relayStatusMap(file: string, id: string, status: string, by: string, cause: unknown): Promise<void> {
-  const relayed = await attacheFetch('/status-map', { method: 'PUT', body: { file, id, status, by } })
-  if (!relayed.ok) {
-    const detail = await relayed.json().catch(() => ({} as { error?: string }))
-    throw new Error(detail.error || (cause instanceof Error ? cause.message : 'Écriture refusée'))
-  }
-}
-
-export function readMemoryEnvelope(): AttacheEnvelope | null {
-  return readJson<AttacheEnvelope | null>(attacheDir('memory.json'), null)
-}
-
-/** Écrit la mémoire (enveloppe fournie par le navigateur admin), version archivée avant. */
-export async function writeMemoryEnvelope(envelope: AttacheEnvelope): Promise<void> {
-  await writeVersionedEnvelope('memory', envelope)
-}
-
-/** Instructions du projet Claude web (version de référence tenue dans SIRAL) — même modèle que la mémoire. */
+/** Instructions du projet Claude web (version de référence tenue dans SIRAL). */
 export function readInstructionsProjetEnvelope(): AttacheEnvelope | null {
   return readJson<AttacheEnvelope | null>(attacheDir('instructions-projet.json'), null)
 }
@@ -340,7 +190,7 @@ export async function writeInstructionsProjetEnvelope(envelope: AttacheEnvelope)
   await writeVersionedEnvelope('instructions-projet', envelope)
 }
 
-/** Consignes permanentes (le « prompt » du magistrat) — même modèle que la mémoire. */
+/** Consignes permanentes (le « prompt » du magistrat). */
 export function readInstructionsEnvelope(): AttacheEnvelope | null {
   return readJson<AttacheEnvelope | null>(attacheDir('instructions.json'), null)
 }
