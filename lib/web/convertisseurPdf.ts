@@ -5,6 +5,9 @@
  * des ZIP de ZIP, sont lus ici et ne quittent jamais le poste. Un ZIP compte
  * comme un dossier (son nom sans « .zip »), si bien que la structure des
  * pochettes se retrouve telle quelle dans la sortie.
+ *
+ * Seule exception, à la demande : l'OCR des pages images (« Océriser »), fait
+ * sur le serveur SIRAL. Seules ces pages y partent ; rien n'y est gardé.
  */
 
 import { zipEntries, pdfToMarkdown } from '@/lib/web/fileToMarkdown'
@@ -25,6 +28,8 @@ export interface ResultatPdf {
   texte: string
   avertissement?: string
   erreur?: string
+  /** Après « Océriser » : toutes les pages images lues, ou une partie seulement. */
+  ocr?: 'complet' | 'partiel'
 }
 
 const estPdf = (n: string) => /\.pdf$/i.test(n)
@@ -185,4 +190,82 @@ export async function lireDataTransfer(dt: DataTransfer): Promise<Depot[]> {
   }
   for (const r of racines) await parcourir(r)
   return out
+}
+
+// ── OCR des pages images (serveur SIRAL, à la demande) ──
+
+const ROUTE_OCR = '/api/ocr'
+/** Secondes par page (mesuré : 1,5 à 3 s sur 4 cœurs), avant toute mesure réelle. */
+export const SECONDES_PAR_PAGE = 3
+/** En dessous, la page lue est signalée « à vérifier » dans le texte. */
+const CONFIANCE_MIN = 0.85
+
+const MARQUE = /\[page (\d+) : image sans couche texte\]/g
+
+/** Numéros des pages marquées « image sans couche texte » dans un texte converti. */
+export function pagesImages(texte: string): number[] {
+  return Array.from(texte.matchAll(MARQUE), m => Number(m[1]))
+}
+
+let sondeOcr: Promise<boolean> | null = null
+/** L'OCR est-il offert à cette session ? (sonde mise en cache) */
+export function ocrDisponible(): Promise<boolean> {
+  if (!sondeOcr) sondeOcr = fetch(ROUTE_OCR, { credentials: 'same-origin' }).then(r => r.ok).catch(() => false)
+  return sondeOcr
+}
+
+function enBase64(octets: Uint8Array): string {
+  let bin = ''
+  for (let i = 0; i < octets.length; i += 0x8000) bin += String.fromCharCode(...octets.subarray(i, i + 0x8000))
+  return btoa(bin)
+}
+
+interface PageOcr { page: number, texte: string, confiance: number | null, erreur: string | null }
+
+/** Pages images envoyées par requête : petites requêtes, aucune limite de taille. */
+const LOT_OCR = 10
+
+/**
+ * Océrise les pages images d'un résultat et rend le résultat complété : chaque
+ * marque est remplacée par le texte lu. Seules ces pages partent, découpées
+ * ici en petits PDF (pdf-lib) de LOT_OCR pages : ni la taille du fichier, ni
+ * ses pages de texte ne quittent le poste.
+ * `progression(n)` reçoit le nombre de pages traitées à chaque retour.
+ */
+export async function ocriser(src: SourcePdf, r: ResultatPdf, progression?: (n: number) => void, annule?: () => boolean): Promise<ResultatPdf> {
+  const { PDFDocument } = await import('pdf-lib')
+  const original = await PDFDocument.load(await src.lire(), { ignoreEncryption: true })
+  const pages = pagesImages(r.texte)
+  const lues = new Map<number, PageOcr>()
+  for (let i = 0; i < pages.length && !annule?.(); i += LOT_OCR) {
+    const lot = pages.slice(i, i + LOT_OCR)
+    const extrait = await PDFDocument.create()
+    ;(await extrait.copyPages(original, lot.map(p => p - 1))).forEach(pg => extrait.addPage(pg))
+    const res = await fetch(ROUTE_OCR, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ b64: enBase64(await extrait.save()), lignes: false }),
+    })
+    const data = await res.json().catch(() => ({})) as { ok?: boolean, error?: string, pages?: PageOcr[] }
+    if (!res.ok || !data.ok) throw new Error(data.error || `OCR impossible (${res.status})`)
+    for (const p of data.pages || []) if (!p.erreur) lues.set(lot[p.page - 1], p)
+    progression?.(lot.length)
+  }
+  let illisibles = 0
+  const texte = r.texte.replace(MARQUE, (marque, p) => {
+    const lu = lues.get(Number(p))
+    const t = (lu?.texte || '').trim()
+    if (t.replace(/\s/g, '').length < 25) { illisibles++; return marque }
+    const conf = lu?.confiance ?? 1
+    return conf < CONFIANCE_MIN
+      ? `[page ${p} — texte restitué par OCR, confiance ${Math.round(conf * 100)} % : à vérifier sur l'original]\n${t}`
+      : `[page ${p} — texte restitué par OCR]\n${t}`
+  })
+  return {
+    ...r,
+    texte,
+    ocr: illisibles ? 'partiel' : 'complet',
+    avertissement: illisibles ? `${illisibles} page(s) image restée(s) illisible(s) après OCR (photos, manuscrit…)` : undefined,
+  }
 }

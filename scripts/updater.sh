@@ -132,10 +132,11 @@ do_apply() {
 # reconstruire, pas quand il va bien. Les déploiements sans attaché
 # (conteneur jamais créé) ne sont pas touchés.
 services_to_update() {
+  # « ocr » (sans clé ni données) suit toujours l'app : créé à la première MAJ.
   if $COMPOSE ps -a --services 2>/dev/null | grep -q '^attache$'; then
-    echo "siral attache"
+    echo "siral attache ocr"
   else
-    echo "siral"
+    echo "siral ocr"
   fi
 }
 

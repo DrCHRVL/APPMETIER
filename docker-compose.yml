@@ -24,11 +24,37 @@ services:
       # redirection OAuth SUPPLÉMENTAIRES (client MCP de test) ; vide = domaines
       # Claude uniquement. L'activation se fait dans l'app (Paramètres → Attaché IA).
       - SIRAL_MCP_REDIRECT_HOSTS=${SIRAL_MCP_REDIRECT_HOSTS:-}
+      # Service OCR (vide = fonctions OCR masquées, ex. « Océriser » du convertisseur)
+      - SIRAL_OCR_URL=${SIRAL_OCR_URL-http://ocr:8788}
     volumes:
       - siral-data:/data
       - updater-state:/updater
     expose:
       - "3000"
+    networks:
+      - default
+      - ocr-interne
+
+  # ── Service OCR (PaddleOCR PP-OCRv5 — voir docs/OCR.md) ──
+  # Seconde exception, SÉPARÉE de l'attaché : aucune clé, aucun volume, système
+  # de fichiers en lecture seule (sauf /tmp en mémoire), réseau interne SANS
+  # accès Internet. Il ne voit que les pages qu'on lui confie et n'en garde rien.
+  # Image d'environ 1,5 Go ; ~1 Go de mémoire en service.
+  ocr:
+    build:
+      context: ./services/ocr
+    restart: unless-stopped
+    environment:
+      - SIRAL_SECRET=${SIRAL_SECRET}
+    read_only: true
+    tmpfs:
+      - /tmp
+    expose:
+      - "8788"
+    networks:
+      - ocr-interne
+    # Comme l'attaché : poids relatif, l'app passe devant quand on s'en sert.
+    cpu_shares: 512
 
   # ── Attaché de justice IA (optionnel — voir docs/ATTACHE.md) ──
   # Seul détenteur de la clé-maître et des clés remises ; jamais exposé sur
@@ -108,6 +134,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/srv/repo
       - updater-state:/state
+
+networks:
+  ocr-interne:
+    internal: true
 
 volumes:
   siral-data:
