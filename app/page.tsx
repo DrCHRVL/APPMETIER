@@ -32,6 +32,7 @@ import { InstructionResultatsProvider } from '@/contexts/InstructionResultatsCon
 import { useInstructionResultatsStore, buildInstructionResultatKey } from '@/stores/useInstructionResultatsStore';
 import type { ResultatAudience } from '@/types/audienceTypes';
 import { useIaVisibiliteStore } from '@/stores/useIaVisibiliteStore';
+import { useConvertisseurStore } from '@/stores/useConvertisseurStore';
 import type { EnquetePreliminaireOption } from '@/components/instruction/LierEnquetePreliminaireModal';
 import { UserProvider, useUser } from '@/contexts/UserContext';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
@@ -222,6 +223,7 @@ function AppContent() {
   // paramètres qui le porte.
   const iaMasquee = useIaVisibiliteStore((s) => s.masque);
   const chargerIaVisibilite = useIaVisibiliteStore((s) => s.charger);
+  const convertisseurRetenu = useConvertisseurStore((s) => s.retenu);
   const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
   // Profil JLD : accès restreint au seul tableau de bord (aperçu d'acte dédié,
   // aucune autre vue, aucune alerte, aucun paramètre).
@@ -2320,7 +2322,12 @@ return (
             <EntraidePage searchTerm={debouncedSearchTerm} ficheDemandee={entraideFiche} />
           )}
 
-          {baseView === 'convertisseur' && hasModule('convertisseur') && <ConvertisseurPage />}
+          {/* monté aussi hors de son module tant qu'un OCR tourne (useConvertisseurStore) */}
+          {hasModule('convertisseur') && (baseView === 'convertisseur' || convertisseurRetenu) && (
+            <div hidden={baseView !== 'convertisseur'}>
+              <ConvertisseurPage visible={baseView === 'convertisseur'} />
+            </div>
+          )}
 
           {baseView === 'stats' && (
             <StatsPage
