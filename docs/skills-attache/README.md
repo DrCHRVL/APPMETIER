@@ -1,6 +1,7 @@
 # Skills prêtes à téléverser — Attaché de justice
 
-Des méthodes prêtes à l'emploi pour l'attaché IA, au format `.skill`
+Des méthodes prêtes à l'emploi, tenues dans SIRAL et lues par Claude web
+via le connecteur (`skills_lister` / `skill_lire`), au format `.skill`
 (le même que les skills exportées de Claude web : archive ZIP contenant un
 `SKILL.md` avec front-matter `name`/`description`).
 
@@ -8,13 +9,13 @@ Des méthodes prêtes à l'emploi pour l'attaché IA, au format `.skill`
 
 Paramètres → **Attaché IA** → **Skills** → **Téléverser** → choisir le
 fichier `.skill`. Le nom et la description (le déclencheur) sont repris du
-front-matter ; la skill vaut dès le run suivant de l'attaché.
+front-matter ; Claude web la voit dès la conversation suivante.
 
 ## Skills disponibles
 
 | Fichier | Usage |
 |---|---|
-| `bilan-semestriel-crimorg.skill` | Bilan périodique (semestriel, annuel) d'activité et de politique pénale du contentieux criminalité organisée : chiffres (`stats_synthese`), graphiques regardés et commentés (`stats_graphique`), tendances, affaires marquantes anonymisées, valorisation pour le procureur et les partenaires. Demander ensuite en chat : « prépare le bilan du premier semestre » (+ observations éventuelles). |
+| `bilan-semestriel-crimorg.skill` | Bilan périodique (semestriel, annuel) d'activité et de politique pénale du contentieux criminalité organisée : chiffres (`stats_synthese`), graphiques regardés et commentés (`stats_graphique`), tendances, affaires marquantes anonymisées, valorisation pour le procureur et les partenaires. Demander ensuite dans Claude web : « prépare le bilan du premier semestre » (+ observations éventuelles). |
 
 ## Modifier / reconstruire
 
