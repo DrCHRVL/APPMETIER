@@ -16,7 +16,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { copyPlainToClipboard } from '@/utils/richTextExport';
 import {
   collecterPdfs, convertirPdf, construireGlobal, grouper, lireDataTransfer, niveauAuto, niveauMax, nomGlobal,
-  ocrDisponible, ocriser, pagesImages, SECONDES_PAR_PAGE,
+  etatOcr, ocriser, pagesImages, SECONDES_PAR_PAGE, type EtatServiceOcr,
   type Depot, type ModeGlobal, type ResultatPdf, type SourcePdf,
 } from '@/lib/web/convertisseurPdf';
 
@@ -54,10 +54,13 @@ export const ConvertisseurPage: React.FC = () => {
   const [decalage, setDecalage] = useState(0);
   const [individuels, setIndividuels] = useState(true);
   const annule = useRef(false);
-  const [ocrDispo, setOcrDispo] = useState(false);
+  const [serviceOcr, setServiceOcr] = useState<EtatServiceOcr | null>(null);
+  const ocrDispo = serviceOcr === 'pret';
   const [ocr, setOcr] = useState<EtatOcr | null>(null);
   const annuleOcr = useRef(false);
-  useEffect(() => { ocrDisponible().then(setOcrDispo); }, []);
+  // sondé à l'ouverture et à chaque fin de conversion (le service a pu démarrer entre-temps)
+  const finie = etape === 'termine';
+  useEffect(() => { etatOcr().then(setServiceOcr); }, [finie]);
   const inputFichiers = useRef<HTMLInputElement>(null);
   const inputDossier = useRef<HTMLInputElement>(null);
 
@@ -367,6 +370,21 @@ export const ConvertisseurPage: React.FC = () => {
               {livrables.total === 1 ? 'Télécharger le .txt' : 'Télécharger le ZIP'}
             </button>
           </div>
+
+          {!ocr && serviceOcr && serviceOcr !== 'pret' && aOcriser.length > 0 && (
+            <div className="border-t px-6 py-3 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+              <ScanLine className="h-4 w-4 text-gray-400 shrink-0" />
+              <span className="flex-1 min-w-[12rem]">
+                {pluriel(pagesAOcriser, 'page')} en image : OCR indisponible —{' '}
+                {serviceOcr === 'absent'
+                  ? 'service OCR non configuré sur ce serveur (SIRAL_OCR_URL).'
+                  : 'le service OCR ne répond pas (arrêté, en construction ou en panne).'}
+              </span>
+              <button onClick={() => etatOcr().then(setServiceOcr)} className="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900 underline">
+                <RotateCcw className="h-3 w-3" />Réessayer
+              </button>
+            </div>
+          )}
 
           {ocrDispo && (ocr || aOcriser.length > 0) && (
             <div className="border-t px-6 py-4 bg-[#2B5746]/[0.03]">

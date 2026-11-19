@@ -207,11 +207,20 @@ export function pagesImages(texte: string): number[] {
   return Array.from(texte.matchAll(MARQUE), m => Number(m[1]))
 }
 
-let sondeOcr: Promise<boolean> | null = null
-/** L'OCR est-il offert à cette session ? (sonde mise en cache) */
-export function ocrDisponible(): Promise<boolean> {
-  if (!sondeOcr) sondeOcr = fetch(ROUTE_OCR, { credentials: 'same-origin' }).then(r => r.ok).catch(() => false)
-  return sondeOcr
+/**
+ * État de l'OCR pour cette session : `pret` ; `absent` (route 404 : service non
+ * configuré, SIRAL_OCR_URL vide) ; `injoignable` (configuré mais ne répond pas :
+ * conteneur arrêté, en construction ou en panne). Jamais mis en cache : un
+ * service qui démarre est vu à la sonde suivante.
+ */
+export type EtatServiceOcr = 'pret' | 'absent' | 'injoignable'
+export async function etatOcr(): Promise<EtatServiceOcr> {
+  try {
+    const r = await fetch(ROUTE_OCR, { credentials: 'same-origin', cache: 'no-store' })
+    return r.ok ? 'pret' : r.status === 404 ? 'absent' : 'injoignable'
+  } catch {
+    return 'injoignable'
+  }
 }
 
 function enBase64(octets: Uint8Array): string {
