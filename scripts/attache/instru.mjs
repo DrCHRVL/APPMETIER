@@ -107,11 +107,6 @@ export function listInstructionDossiers(keys) {
   })
 }
 
-/** Le numéro correspond-il à un dossier du module instruction ? */
-export function instructionExiste(keys, numero) {
-  return loadAllDossiers(keys).some((x) => matchNumero(x, numero))
-}
-
 /**
  * Inventaire compact des dossiers d'instruction pour l'analyse transversale
  * de la cartographie : numéro, mis en examen (noms) et nombre de pièces

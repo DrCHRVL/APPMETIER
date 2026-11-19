@@ -18,8 +18,7 @@
  * par lot de ~20 pièces : quelques secondes, quelques milliers de jetons.
  *
  * L'analyse juridique en profondeur (contrôle de légalité, nullités) reste
- * possible À LA DEMANDE, sur UNE trame précise, dans le chat de l'attaché —
- * ciblée et bornée, comme sur Claude web.
+ * possible À LA DEMANDE, sur UNE trame précise, dans Claude web (connecteur).
  */
 import { spawn } from 'node:child_process'
 import { attacheDir, attacheContentieux, ensureDir } from './store.mjs'

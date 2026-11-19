@@ -13,10 +13,10 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { attacheDir, attacheContentieux, ensureDir, atomicWrite, readEnvelopeFile, writeEnvelopeFile, listFiles, readState } from './store.mjs'
+import { attacheDir, attacheContentieux, ensureDir, atomicWrite, readEnvelopeFile, writeEnvelopeFile, readState } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
 import { readMemory } from './memory.mjs'
-import { recordLearningSignal, detecterCorrection } from './apprentissage.mjs'
+import { recordLearningSignal } from './apprentissage.mjs'
 import { readInstructions } from './instructions.mjs'
 import { extractUsage, recordUsage } from './usage.mjs'
 import { skillsPromptSection } from './skills.mjs'
@@ -177,8 +177,6 @@ export function systemPrompt(keys) {
     '',
     'DOSSIER COMPLET (module instruction) : le magistrat peut verser tout ou partie du dossier réel en TEXTE, pochettes comprises — l\'arborescence (Dossier/…) reflète l\'organisation du dossier papier/NPP. Méthode de dépouillement : dossier_arborescence (table des matières) → lecture CIBLÉE (lire_document sur les pièces utiles, pas tout systématiquement) → pour un dépouillement massif (synthèse générale, préparation de réquisitoire, recherche transversale), sous_agents avec un lot par pochette. Chaque affirmation cite la pièce (son chemin).',
     '',
-    'PIÈCES DU DÉPÔT (depot_lister) : une pièce confiée au dépôt se lit (depot_lire), s\'aiguille selon sa nature — pièce de procédure → ranger_document (zone pv, actes, dml, geoloc ou ecoutes ; nom AAAA-MM-JJ_type_objet) ; document de référence durable → kb_ranger_piece ; pièce d\'un dossier manuel de la carte → carto_verser_document — ou s\'écarte (depot_ecarter, motif). Une pièce ILLISIBLE (scan sans couche texte) ne fonde jamais rien : ne devine pas son contenu.',
-    '',
     'SOUS-AGENTS (sous_agents) — travail en parallèle : pour un LOT de sous-tâches indépendantes (analyser chaque PDF d\'un dossier, balayer chaque dossier d\'une routine, évaluer chaque trame), délègue à des sous-agents plutôt que de tout faire séquentiellement. Une tâche = un titre + une consigne AUTONOME (le sous-agent ne voit pas ton contexte : numéro de dossier, chemin du document, ce que tu attends, format de réponse). Les sous-agents sont en LECTURE SEULE : c\'est TOI qui écris et proposes à partir de leurs analyses. N\'y recours pas pour une tâche unique ou des étapes dépendantes.',
     '',
     'TRAVAIL DE MASSE (dépouiller un dossier entier, chercher une adresse / une ligne / un nom dans les pièces de TOUS les dossiers, croiser plusieurs affaires, remplir la cartographie) :',
@@ -186,7 +184,7 @@ export function systemPrompt(keys) {
     '2. PUIS LIS EN ENTIER ce qui a été localisé (lire_document, dossier_global pour un dossier complet) — un extrait ne suffit pas à conclure. Pour paralléliser, sous_agents (un par dossier, consigne autonome).',
     '3. NE CONCLUS JAMAIS SUR UN ÉCHANTILLON : va au bout du parcours. Si la conversation ne suffit vraiment pas, dis précisément ce qui est couvert et ce qui reste (dossiers, curseur) pour reprendre.',
     'ARCHIVES ET GROS STOCK — rien n\'est hors de ta portée : lister_dossiers est PAGINÉ et FILTRABLE. portee:"archives" rend les dossiers archivés SEULS, portee:"toutes" l\'ensemble, `filtre` cherche un numéro / un nom / un objet, offset-limit déroulent les pages (la réponse dit combien il reste et à quel offset reprendre). Ne conclus JAMAIS qu\'une population de dossiers est inaccessible : déroule les pages.',
-    '- TABLEURS (Excel) : les classeurs .xlsx/.xls/.ods se LISENT comme le reste (lire_document, depot_lire) : chaque feuille arrive en tableau markdown. Exploite-les comme des données (totaux, recoupements, anomalies) et cite la feuille et la ligne ; un classeur tronqué l\'est avec mention du nombre de lignes non affichées.',
+    '- TABLEURS (Excel) : les classeurs .xlsx/.xls/.ods se LISENT comme le reste (lire_document) : chaque feuille arrive en tableau markdown. Exploite-les comme des données (totaux, recoupements, anomalies) et cite la feuille et la ligne ; un classeur tronqué l\'est avec mention du nombre de lignes non affichées.',
     '',
     'CARTOGRAPHIE — aide à voir les connexions : carto_analyser donne les figures centrales, les ponts entre affaires et les co-occurrences. carto_rapprochements repère les entités partagées (téléphone, plaque, IBAN, adresse) entre dossiers SANS mis en cause commun — des ponts inédits entre affaires : pour chacun de pertinent, propose un lien de renseignement entre un MEC de chaque dossier (proposer_lien, entité en source). Écarte les faux positifs (numéro de service, banque). Suggère, ne trace jamais d\'office.',
     'ANALYSE TRANSVERSALE DE RENSEIGNEMENT (« analyse tous les dossiers et trouve les liens cachés » — sur demande ou en routine) : le but est de révéler l\'architecture plus grande derrière les dossiers, à partir des SIGNAUX FAIBLES qui ne sont PAS dans les listes de mis en cause — surnoms, personnes au second plan jamais mises en cause, adresses, plaques, téléphones, comptes récurrents d\'une affaire à l\'autre (typiquement : plusieurs dossiers gravitant autour d\'un même détenu de maison d\'arrêt). MÉTHODE :',
@@ -219,21 +217,11 @@ export function systemPrompt(keys) {
 
 // ── Transcripts chiffrés des conversations ──
 
-export function listConversations() {
-  return listFiles('conversations')
-    .map((f) => ({ id: f.name.replace(/\.json$/, ''), mtime: f.mtime, size: f.size }))
-}
-
 export function readConversation(keys, id) {
   if (!/^[\w-]+$/.test(id)) return null
   const env = readEnvelopeFile(path.join('conversations', id + '.json'))
   if (!env) return null
   try { return decryptJson(keys.global, env) } catch { return null }
-}
-
-export function readConversationEnvelope(id) {
-  if (!/^[\w-]+$/.test(id)) return null
-  return readEnvelopeFile(path.join('conversations', id + '.json'))
 }
 
 async function saveConversation(keys, conv) {
@@ -258,7 +246,7 @@ export function writeMcpConfig(extraEnv = {}, fileName = 'mcp-config.json') {
           SIRAL_ATTACHE_CONTENTIEUX: process.env.SIRAL_ATTACHE_CONTENTIEUX || '',
           SIRAL_ATTACHE_MASTER_KEY: process.env.SIRAL_ATTACHE_MASTER_KEY || '',
           SIRAL_ATTACHE_MASTER_KEY_FILE: process.env.SIRAL_ATTACHE_MASTER_KEY_FILE || '',
-          SIRAL_ATTACHE_RUN: process.env.SIRAL_ATTACHE_RUN || 'chat',
+          SIRAL_ATTACHE_RUN: process.env.SIRAL_ATTACHE_RUN || 'autre',
           ...extraEnv,
         },
       },
@@ -277,7 +265,7 @@ export function writeMcpConfig(extraEnv = {}, fileName = 'mcp-config.json') {
  *  - prompt      : message utilisateur (ou consigne du worker)
  *  - convId      : conversation existante à reprendre (sinon nouvelle)
  *  - title       : titre de la conversation à la création
- *  - runLabel    : 'chat' | 'proactif' (audit + prompt MCP)
+ *  - runLabel    : nature du run — 'description', 'mec', 'flux', 'carto', 'routine:…'… (audit, consommation)
  *  - onEvent     : callback({type, ...}) — delta de texte, outil, fin
  *  - model       : modèle pour CE run (sinon config persistée, sinon env, sinon défaut CLI)
  *  - effort      : niveau d'effort pour CE run (low|medium|high|xhigh|max)
@@ -290,7 +278,7 @@ export function writeMcpConfig(extraEnv = {}, fileName = 'mcp-config.json') {
  *                  resserrent pour ne pas laisser filer les jetons
  * @returns {Promise<{convId, text, ok, error?}>}
  */
-export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat', onEvent = () => {}, model, effort, timeoutMs, mcpToolTimeoutMs, maxTurns: maxTurnsOpt }) {
+export async function runAgent({ keys, prompt, convId, title, runLabel = 'autre', onEvent = () => {}, model, effort, timeoutMs, mcpToolTimeoutMs, maxTurns: maxTurnsOpt }) {
   const isNew = !convId
   const id = convId || new Date().toISOString().slice(0, 10) + '-' + crypto.randomBytes(4).toString('hex')
   const conv = (!isNew && readConversation(keys, id)) || {
@@ -421,18 +409,6 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'chat',
         assistantText = ''
       } else if (ok) {
         await clearAuthFailure()
-      }
-      // Correction du magistrat repérée (heuristique, coût nul) : signal
-      // pointant CETTE conversation — la consolidation relira l'échange
-      // (conversation_lire) pour en tirer la règle générale, sans que le
-      // magistrat ni l'agent n'aient rien à noter. Jamais au premier tour
-      // (le prompt y est enveloppé de contexte, et il n'y a rien à reprendre).
-      if (!isNew && ['chat', 'chat-dossier', 'chat-carto'].includes(runLabel) && detecterCorrection(prompt)) {
-        await recordLearningSignal(keys, {
-          type: 'correction_conversation',
-          detail: String(prompt).slice(0, 200),
-          source: id,
-        })
       }
       conv.messages.push({ role: 'user', text: String(prompt), at: new Date().toISOString(), run: runLabel })
       conv.messages.push({ role: 'assistant', text: assistantText || (error ? `⚠️ ${error}` : ''), at: new Date().toISOString() })
@@ -603,9 +579,3 @@ export function testClaudeAuth() {
   })
 }
 
-export function deleteConversation(id) {
-  if (!/^[\w-]+$/.test(id)) return false
-  const p = attacheDir('conversations', id + '.json')
-  if (fs.existsSync(p)) { fs.unlinkSync(p); return true }
-  return false
-}

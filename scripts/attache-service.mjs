@@ -512,7 +512,7 @@ function demarrerAnalyseCarto(consigne, libelle) {
     keys,
     prompt,
     title: `Cartographie — ${libelle}`,
-    runLabel: 'chat-carto', // même régime qu'une demande directe (sous-agents non bridés)
+    runLabel: 'carto', // demande directe : sous-agents non bridés (subagents.mjs)
     model: agentConfig().model || undefined,
     timeoutMs: CARTO_TIMEOUT_MS,
     mcpToolTimeoutMs: CARTO_TIMEOUT_MS - 120_000,

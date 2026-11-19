@@ -31,6 +31,8 @@ export function runCategory(run) {
   if (r === 'registre') return 'descriptions'
   if (r === 'mec') return 'mis-en-cause'
   if (r.startsWith('routine:')) return 'routines'
+  if (r === 'carto') return 'carto'
+  // historique : anciennes conversations (chat retiré)
   if (r === 'chat' || r === 'chat-carto' || r === 'chat-dossier') return 'conversations'
   return 'autres'
 }
@@ -71,7 +73,7 @@ export async function recordUsage({ run, model, usage, parent }) {
     if (!usage) return
     const line = {
       ts: Date.now(),
-      run: String(run || 'chat').slice(0, 60),
+      run: String(run || 'autre').slice(0, 60),
       model: String(model || '').slice(0, 64),
       in: usage.in | 0,
       out: usage.out | 0,
@@ -152,7 +154,7 @@ export function usageSummary(now = Date.now()) {
     const cat = runCategory(l.run)
     return {
       ts: l.ts,
-      run: String(l.run || 'chat').slice(0, 60),
+      run: String(l.run || 'autre').slice(0, 60),
       cat,
       src: cat === 'sous-agents' ? sousAgentSource(l.parent) : undefined,
       total: (l.in | 0) + (l.out | 0) + (l.cacheW | 0) + (l.cacheR | 0),

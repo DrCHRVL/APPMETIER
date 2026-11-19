@@ -126,7 +126,7 @@ export function findEnquete(data, numero) {
 /**
  * Enquête désignée par un numéro (écriture exacte ou variante) — null si
  * aucune, ou si le trousseau ne couvre pas le contentieux. Sert notamment à
- * CANONISER un numéro avant de s'en servir comme clé de stockage (productions,
+ * CANONISER un numéro avant de s'en servir comme clé de stockage (mémoire,
  * documents) : voir numeroCanonique.
  */
 export function resolveEnquete(keys, numero) {
@@ -147,12 +147,6 @@ export function numeroCanonique(keys, numero) {
   if (String(numero || '').startsWith('_')) return String(numero)
   const e = resolveEnquete(keys, numero)
   return e?.numero ? String(e.numero) : String(numero)
-}
-
-/** Le numéro correspond-il à une enquête du contentieux confié ? */
-export function enqueteExiste(keys, numero) {
-  const { data } = loadContentieux(keys)
-  return Boolean(findEnquete(data, numero))
 }
 
 // ── Lecture ──

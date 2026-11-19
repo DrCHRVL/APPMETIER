@@ -113,7 +113,8 @@ function UsageGauge({ label, hint, total, cap }: { label: string; hint: string; 
 }
 
 const USAGE_CATS: Record<string, { label: string; color: string }> = {
-  conversations: { label: 'Analyses de la carte (et anciennes conversations)', color: '#2B5746' },
+  carto: { label: 'Analyses de la carte', color: '#2B5746' },
+  conversations: { label: 'Conversations (retiré)', color: '#15803d' },
   'sous-agents': { label: 'Sous-agents (lots parallèles)', color: '#b45309' },
   mails: { label: 'Mails (retiré)', color: '#0e7490' },
   brief: { label: 'Brief quotidien (retiré)', color: '#6d28d9' },
@@ -1896,17 +1897,16 @@ export function AdminAttachePanel() {
 
                 {a.progression && (() => {
                   const p = a.progression;
-                  const retouches = (f: ApprFenetre) => f.revisions + f.editionsMain;
-                  const aDesDonnees = p.j30.tauxAcceptation != null || retouches(p.j30) + p.j30.portes + p.j30.corrections > 0
-                    || p.j30prec.tauxAcceptation != null || retouches(p.j30prec) + p.j30prec.portes + p.j30prec.corrections > 0;
+                  const aDesDonnees = p.j30.tauxAcceptation != null || p.j30.refusees + p.j30.lecons > 0
+                    || p.j30prec.tauxAcceptation != null || p.j30prec.refusees + p.j30prec.lecons > 0;
                   if (!aDesDonnees) return null;
                   return (
                     <div className="space-y-1.5">
                       <div className="text-[11px] font-semibold text-gray-500">Progression mesurée (30 jours)</div>
                       <div className="grid gap-2 sm:grid-cols-3">
                         <ProgressionTile label="Propositions acceptées" now={p.j30.tauxAcceptation} before={p.j30prec.tauxAcceptation} unit=" %" />
-                        <ProgressionTile label="Actes retouchés" now={retouches(p.j30)} before={retouches(p.j30prec)} invert />
-                        <ProgressionTile label="Corrections & portes" now={p.j30.corrections + p.j30.portes} before={p.j30prec.corrections + p.j30prec.portes} invert />
+                        <ProgressionTile label="Propositions refusées" now={p.j30.refusees} before={p.j30prec.refusees} invert />
+                        <ProgressionTile label="Leçons notées" now={p.j30.lecons} before={p.j30prec.lecons} />
                       </div>
                     </div>
                   );

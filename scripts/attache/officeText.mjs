@@ -16,7 +16,7 @@
  *    navigateur (source unique lib/tableur/classeurMarkdown.mjs)
  *
  * Tout est borné et gardé : la moindre anomalie retombe sur { ok:false, error }
- * — jamais une exception qui casserait la lecture de la boîte ou du dépôt.
+ * — jamais une exception qui casserait la lecture d'une pièce.
  * Le vieux .doc binaire (Word 97-2003) n'est PAS traité ici : demander une
  * version .docx / PDF (message explicite plutôt qu'illisible silencieux).
  */

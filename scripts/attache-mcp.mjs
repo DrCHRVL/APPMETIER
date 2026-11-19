@@ -42,7 +42,6 @@ import { listInstructionDossiers, instructionDossierMarkdown } from './attache/i
 import { modifierDossierInstruction, elementInstruction, misEnExamenInstruction, COLLECTIONS_INSTRUCTION } from './attache/instruEcriture.mjs'
 import { enregistrerAudience, resultatAudienceMarkdown, ISSUES_AUDIENCE, DECISIONS_AUDIENCE } from './attache/audience.mjs'
 import { listerEntraide, lireEntraide, statsEntraide, referentielEntraide, creerEntraide, importerEntraide, modifierEntraide, completerEntraide, evenementEntraide, autoriteEntraide, EVENEMENTS_ENTRAIDE } from './attache/entraide.mjs'
-import { listDepot, readDepotText, rangerDocument, rangerPieceDansKb, verserDocumentCarto, ecarterDepot, ZONES } from './attache/depot.mjs'
 import { listRoutines, upsertRoutine, deleteRoutine } from './attache/routines.mjs'
 import { addProposition, listPropositions, modifierProposition, retirerProposition } from './attache/propositions.mjs'
 import { lireRegistre, recouperRegistres } from './attache/registre.mjs'
@@ -54,7 +53,6 @@ import { pageFichierGlobal, GLOBAL_EXTRACTIONS_MAX, THEMES } from './attache/glo
 import { readInstructionsProjet, writeInstructionsProjet } from './attache/instructionsProjet.mjs'
 import { appendMemory, rewriteMemory, memoryStats, MEMORY_BUDGET } from './attache/memory.mjs'
 import { recordLearningSignal, pendingSignals, learningState, learningMetrics, metricsSummary } from './attache/apprentissage.mjs'
-import { readConversation } from './attache/agent.mjs'
 import { bilanStatistiques } from './attache/statistiques.mjs'
 import { genererGraphique, genererGraphiques, GRAPHIQUES } from './attache/statsGraphiques.mjs'
 import { ecranStatistiques, anneesDisponibles } from './attache/statsEcran.mjs'
@@ -63,7 +61,7 @@ import { ecranStatistiques, anneesDisponibles } from './attache/statsEcran.mjs'
 // à chaque message — une révocation vaut immédiatement, comme pour les runs
 // stdio qui le chargent à leur lancement.
 let keys = loadKeyring()
-const runContext = process.env.SIRAL_ATTACHE_RUN || 'chat'
+const runContext = process.env.SIRAL_ATTACHE_RUN || 'autre'
 
 
 
@@ -89,7 +87,7 @@ const OUTILS_DOSSIER_INTERDITS_RUN_AUTONOME = new Set([
   'enregistrer_audience',
   'instru_modifier_dossier', 'instru_element', 'instru_mis_en_examen',
   'entraide_creer', 'entraide_modifier', 'entraide_completer', 'entraide_evenement', 'entraide_autorite', 'entraide_importer',
-  'actualiser_description', 'ranger_document', 'carto_verser_document', 'depot_ecarter',
+  'actualiser_description',
   'routine_enregistrer', 'routine_suspendre', 'routine_supprimer',
   'instructions_projet_enregistrer',
 ])
@@ -779,26 +777,6 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
     },
   },
   {
-    name: 'conversation_lire',
-    description: 'Relit le transcript d\'une conversation passée avec le magistrat (id donné par un signal correction_conversation, champ source). Sert à la CONSOLIDATION d\'apprentissage : retrouver la reprise exacte du magistrat pour en tirer la règle générale. Derniers échanges seulement, bornés.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' }, derniers: { type: 'number', description: 'Nombre de messages en partant de la fin (défaut 12, max 30)' } }, required: ['id'] },
-    handler: async (a) => {
-      const conv = readConversation(keys, String(a.id || ''))
-      if (!conv) return { erreur: `Conversation ${a.id} introuvable` }
-      const n = Math.max(2, Math.min(30, Number(a.derniers) || 12))
-      return {
-        id: conv.id,
-        titre: conv.titre || conv.title,
-        messages: (conv.messages || []).slice(-n).map((m) => ({
-          role: m.role,
-          quand: (m.at || '').slice(0, 16),
-          texte: String(m.text || ''),
-        })),
-      }
-    },
-    mainOnly: true, // échanges privés du magistrat : jamais exposés aux sous-agents
-  },
-  {
     name: 'memoire_dossier_lire',
     description: 'Lit la mémoire légère du dossier : l\'essentiel des échanges passés du chat (ce que le magistrat a dit, décidé, découvert). À consulter au début d\'une conversation sur un dossier.',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] },
@@ -1288,24 +1266,6 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
     write: true,
   },
   {
-    name: 'kb_ranger_piece',
-    description: `Intègre une PIÈCE DU DÉPÔT (rel de depot_lister) à la base de connaissances. Utilise-le quand le magistrat transmet un DOCUMENT DE RÉFÉRENCE DURABLE (« intègre ce memento / cette circulaire / cette documentation à ta base de connaissances et classe-la ») plutôt qu'une pièce de procédure (celle-là va au dossier via ranger_document). Le TEXTE est extrait côté serveur (PDF/ODT/DOCX/RTF/texte) et conservé chiffré — seul le texte, jamais l'octet du PDF. CLASSE dès réception : titre clair, categorie (${KB_CATEGORIES.join(', ')} — champ libre), chemin de pochette (ex: Circulaires/2026/memento-parquet.md), description d'une phrase (contenu + quand s'en servir). reflexe=true pour l'épingler comme référence de premier rang (Memento parquet…). Un scan illisible est REFUSÉ (rien enregistré) : demande une version texte. Une pièce du dépôt est retirée du dépôt après intégration.`,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        rel: { type: 'string', description: 'rel de la pièce (depot_lister)' },
-        titre: { type: 'string', description: 'Titre de l\'entrée (clair, daté si utile)' },
-        categorie: { type: 'string', description: `Catégorie (${KB_CATEGORIES.join(', ')} — champ libre)` },
-        chemin: { type: 'string', description: 'Pochette de rangement (arborescence, séparateur /)' },
-        description: { type: 'string', description: 'Une phrase : ce que contient l\'entrée et quand s\'en servir' },
-        reflexe: { type: 'boolean', description: 'true pour épingler comme document réflexe (référence de premier rang)' },
-      },
-      required: ['rel', 'titre'],
-    },
-    handler: async (a) => rangerPieceDansKb(keys, { rel: a.rel, titre: a.titre, categorie: a.categorie, chemin: a.chemin, description: a.description, reflexe: a.reflexe }),
-    write: true,
-  },
-  {
     name: 'kb_decrire',
     description: 'Met à jour les MÉTADONNÉES d\'une entrée de la base de connaissances — description (une phrase : contenu + quand s\'en servir), categorie, chemin (pochette d\'arborescence, ex: Jurisprudence/Cassation/arret-2024.md) — le CONTENU n\'est jamais touché. C\'est ton outil de bibliothécaire : classer les documents téléversés en masse, ranger une entrée mal placée.',
     inputSchema: {
@@ -1657,21 +1617,6 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
     handler: async (a) => lireDocumentExNihilo(keys, { dossier: a.dossier, document: a.document, offset: a.offset }),
   },
   {
-    name: 'carto_verser_document',
-    description: 'VERSE une pièce du dépôt sur un DOSSIER MANUEL de la cartographie (dossier « ex nihilo » — ni enquête ni instruction : ex. « Réseau X (quartier…) »). Pour une enquête ou une instruction, c\'est ranger_document. Le TEXTE est extrait côté serveur (PDF/ODT/DOCX/RTF/texte/Excel) et conservé sur le dossier, comme le trombone du formulaire du dossier sur la carte ; il devient lisible par carto_lire_document. Libellé du dossier : celui de carto_lire_fiches (casse et accents indifférents). Plafonds : 400 k caractères par document, 1 M par dossier. Un scan illisible est REFUSÉ (rien versé). Une pièce du dépôt est retirée du dépôt après versement. RÉSERVÉ à une instruction explicite du magistrat ou à une consigne de rangement désignant ce dossier.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        rel: { type: 'string', description: 'rel exact de depot_lister' },
-        dossier: { type: 'string', description: 'Libellé du dossier manuel de la carte (carto_lire_fiches)' },
-        nom: { type: 'string', description: 'Nom du document (défaut : nom d\'origine)' },
-      },
-      required: ['rel', 'dossier'],
-    },
-    handler: async (a) => verserDocumentCarto(keys, a),
-    write: true,
-  },
-  {
     name: 'carto_histoire',
     description: 'DOSSIER DE RENSEIGNEMENT d\'un sujet de la carte — point de départ pour « raconte l\'histoire du clan X », « le conflit entre X et Y », « qui est X ? ». Donné un camp (libellé) ou une personne (nom), rassemble en un appel : membres, fiches et notes du magistrat, rôles cochés (chef/lieutenant), camps, liens tracés, dossiers réels et d\'instruction concernés, dossiers ex nihilo avec leurs documents versés — plus la MÉTHODE du récit (chronologique, sourcé, successions/scissions de clans, propositions au fil de la lecture). Pour un conflit entre deux camps, appelle-le une fois par camp puis croise. Travail LOURD par nature : suis la méthode et prends le temps qu\'il faut — localise avec pieces_chercher (sans numero : tout le fonds) puis lis les pièces utiles en entier.',
     inputSchema: {
@@ -1745,41 +1690,6 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
       }).catch(() => {})
       return results
     },
-  },
-  {
-    name: 'depot_lister',
-    description: 'Pièces que le magistrat a CONFIÉES au dépôt (trombone du panneau) et qui attendent d\'être rangées : rel, nom d\'origine, taille, date. À vérifier quand il dit « je t\'ai déposé… ». Chaque pièce doit finir rangée (ranger_document) ou écartée (depot_ecarter).',
-    inputSchema: { type: 'object', properties: {} },
-    handler: async () => listDepot(),
-  },
-  {
-    name: 'depot_lire',
-    description: 'Texte d\'une pièce ENCORE au dépôt (avant rangement) — pour identifier le dossier et la nature quand la consigne ne les dit pas : numéro cité, noms des mis en cause, type d\'acte. Les classeurs Excel (XLSX/XLS/ODS) arrivent en tableaux markdown, une section par feuille : exploitables comme des données.',
-    inputSchema: { type: 'object', properties: { rel: { type: 'string' } }, required: ['rel'] },
-    handler: async (a) => readDepotText(keys, a.rel),
-  },
-  {
-    name: 'ranger_document',
-    description: `Range une pièce dans la section documents du BON dossier (enquête ou instruction) — la pièce vient du dépôt (rel de depot_lister), TOI tu la classes. zone : ${Object.keys(ZONES).join(' | ')} — audition/PV/garde à vue → pv ; ordonnance/réquisition/autorisation → actes ; DML et réponses → dml ; rapports de géolocalisation → geoloc ; retranscriptions d'interceptions → ecoutes. Donne un nom PROPRE et daté (ex: 2026-07-12_Audition_DUPONT). La pièce d'origine est conservée telle quelle (chiffrée) ; elle apparaît dans la fiche du dossier, signée du nom du magistrat. Après rangement : lis-la et déclenche tes détections (propositions).`,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        rel: { type: 'string', description: 'rel exact de depot_lister' },
-        numero: { type: 'string', description: 'Dossier cible (enquête ou n° instruction/parquet)' },
-        zone: { type: 'string', enum: Object.keys(ZONES) },
-        nom: { type: 'string', description: 'Nom final, daté et explicite (extension d\'origine préservée)' },
-      },
-      required: ['rel', 'numero', 'zone'],
-    },
-    handler: async (a) => rangerDocument(keys, a),
-    write: true,
-  },
-  {
-    name: 'depot_ecarter',
-    description: 'Écarte une pièce du dépôt sans la ranger (doublon, pièce non pertinente) — déplacée en Corbeille/ du dépôt, jamais détruite. Dis toujours au magistrat pourquoi (signaler ou réponse en chat).',
-    inputSchema: { type: 'object', properties: { rel: { type: 'string' } }, required: ['rel'] },
-    handler: async (a) => ecarterDepot(a.rel),
-    write: true,
   },
   {
     name: 'routine_lister',

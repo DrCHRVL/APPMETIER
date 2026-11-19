@@ -255,19 +255,6 @@ export function patchDocIndex(tj, enqueteKey, patchByRel) {
   return n
 }
 
-/** Retire un blob document et son entrée d'index. */
-export function deleteDocBlob(tj, enqueteKey, rel) {
-  safeRel(rel)
-  const dir = tjDataDir(tj, 'docs', enqueteKey)
-  const p = path.join(dir, rel + '.enc')
-  let existed = false
-  if (fs.existsSync(p)) { fs.unlinkSync(p); existed = true }
-  const indexPath = path.join(dir, '.index.json')
-  const index = readJson(indexPath, [])
-  atomicWrite(indexPath, JSON.stringify(index.filter((d) => d.rel !== rel), null, 2))
-  return existed
-}
-
 /**
  * Clé serveur d'une enquête — même normalisation que le client web
  * (bridge.ts/serverKey) pour retrouver le dossier de documents.
