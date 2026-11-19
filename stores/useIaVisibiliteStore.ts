@@ -2,10 +2,9 @@
  * useIaVisibiliteStore — l'interrupteur « fonctionnalités IA », côté navigateur.
  *
  * Un seul geste, dans Paramètres → Attaché IA, masque TOUT ce qui relève de
- * l'attaché : entrée de menu, page « Assistant de justice », raccourci de la
- * barre du haut, actes rédigés des fiches dossier, chat de dossier, boutons
- * « Détecter les camps (attaché) » et « Enrichir (attaché) » de la
- * cartographie, propositions de renseignement. Seul l'onglet des paramètres
+ * l'attaché : boutons d'actualisation (description, mis en cause), bandeau,
+ * propositions et chronologie des fiches dossier, boutons « Détecter les
+ * camps » et « Enrichir » de la cartographie, propositions de renseignement. Seul l'onglet des paramètres
  * demeure — c'est lui qui porte l'interrupteur, le masquer l'enfermerait.
  *
  * Le drapeau est SERVEUR (par tribunal, /api/attache/visibilite) : il suit le

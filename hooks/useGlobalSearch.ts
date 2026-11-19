@@ -51,7 +51,6 @@ export interface GlobalSearchSources {
    *  (cartographie) » de l'omnibox. */
   dossiersExNihilo?: DossierExNihilo[];
   hasOverboard: boolean;
-  showAssistant: boolean;
 }
 
 const push = (fields: Array<DocField | null>, f: DocField | null) => {
@@ -424,9 +423,6 @@ function buildNavigationDocs(s: GlobalSearchSources): { pages: GlobalSearchDoc[]
     quickLinks.push(ob);
     pages.push(pageDoc('global_stats', 'Statistiques globales', 'stats chiffres tous contentieux bilan', { view: 'global_stats' }));
   }
-  if (s.showAssistant) {
-    pages.push(pageDoc('assistant', 'Assistant de justice', 'attache ia journal absence propositions', { view: 'assistant' }));
-  }
 
   const actions: GlobalSearchDoc[] = [];
   for (const ctxId of s.createContentieuxIds) {
@@ -463,7 +459,6 @@ export const useGlobalSearch = (sources: GlobalSearchSources): GlobalSearchApi =
     createContentieuxIds,
     modules,
     hasOverboard,
-    showAssistant,
     knownPersons,
     dossiersExNihilo,
     demandesEntraide,
@@ -530,10 +525,9 @@ export const useGlobalSearch = (sources: GlobalSearchSources): GlobalSearchApi =
       createContentieuxIds,
       modules,
       hasOverboard,
-      showAssistant,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [contentieux, statsSig, createSig, modules.instructions, modules.air, modules.mindmap, modules.entraide, hasOverboard, showAssistant]
+    [contentieux, statsSig, createSig, modules.instructions, modules.air, modules.mindmap, modules.entraide, hasOverboard]
   );
 
   const search = useMemo(() => {

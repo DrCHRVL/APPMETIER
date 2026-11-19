@@ -26,7 +26,7 @@ import { loadContentieux, numeroCanonique, classerNote } from './dossier.mjs'
 import { readRegistre, registreFichesStep } from './registre.mjs'
 import { mecCanonId } from './carto.mjs'
 import { runAgent } from './agent.mjs'
-import { audit, publishFeed } from './journal.mjs'
+import { audit } from './journal.mjs'
 import { prompt as promptConsigne } from './consignes.mjs'
 
 const FILE = () => attacheDir('versements.json')
@@ -238,7 +238,6 @@ export async function versementsStep(keys, { nuit = false, onHold = async () => 
   w.crId = cr?.id
   delete w.erreur
   writeEtat(etat)
-  await publishFeed(keys, { type: 'note', titre: `${titre} — ${canon}`, resume: 'Synthèse complète classée au dossier (compte rendu) : personnes et rôles, véhicules, lignes, adresses, chronologie.', numero: canon }).catch(() => {})
   await audit(keys, 'versement_analyse', { numero: canon, pieces: v.rels.length, convId: result.convId })
   return { numero: canon, etape: 'fait', crId: cr?.id }
 }

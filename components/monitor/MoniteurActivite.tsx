@@ -56,7 +56,6 @@ interface FluxBilan {
 interface AttacheInfo {
   demarreA: string;
   activites: AttacheActivite[];
-  runsEnCours: number;
   // Flux tendu : la file d'attente des dossiers qui ont bougé, et les derniers passages.
   flux?: {
     enAttente: Array<{ numero: string; depuis: string; raisons: string[]; pretDansMs: number }>;
@@ -172,7 +171,7 @@ export function MoniteurActivite({ isAdmin = false }: { isAdmin?: boolean }) {
   const cachePieces = getDocTextCacheStats();
 
   const chargeNavigateur = niveauLag(lag.msBloquesDerniereMinute);
-  const attacheOccupe = Boolean(attache && (attache.activites.some(a => a.enCours) || attache.runsEnCours > 0));
+  const attacheOccupe = Boolean(attache && (attache.activites.some(a => a.enCours)));
 
   return (
     <>
@@ -284,7 +283,7 @@ export function MoniteurActivite({ isAdmin = false }: { isAdmin?: boolean }) {
                 </h3>
                 {attache ? (
                   <>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-2">
+                    <div className="grid grid-cols-2 gap-2 mb-2">
                       <div className="rounded-lg bg-gray-50 p-2">
                         <div className="text-[11px] text-gray-500">Réactivité (retard p99)</div>
                         <div className="font-medium tabular-nums">{attache.eventLoop.p99Ms} ms <span className="text-gray-400 font-normal">· pic {attache.eventLoop.maxMs} ms</span></div>
@@ -292,10 +291,6 @@ export function MoniteurActivite({ isAdmin = false }: { isAdmin?: boolean }) {
                       <div className="rounded-lg bg-gray-50 p-2">
                         <div className="text-[11px] text-gray-500">Mémoire</div>
                         <div className="font-medium tabular-nums">{attache.memoire.rssMB} Mo</div>
-                      </div>
-                      <div className="rounded-lg bg-gray-50 p-2">
-                        <div className="text-[11px] text-gray-500">Runs en cours</div>
-                        <div className="font-medium tabular-nums">{attache.runsEnCours}</div>
                       </div>
                     </div>
                     <div className="divide-y divide-gray-100">

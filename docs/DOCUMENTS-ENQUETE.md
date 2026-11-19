@@ -4,8 +4,8 @@
 > naviguer les pièces sur le serveur ; (2) toute la donnée est-elle accessible
 > à l'IA de chaque enquête, et comment ; (3) faire que chaque versement soit
 > analysé, indexé, dédoublonné — pour retrouver vite et synthétiser bien.
-> Prolonge `ANALYSE-PROFONDE.md` (doctrine « lire une fois, capitaliser »)
-> et `COWORK-PISTES.md` (refus motivé du RAG vectoriel).
+> Doctrine « lire une fois, capitaliser » ; prolonge `COWORK-PISTES.md`
+> (refus motivé du RAG vectoriel).
 >
 > Date : 2026-08-20.
 
@@ -31,7 +31,7 @@ SQL : l'« index » est un JSON plat par enquête — suffisant, à ENRICHIR
 
 ### Affichage : l'arbre existe, l'explorateur pas encore
 
-La Phase 0 d'`ANALYSE-PROFONDE.md` est faite : dès qu'une zone contient des
+C'est fait : dès qu'une zone contient des
 sous-pochettes, la liste plate devient un **arbre repliable** (pochettes
 fermées par défaut, compteurs, suppression par pochette —
 `DocumentsSection.tsx:69-99` et `:1213`). Le module instruction a le sien
@@ -175,9 +175,8 @@ DocMeta { rel, size, savedAt, savedBy, category?, originalName?,
 }
 ```
 
-(L'attaché, qui détient les clés, calcule les mêmes empreintes quand c'est
-lui qui range — `ranger_document` — et peut remplir le stock existant en
-tâche de fond, zéro jeton.)
+(L'attaché, qui détient les clés, calcule les mêmes empreintes pour le stock
+existant, en tâche de fond, zéro jeton.)
 
 Ce que ça débloque immédiatement :
 
@@ -209,8 +208,8 @@ entre l'arborescence (où) et les fiches de chantier (quoi, en profondeur) :
 c'est le **sommaire pièce par pièce**, produit au fil de l'eau et non plus
 seulement quand un chantier tourne.
 
-- Outil MCP `registre_lire(numero, filtre?)` — et le chat de dossier répond
-  « où est l'audition de X ? » sans rien relire.
+- Outil MCP `registre_lire(numero, filtre?)` — Claude web répond, par le
+  connecteur, à « où est l'audition de X ? » sans rien relire.
 - La description s'actualise DEPUIS les mini-fiches (plus précis et moins
   cher que relire les signaux bruts).
 - Un chantier de dépouillement démarre avec le registre en main : il sait
@@ -355,7 +354,7 @@ IA admin-only, gouvernance nuit/5 h inchangée.
 
 ## Ce qui ne change pas
 
-La doctrine d'`ANALYSE-PROFONDE.md` tient : chaque pièce lue en entier UNE
+La doctrine tient : chaque pièce lue en entier UNE
 fois, tout le travail ultérieur sur les fiches. Ces chantiers ne la
 remplacent pas — ils la complètent en amont (empreintes et mini-fiches dès
 le versement, pour que le capital se constitue au fil de l'eau et non plus

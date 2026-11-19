@@ -5,10 +5,10 @@ conversation Claude web (ou l'app mobile Claude), le magistrat administrateur
 dispose des **outils de l'attaché** — lecture des dossiers, pièces et
 chronologies, **fichier global** d'un dossier, trames, skills et base de
 connaissances, statistiques et graphiques, écritures réversibles (actes, CR,
-à-faire, NATINF, dossiers…), livrables remis dans SIRAL — sans avoir à faire
-évoluer l'assistant intégré à chaque nouveauté de Claude web.
+à-faire, NATINF, dossiers…). C'est **la seule façon d'interroger SIRAL et
+d'y rédiger** : l'application n'a plus ni chat ni atelier d'actes.
 
-## Partage des rôles : Claude web rédige, l'attaché analyse
+## Partage des rôles : Claude web rédige et interroge, l'attaché analyse en fond
 
 - **Claude web (connecteur)** : c'est **là que les actes se rédigent** —
   requêtes, prolongations, réquisitions, soit-transmis, réponses DML,
@@ -23,32 +23,28 @@ connaissances, statistiques et graphiques, écritures réversibles (actes, CR,
   pré-remplies, et le **fichier global** (`dossier_global`). L'acte rédigé
   **reste dans Claude web** : il est livré dans la conversation (texte prêt
   à signer, ou Word) et n'est **jamais rangé dans SIRAL** — aucun acte à y
-  valider. SIRAL ne reçoit que les synthèses et analyses
-  (`remettre_livrable`) ; une mesure à suivre à l'échéancier s'y inscrit par
+  valider. Les synthèses et analyses restent elles aussi dans la
+  conversation. Une mesure à suivre à l'échéancier s'inscrit par
   `enregistrer_acte` / `acter_prolongation`, sur instruction explicite.
-- **L'attaché de SIRAL (service, runs CLI)** est un **analyste** : il
-  actualise les dossiers à chaque pièce reçue, recoupe, améliore la donnée,
-  prépare la matière d'un acte (proposition d'acte pré-remplie, préparation
-  de DML, chronologie) et remet des analyses — il **ne rédige plus** les
-  actes (`produire_document` n'est exposé ni à ses runs ni au connecteur). Trames et skills
+- **L'attaché de SIRAL (service, runs CLI)** est un **analyste de fond**,
+  sans interface de conversation : il actualise les dossiers à chaque pièce
+  reçue (CR, description, mis en cause, NATINF), tient le registre, les
+  recoupements et les rapports de dossier, enrichit la cartographie, et dépose
+  des **propositions ✓/✗**. Il ne rédige pas les actes. Trames et skills
   restent dans SIRAL pour être lus par Claude web et **améliorés** par
-  l'attaché (étude du corpus d'actes validés, propositions ✓/✗).
-- Le **fichier global** remplace, pour le cas courant, les chantiers
-  d'analyse profonde : fiche du dossier, chronologie et registre en tête,
-  puis toutes les pièces en texte, classées par thème (auditions, synthèses,
-  téléphonie, expertises, surveillances, décisions), chaque pièce portant un
-  numéro stable `P-xxxx` citable d'une conversation à l'autre — lu par le
-  connecteur page par page (`dossier_global`, `theme` pour un seul thème) ou
-  téléchargé en `.txt` depuis la page Assistant de justice. Servi depuis un
-  cache tenu à jour par le service à chaque mouvement du dossier. Le
-  **dossier de rédaction** (`.zip`, même page) y ajoute trames, skills,
-  documents ★ de la base, actes précédents et instructions du projet : la
-  base de connaissances du projet Claude web en un geste.
+  l'attaché (étude des actes signés → trames `modele-*`, propositions ✓/✗).
+  Voir [ATTACHE.md](ATTACHE.md).
+- **`dossier_global`** : pour un travail de fond sur un dossier — fiche du
+  dossier, chronologie et registre en tête, puis toutes les pièces en texte,
+  classées par thème (auditions, synthèses, téléphonie, expertises,
+  surveillances, décisions), chaque pièce portant un numéro stable `P-xxxx`
+  citable d'une conversation à l'autre ; lu page par page (`theme` pour un
+  seul thème). Servi depuis un cache tenu à jour par le service.
 - Les **instructions du projet Claude web** ont leur version de référence
-  dans SIRAL (Paramètres → Attaché IA) : l'attaché en propose des révisions
-  tirées des actes corrigés ou refusés (✓/✗, puis Copier → coller dans le
-  projet), et Claude web la lit par le connecteur
-  (`instructions_projet_lire`) au début d'une rédaction.
+  dans SIRAL (Paramètres → Attaché IA) : l'apprentissage en propose des
+  révisions à partir des leçons notées (`memoire_noter`) et de vos ✓/✗
+  (✓, puis Copier → coller dans le projet), et Claude web la lit par le
+  connecteur (`instructions_projet_lire`) au début d'une rédaction.
 
 > ⚠️ Réservé à l'**administrateur**, sur le TJ/contentieux confié à
 > l'attaché. Fonctionnalité **désactivée par défaut** ; tant qu'elle ne l'est
@@ -73,10 +69,8 @@ connaissances, statistiques et graphiques, écritures réversibles (actes, CR,
   échantillon des pièces écartées (**contrôle d'élusion** → rappel estimé)
   et rédige la synthèse, chaque affirmation citant sa pièce. Travail de
   fond, par lots, dès que le forfait l'autorise : minutes à heures, une
-  nuit pour un fonds entier. Le résultat arrive en **livrable** (fil
-  « pendant votre absence », « Actes rédigés » du dossier ou hors dossier)
-  et se relit par `interrogation_lire` (pièces retenues paginées, non lues
-  nommées, couverture) ; `interrogations_lister`, `interrogation_arreter`.
+  nuit pour un fonds entier. Le résultat — synthèse, pièces retenues
+  paginées, non lues nommées, couverture — se lit par `interrogation_lire` ; `interrogations_lister`, `interrogation_arreter`.
   Sur **tout le fonds**, `niveau:"rapports"` : une lecture par **dossier**,
   celle de son **rapport de synthèse** (écrit une fois par l'attaché depuis
   le registre de toutes ses pièces, tenu à jour), une fraction du coût ;
@@ -104,10 +98,9 @@ connaissances, statistiques et graphiques, écritures réversibles (actes, CR,
   500 € d'amende. Renvoi au 15/10 pour DURAND » → `enregistrer_audience`
   (voir plus bas), puis archivage du dossier.
 
-Deux outils de l'attaché sont volontairement absents du connecteur :
+Un outil de l'attaché est volontairement absent du connecteur :
 `sous_agents` (lancerait des runs CLI parallèles sur l'abonnement — Claude
-web orchestre déjà ses lectures) et `poser_question` (vous êtes déjà dans la
-conversation). Les suppressions restent, comme pour l'attaché, manuelles.
+web orchestre déjà ses lectures). Les suppressions restent, comme pour l'attaché, manuelles.
 
 ## Résultats d'audience dictés
 
@@ -243,10 +236,11 @@ de l'app consomme exactement les mêmes fonctions : si une règle évolue, elle
 5. **Recommandé** : téléversez dans claude.ai la skill
    [`mobilisation-siral.skill`](skills-claude-web/) (Paramètres → Capacités
    → Skills) — elle apprend à Claude web la MÉTHODE : identifier le bon
-   dossier, lire en économe (aperçus, sections paginées, fichier global),
+   dossier, lire en économe (aperçus, sections paginées, `dossier_global`),
    recouper une pièce versée (PV → NATINF, mis en cause, échéances),
-   rédiger avec vos trames et skills lus par le connecteur, et ranger les
-   actes dans SIRAL avec les bonnes métadonnées. Dans un **projet Claude
+   rédiger avec vos trames et skills lus par le connecteur, et livrer
+   l'acte dans la conversation. Après une mise à jour de SIRAL,
+   re-téléversez-la : la version du dépôt suit les outils du connecteur. Dans un **projet Claude
    web** dédié, vos instructions et votre base de connaissances priment ;
    la skill et le connecteur les complètent.
 

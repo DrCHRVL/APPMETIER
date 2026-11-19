@@ -185,11 +185,6 @@ export const DashboardPage = ({
         </div>
       </div>
 
-      {/* Le journal « pendant votre absence », les propositions à valider, les
-          actes rédigés hors dossier et la boîte dédiée vivent sur la page
-          « Assistant de justice » (menu latéral, administrateur uniquement) —
-          le tableau de bord reste centré sur le suivi des dossiers. */}
-
       {/* Indicateurs clés du contentieux sélectionné.
           Le JLD ne voit pas les instructions : 3 indicateurs au lieu de 4. */}
       <div className={`grid grid-cols-2 gap-3 ${isJLD ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>

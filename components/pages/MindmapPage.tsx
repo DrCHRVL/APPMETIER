@@ -41,7 +41,6 @@ import { useTags } from '@/hooks/useTags';
 import { useNatinf } from '@/hooks/useNatinf';
 import { categoryForEntry } from '@/lib/natinf/nataff';
 import { useUser } from '@/contexts/UserContext';
-import { FloatingDossierChat } from '../attache/FloatingDossierChat';
 import { NouveauxDossiersPropositions } from '../attache/NouveauxDossiersPropositions';
 import { useIaMasquee } from '@/stores/useIaVisibiliteStore';
 import { useToast } from '@/contexts/ToastContext';
@@ -133,7 +132,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
   onRenameMec,
 }) => {
   // Interrupteur « fonctionnalités IA » : coché, la carte ne montre plus
-  // « Détecter les camps (attaché) », « Enrichir (attaché) », le chat carto ni
+  // « Détecter les camps (attaché) », « Enrichir (attaché) » ni
   // les propositions de renseignement.
   const iaMasquee = useIaMasquee();
   const [selectedId, setSelectedId] = useState<string | undefined>();
@@ -501,10 +500,46 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
     }
   }, [showToast]);
 
-  // Enrichissement d'une fiche par l'attaché : PRÉ-REMPLIT le chat carto
-  // (admin) avec la consigne de recherche — rien d'automatique, l'attaché
-  // dépose ensuite une PROPOSITION ✓/✗ qui n'écrase jamais les notes.
-  const [enrichPrefill, setEnrichPrefill] = useState<{ text: string; seq: number } | undefined>();
+  // Analyses « en un clic » de l'attaché (Enrichir une fiche, Détecter les
+  // camps) : lancées EN FOND par le service, sans chat ; elles ne font que
+  // déposer des PROPOSITIONS ✓/✗ dans le panneau de revue ci-dessous, qui se
+  // recharge pendant le run et à sa fin.
+  const [analyseEnCours, setAnalyseEnCours] = useState<string | null>(null);
+  const [propositionsReload, setPropositionsReload] = useState(0);
+  const lancerAnalyseCarto = React.useCallback(async (consigne: string, libelle: string) => {
+    try {
+      const res = await fetch('/api/attache/analyse-carto', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ consigne, libelle }),
+      });
+      const data = await res.json().catch(() => ({} as { ok?: boolean; error?: string; libelle?: string }));
+      if (res.status === 202) { showToast(`Une analyse est déjà en cours (${data.libelle || 'cartographie'}) — réessayez à sa fin`, 'info'); return; }
+      if (!res.ok || !data.ok) { showToast(data.error || 'Service attaché injoignable', 'error'); return; }
+      setAnalyseEnCours(libelle);
+      showToast(`${libelle} lancée — les propositions arriveront dans le panneau de revue, à valider ✓/✗`, 'success');
+    } catch {
+      showToast('Service attaché injoignable', 'error');
+    }
+  }, [showToast]);
+  useEffect(() => {
+    if (!analyseEnCours) return;
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch('/api/attache/analyse-carto');
+        const { etat } = await res.json() as { etat?: { fini?: boolean; ok?: boolean; error?: string; proposees?: number } | null };
+        setPropositionsReload(n => n + 1);
+        if (!etat?.fini) return;
+        setAnalyseEnCours(null);
+        if (etat.ok) showToast(`${analyseEnCours} terminée — ${etat.proposees || 0} proposition(s) déposée(s)`, etat.proposees ? 'success' : 'info');
+        else showToast(`${analyseEnCours} interrompue${etat.error ? ` : ${etat.error}` : ''}`, 'error');
+      } catch { /* service momentanément injoignable : on retente au prochain tour */ }
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [analyseEnCours, showToast]);
+
+  // Enrichissement d'une fiche : l'attaché cherche la personne dans tout le
+  // fonds et dépose une PROPOSITION ✓/✗ qui n'écrase jamais les notes.
   const handleEnrichMec = React.useCallback(async (mec: MecNode) => {
     if (!(await verifierCapaciteAttache('proposer_note_mec'))) return;
     const alias = [...(mec.manualAlias || []), ...mec.variants].slice(0, 4);
@@ -515,8 +550,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       + `que j'ai créés, et les documents que j'y ai versés (carto_lire_document) sont riches en renseignement. `
       + `Quand tu as fini, dépose UNE proposition d'enrichissement de sa fiche avec proposer_note_mec `
       + `(l'ajout sera fait à la suite de mes notes, sans jamais les modifier ni les contredire). N'écris rien d'office.`;
-    setEnrichPrefill(prev => ({ text, seq: (prev?.seq ?? 0) + 1 }));
-  }, [verifierCapaciteAttache]);
+    lancerAnalyseCarto(text, `Enrichissement de la fiche ${mec.displayName}`);
+  }, [verifierCapaciteAttache, lancerAnalyseCarto]);
 
   // Détection automatique des camps par l'attaché : réservée aux GROS amas
   // (c'est là que les groupes rivaux s'enchevêtrent — inutile sur un petit
@@ -576,8 +611,8 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       + `Et propose TOUJOURS quelque chose : les camps dont tu es sûr partent en proposer_camp_carto MAINTENANT, même si l'analyse est incomplète ; `
       + `si le reste demande de vraies lectures (pièces, documents volumineux), fais-les : pieces_chercher sans numéro pour localiser dans tout le fonds, `
       + `puis lire_document / carto_lire_document pour lire en entier. Ne me renvoie jamais faire la démarche moi-même.`;
-    setEnrichPrefill(prev => ({ text, seq: (prev?.seq ?? 0) + 1 }));
-  }, [graph, showToast, verifierCapaciteAttache]);
+    lancerAnalyseCarto(text, 'Détection des camps');
+  }, [graph, showToast, verifierCapaciteAttache, lancerAnalyseCarto]);
 
   // ────────────────────────────────────────────
   // ACTIONS
@@ -1389,9 +1424,6 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
         <span><kbd className="px-1 bg-slate-100 rounded border border-slate-200">Molette</kbd> zoom</span>
       </div>
 
-      {/* Chat carto de l'attaché — admin only : analyse du réseau, propose
-          les liens de renseignement manquants (auto-masqué si inactif). */}
-      {estSuperAdmin() && <FloatingDossierChat numero="carto" carto label="Cartographie" prefill={enrichPrefill} />}
 
       {/* Revue des propositions de renseignement de l'attaché : liens
           personne↔personne, personnes ex nihilo (surnoms/2nd plan) et
@@ -1401,7 +1433,7 @@ export const MindmapPage: React.FC<MindmapPageProps> = ({
       {estSuperAdmin() && (
         <div className="pointer-events-none fixed bottom-4 left-4 z-40 w-[380px] max-w-[calc(100vw-2rem)]">
           <div className="pointer-events-auto">
-            <NouveauxDossiersPropositions kinds={CARTO_REVIEW_KINDS} title="Proposition de renseignement" />
+            <NouveauxDossiersPropositions kinds={CARTO_REVIEW_KINDS} title="Proposition de renseignement" reloadSignal={propositionsReload} />
           </div>
         </div>
       )}

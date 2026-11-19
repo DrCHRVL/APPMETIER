@@ -17,7 +17,6 @@ import { AlertsModal } from '@/components/modals/AlertsModal';
 import { SavePage } from '@/components/pages/SavePage';
 const StatsPage = dynamic(() => import('@/components/pages/StatsPage').then(m => ({ default: m.StatsPage })), { ssr: false });
 const DashboardPage = dynamic(() => import('@/components/pages/DashboardPage').then(m => ({ default: m.DashboardPage })), { ssr: false });
-const AssistantJusticePage = dynamic(() => import('@/components/pages/AssistantJusticePage').then(m => ({ default: m.AssistantJusticePage })), { ssr: false });
 import { useContentieuxEnquetesStore as useContentieuxEnquetes } from '@/hooks/useContentieuxEnquetesStore';
 import { useEnquetesStore } from '@/stores/useEnquetesStore';
 import { useFilterSort } from '@/hooks/useFilterSort';
@@ -178,7 +177,6 @@ const AdminCartographyPanel = dynamic(() => import('@/components/admin/AdminCart
 const OfflineModePanel = dynamic(() => import('@/components/admin/OfflineModePanel').then(m => ({ default: m.OfflineModePanel })), { ssr: false });
 const AdminDashboardPanel = dynamic(() => import('@/components/admin/AdminDashboardPanel').then(m => ({ default: m.AdminDashboardPanel })), { ssr: false });
 // Attaché de justice IA — chargé uniquement en session admin quand le serveur l'active
-const AttachePanel = dynamic(() => import('@/components/attache/AttachePanel').then(m => ({ default: m.AttachePanel })), { ssr: false });
 const AdminAttachePanel = dynamic(() => import('@/components/admin/AdminAttachePanel').then(m => ({ default: m.AdminAttachePanel })), { ssr: false });
 const AdminTagHistoryPanel = dynamic(() => import('@/components/admin/AdminTagHistoryPanel').then(m => ({ default: m.AdminTagHistoryPanel })), { ssr: false });
 const AdminNatinfPanel = dynamic(() => import('@/components/admin/AdminNatinfPanel').then(m => ({ default: m.AdminNatinfPanel })), { ssr: false });
@@ -195,8 +193,7 @@ import { AuditLogger } from '@/utils/auditLogger';
 
 const CHEMIN_BASE = "P:\\TGI\\Parquet\\P17 - STUP - CRIM ORG\\PRELIM EN COURS\\";
 
-// Rapprochement souple d'un numéro de dossier (raccourci « Assistant de
-// justice ») : règle PARTAGÉE avec le service et syncProductionActe —
+// Rapprochement souple d'un numéro de dossier : règle PARTAGÉE avec le service —
 // voir utils/numeroDossier.ts (normNumero, numerosProches, findEnqueteParNumero).
 
 function AppContent() {
@@ -220,22 +217,11 @@ function AppContent() {
   const [settingsContentieuxId, setSettingsContentieuxId] = useState<ContentieuxId | null>(null);
   // Attaché de justice IA (admin uniquement, activé côté serveur)
   const [attacheAvailable, setAttacheAvailable] = useState(false);
-  // Service attaché momentanément hors d'état : le module reste affiché, mais
-  // dit pourquoi il est vide (voir la sonde plus bas).
-  const [attacheInjoignable, setAttacheInjoignable] = useState(false);
   // Interrupteur « fonctionnalités IA » (Paramètres → Attaché IA) : coché, tout
   // ce qui relève de l'attaché disparaît de l'application — sauf l'onglet de
   // paramètres qui le porte.
   const iaMasquee = useIaVisibiliteStore((s) => s.masque);
   const chargerIaVisibilite = useIaVisibiliteStore((s) => s.charger);
-  const [showAttache, setShowAttache] = useState(false);
-  // Le journal « pendant votre absence » peut demander l'ouverture du panneau
-  // attaché pour répondre aux décisions à trancher.
-  useEffect(() => {
-    const open = () => setShowAttache(true);
-    window.addEventListener('siral:open-attache', open);
-    return () => window.removeEventListener('siral:open-attache', open);
-  }, []);
   const { isAuthenticated, isLoading: userLoading, error: userError, accessibleContentieux, canDo, hasOverboard, hasModule, user, contentieux: contentieuxDefs } = useUser();
   // Profil JLD : accès restreint au seul tableau de bord (aperçu d'acte dédié,
   // aucune autre vue, aucune alerte, aucun paramètre).
@@ -253,9 +239,6 @@ function AppContent() {
   const handleViewChange = async (view: string, contentieuxId?: ContentieuxId) => {
     // Le JLD est verrouillé sur le tableau de bord : toute autre vue est ignorée.
     if (isJLDUser && view !== 'dashboard') return;
-    // L'assistant de justice (attaché IA) est réservé à l'administrateur, et
-    // n'existe plus dès que l'interrupteur des fonctionnalités IA est coché.
-    if (view === 'assistant' && (!estSuperAdmin() || iaMasquee)) return;
     // Vérifier que l'utilisateur a accès au contentieux demandé
     if (contentieuxId && !accessibleContentieux.some(c => c.id === contentieuxId)) {
       return;
@@ -603,14 +586,13 @@ function AppContent() {
   //     comme prévu ;
   //   • 401 / 500 / 503 → la garde admin est PASSÉE : le module existe bien pour
   //     ce magistrat, c'est le service qui est momentanément hors d'état
-  //     (conteneur arrêté, secret de pont dépareillé, machine saturée). On garde
-  //     alors l'entrée de menu, la page et l'onglet de paramètres — avec leur
-  //     écran de diagnostic — au lieu de faire disparaître l'assistant en
-  //     silence, et on resonde toutes les 60 s pour se raccrocher tout seul.
+  //     (conteneur arrêté, secret de pont dépareillé, machine saturée). Les
+  //     actions de l'attaché restent offertes (elles diront l'erreur) et on
+  //     resonde toutes les 60 s pour se raccrocher tout seul.
   // Une exception réseau (app injoignable) ne révèle rien : simple nouvelle
   // tentative, sans rien afficher.
   useEffect(() => {
-    if (!isAuthenticated || !estSuperAdmin()) { setAttacheAvailable(false); setAttacheInjoignable(false); return; }
+    if (!isAuthenticated || !estSuperAdmin()) { setAttacheAvailable(false); return; }
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const sonder = async () => {
@@ -620,9 +602,9 @@ function AppContent() {
         etat = r.ok ? 'ok' : r.status === 404 ? 'absent' : 'injoignable';
       } catch { etat = 'inconnu'; }
       if (cancelled) return;
-      if (etat === 'ok') { setAttacheAvailable(true); setAttacheInjoignable(false); return; }
-      if (etat === 'absent') { setAttacheAvailable(false); setAttacheInjoignable(false); return; }
-      if (etat === 'injoignable') { setAttacheAvailable(true); setAttacheInjoignable(true); }
+      if (etat === 'ok') { setAttacheAvailable(true); return; }
+      if (etat === 'absent') { setAttacheAvailable(false); return; }
+      if (etat === 'injoignable') setAttacheAvailable(true);
       timer = setTimeout(sonder, 60_000);
     };
     sonder();
@@ -632,12 +614,6 @@ function AppContent() {
   // Ce qui commande TOUTE présence de l'attaché à l'écran : service annoncé,
   // administrateur, et interrupteur non coché.
   const iaVisible = attacheAvailable && estSuperAdmin() && !iaMasquee;
-
-  // Interrupteur coché alors qu'on lisait la page de l'assistant : on retombe
-  // sur le tableau de bord plutôt que de laisser une zone vide.
-  useEffect(() => {
-    if (iaMasquee && currentView === 'assistant') setCurrentView('dashboard');
-  }, [iaMasquee, currentView]);
 
   // Démarrage des services temps réel (heartbeat, événements, audit)
   useEffect(() => {
@@ -1456,14 +1432,12 @@ function AppContent() {
     }, 5000);
   }, []);
 
-  // Ouvre la fiche d'un dossier depuis son NUMÉRO (raccourci « Assistant de
-  // justice » : un clic sur une carte d'information du journal ouvre
-  // directement l'EnquêteDetail ; une carte d'acte rédigé, elle, ouvre l'acte).
+  // Ouvre la fiche d'un dossier depuis son NUMÉRO.
   // Cherche dans tous les contentieux, puis dans les instructions.
   const handleOpenDossierByNumero = useCallback((numero: string) => {
     if (!normNumero(numero)) return;
     for (const [ctxId, list] of overboardData) {
-      // Même règle de rapprochement que le service et que syncProductionActe :
+      // Même règle de rapprochement que le service :
       // parmi plusieurs candidates (« …GRIVESNES » / « …GRIVESNES 2 »), la
       // plus vraisemblable — et non la première venue.
       const found = findEnqueteParNumero(list, numero);
@@ -1500,16 +1474,6 @@ function AppContent() {
       })
       .catch(() => showToast(`Dossier « ${numero} » introuvable dans vos enquêtes`, 'info'));
   }, [overboardData, activeContentieux, instructions, showToast, setActiveContentieux, setCurrentView, openLiveEnqueteWhenReady, setSelectedInstruction, setIsEditingInstruction]);
-  // Service d'enquête d'un dossier (2ᵉ segment du nom de fichier des actes
-  // exportés) — même règle que la fiche enquête, qui le fournissait tant que
-  // les actes rédigés y vivaient. Tous contentieux confondus.
-  const serviceDuDossier = useCallback((numero: string) => {
-    for (const [, list] of enquetesForSearch) {
-      const e = findEnqueteParNumero(list, numero);
-      if (e) return e.tags?.find((t) => t.category === 'services')?.value || e.services?.find((s) => s && s.trim());
-    }
-    return undefined;
-  }, [enquetesForSearch]);
   // Ouvre l'autre dossier d'un recoupement. On referme la fiche courante :
   // deux fiches superposées désorientent plus qu'elles n'aident.
   const handleOuvrirDossierRecoupement = useCallback((signal: Recoupement, dossierKey: string) => {
@@ -1850,7 +1814,6 @@ function AppContent() {
       entraide: hasModule('entraide'),
     },
     hasOverboard: hasOverboard(),
-    showAssistant: iaVisible,
     knownPersons: knownPersons.persons,
     dossiersExNihilo,
     demandesEntraide,
@@ -1858,7 +1821,7 @@ function AppContent() {
 
   // Exécute un résultat de la recherche globale (clic ou Entrée) : ouverture de
   // la fiche VIVE, navigation ou action — même règle de rattachement tolérant
-  // des numéros que l'assistant de justice.
+  // des numéros que la fiche dossier.
   const handleGlobalSearchExecute = async (
     doc: Pick<GlobalSearchDoc, 'kind' | 'data'>,
     opts?: { skipMindmapFocus?: boolean },
@@ -2046,8 +2009,6 @@ return (
           instructionCount={sidebarInstructionCount}
           entraideRetards={entraideRetards}
           crossSearchResults={crossSearchResults}
-          showAssistant={iaVisible}
-          assistantInjoignable={attacheInjoignable}
         />
       </div>
       {mobileNavOpen && (
@@ -2068,8 +2029,6 @@ return (
               instructionCount={sidebarInstructionCount}
               entraideRetards={entraideRetards}
               crossSearchResults={crossSearchResults}
-              showAssistant={iaVisible}
-              assistantInjoignable={attacheInjoignable}
             />
           </div>
         </div>
@@ -2102,7 +2061,6 @@ return (
             onShowUpdate={() => setShowUpdateModal(true)}
             isUpdating={isUpdating}
             minimal={isJLDUser}
-            onShowAttache={iaVisible ? () => setShowAttache(true) : undefined}
             globalSearch={!isJLDUser ? {
               api: globalSearchApi,
               contentieuxDefs: accessibleContentieux,
@@ -2185,11 +2143,6 @@ return (
               onOpenInstruction={(d) => { setSelectedInstruction(d); setIsEditingInstruction(false); }}
               isJLD={isJLDUser}
             />
-          )}
-
-          {/* Assistant de justice (attaché IA) — page dédiée, admin uniquement */}
-          {baseView === 'assistant' && iaVisible && (
-            <AssistantJusticePage onOpenDossier={handleOpenDossierByNumero} serviceDuDossier={serviceDuDossier} serviceInjoignable={attacheInjoignable} />
           )}
 
           {baseView === 'enquetes' && (
@@ -2343,7 +2296,6 @@ return (
               onAjoutCR={handleAjoutCR}
               onUpdateCR={handleUpdateCR}
               onDeleteCR={handleDeleteCR}
-              attacheOpen={showAttache}
             />
           )}
 
@@ -2485,7 +2437,6 @@ return (
           onUnshareEnquete={handleUnshareEnquete}
           onTransferEnquete={handleTransferEnquete}
           isSharedEnquete={isSharedEnquete(selectedEnquete.id)}
-          attacheOpen={showAttache}
           attacheAvailable={iaVisible}
           recoupements={recoupementsDuDossier}
         />
@@ -2833,11 +2784,6 @@ return (
 
       {/* Invitations de partage entrantes (AIR / instruction) — pop-up un clic */}
       <ShareInvitationModal />
-
-      {/* Attaché de justice IA — panneau latéral (admin uniquement) */}
-      {iaVisible && (
-        <AttachePanel open={showAttache} onClose={() => setShowAttache(false)} />
-      )}
 
       {/* 🆕 Modal Paramètres multi-onglets.
           L'onglet « Attaché IA » y est TOUJOURS offert à l'administrateur —

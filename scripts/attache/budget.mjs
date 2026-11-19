@@ -21,7 +21,7 @@
  *   - 'stop'   : plafond atteint → on DIFFÈRE les runs autonomes (ils
  *                repartiront au prochain tick, une fois la fenêtre redescendue)
  *                et on bride au maximum les lots de sous-agents encore lancés
- *                (chat du magistrat : jamais bloqué, seulement dégradé).
+ *                (demande directe du magistrat : jamais bloquée, seulement dégradée).
  *
  * Seuils réglables par variables d'environnement. Sans plafond configuré
  * (cap5h = cap capHebdo = 0), le gouverneur est INERTE : on n'invente jamais

@@ -12,7 +12,7 @@
  * (`entraide-analyses/<id>.json`) — lisible par les seules routes réservées à
  * l'administrateur, jamais par le registre partagé.
  */
-import { extractTextByName } from './depot.mjs'
+import { extractTextByName } from './extraction.mjs'
 import { runClaudeJson } from './analyse.mjs'
 import { recordUsage } from './usage.mjs'
 import { readEnvelopeFile, writeEnvelopeFile } from './store.mjs'

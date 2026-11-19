@@ -6,7 +6,7 @@
  *   - un réveil met le dossier en file avec sa raison et son auteur, et la
  *     pompe respecte la période de calme ;
  *   - un passage ingère les pièces nouvelles, les fiche, analyse les actes
- *     (proposition ✓/✗ dédoublonnée, carte d'alerte sur les incohérences),
+ *     (proposition ✓/✗ dédoublonnée, alertes de cohérence au bilan),
  *     joint au run les fiches, les candidats mis en cause (rôle de mis en
  *     cause, jamais un témoin, jamais un enregistré) et l'analyse ;
  *   - le CR écrit par le run, la proposition de mis en cause et la description
@@ -63,7 +63,6 @@ const { writeDocBlob, docServerKey, attacheTj } = await import(`${REPO}/scripts/
 const { readRegistre, writeRegistre } = await import(`${REPO}/scripts/attache/registre.mjs`)
 const { classerNote, loadContentieux, actualiserDescription } = await import(`${REPO}/scripts/attache/dossier.mjs`)
 const { addProposition, listPropositions } = await import(`${REPO}/scripts/attache/propositions.mjs`)
-const { readFeed } = await import(`${REPO}/scripts/attache/journal.mjs`)
 const flux = await import(`${REPO}/scripts/attache/flux.mjs`)
 
 const KEY = docServerKey(NUM)
@@ -166,8 +165,7 @@ attendu('prompt : description et mis en cause enregistrés', prompt1.includes('D
 attendu('prompt : consignes du socle flux', prompt1.includes('FAITS NOUVEAUX') && prompt1.includes('classer_note'))
 const reg1 = readRegistre(keys, KEY)
 attendu('pièces marquées traitées par le flux', Boolean(reg1.pieces['PV/D1_audition_MARTIN.txt']?.flux?.le) && Boolean(reg1.pieces['Actes/ordonnance_ecoute.txt']?.flux?.le))
-const feed = readFeed().map((l) => decryptJson(keys.global, l))
-attendu('carte d\'alerte sur l\'incohérence', feed.some((c) => c.type === 'alerte' && /natinf_absent/.test(c.resume)), JSON.stringify(feed.map((c) => c.titre)))
+attendu('alerte de cohérence portée par le bilan (bandeau du dossier)', (b1.alertes || []).some((a) => /natinf_absent/.test(a)), JSON.stringify(b1.alertes))
 attendu('file vidée après le passage', flux.fileAttente().enAttente.length === 0 && flux.fileAttente().derniers[0]?.numero === NUM)
 
 // ── 4. Le CR de l'attaché ne réveille pas ; rien de neuf = pas de run

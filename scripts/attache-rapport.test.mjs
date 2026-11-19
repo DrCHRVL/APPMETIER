@@ -145,12 +145,10 @@ attendu('passage : rapport périmé réécrit, puis un verdict par dossier, synt
 const verdict = runs.find((x) => x.json)
 attendu('verdicts : les rapports sont jugés (entête « rapports de dossier », 2 éléments)', verdict && /2 rapports de dossier à juger/.test(verdict.prompt) && verdict.prompt.includes(`═══ PIÈCE ${NUM_B} :: § rapport du dossier ═══`))
 attendu('approfondissement enchaîné : interrogation « pieces » sur le seul dossier retenu', lu.suiteId && I.lireInterrogation(keys, lu.suiteId).niveau === 'pieces' && I.lireInterrogation(keys, lu.suiteId).plan.length === 1 && I.lireInterrogation(keys, lu.suiteId).numero === NUM_A && I.lireInterrogation(keys, lu.suiteId).suiteDe === it.id, JSON.stringify({ suiteId: lu.suiteId }))
-const { readProduction } = await import(`${REPO}/scripts/attache/productions.mjs`)
-const prod = readProduction(keys, '_hors-dossier', lu.prodId)
-attendu('livrable hors dossier : annonce l\'approfondissement', prod && prod.contenu.includes(`Approfondissement lancé : les 1 dossier(s)`) && prod.contenu.includes(lu.suiteId))
+attendu('interrogation_lire annonce l\'approfondissement', (I.detailInterrogation(keys, it.id)?.note || '').includes(lu.suiteId))
 r = await I.interrogationsStep(keys)
 const suite = I.lireInterrogation(keys, lu.suiteId)
-attendu('la suite tourne : pièces du dossier retenu lues, livrable au dossier', r.etape === 'fait' && suite.etat === 'fait' && suite.pertinentes.some((p) => p.chemin === 'PV/D1.txt'), JSON.stringify(r))
+attendu('la suite tourne : pièces du dossier retenu lues', r.etape === 'fait' && suite.etat === 'fait' && suite.pertinentes.some((p) => p.chemin === 'PV/D1.txt'), JSON.stringify(r))
 
 fs.rmSync(SCRATCH, { recursive: true, force: true })
 if (echecs.length) {

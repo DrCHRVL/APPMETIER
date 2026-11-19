@@ -123,23 +123,17 @@ attendu('prompt : les pièces entières, entêtées « dossier :: chemin »', p1
 attendu('pièce longue : lue en tranches, le lot plein avant sa fin (6 tranches sur 11)', /\[partie 1\/11\]/.test(p1) && /\[partie 6\/11\]/.test(p1) && !/\[partie 7\/11\]/.test(p1), (p1.match(/\[partie [^\]]+\]/g) || []).join(' '))
 attendu('après le 1er lot : D1 retenue, D2 écartée, D3 en cours (6 tranches jugées, pas encore soldée)', it.pertinentes.length === 1 && it.pertinentes[0].chemin === 'PV/D1_audition.txt' && it.ecartees.length === 1 && it.enCours?.chemin === 'PV/D3_longue.txt' && it.enCours.faites === 6 && r.etape === 'lots', JSON.stringify({ r, enCours: it.enCours && { chemin: it.enCours.chemin, faites: it.enCours.faites, parties: it.enCours.parties } }))
 
-// ── Fin de plan : contrôle d'élusion + synthèse + livrable
+// ── Fin de plan : contrôle d'élusion + synthèse
 controleTrouve = true
 r = await I.interrogationsStep(keys, { maxLots: 1 })
 it = I.lireInterrogation(keys, unDossier.id)
 attendu('pièce longue soldée : pertinente par sa dernière tranche, verdict fusionné', it.pertinentes.some((p) => p.chemin === 'PV/D3_longue.txt' && p.score >= 0.9 && p.extraits.includes('SASU ECRAN')), JSON.stringify(it.pertinentes.map((p) => p.chemin)))
-attendu('interrogation faite', r.etape === 'fait' && it.etat === 'fait' && Boolean(it.prodId), JSON.stringify(r))
+attendu('interrogation faite', r.etape === 'fait' && it.etat === 'fait' && Boolean(it.synthese), JSON.stringify(r))
 attendu('contrôle d\'élusion : la pièce écartée relue et retrouvée, taux 100 %, écartées vidées', it.elusion?.echantillon === 1 && it.elusion.trouvees === 1 && it.elusion.taux === 1 && it.ecartees.length === 0 && it.pertinentes.some((p) => p.chemin === 'PV/D2_surveillance.txt' && p.controle), JSON.stringify(it.elusion))
 const synth = runs.find((x) => !x.json)
 attendu('synthèse : prompt avec la couverture, l\'élusion et les pièces retenues (extraits)', synth && synth.prompt.includes('Contrôle d\'élusion : 1 pièce(s)') && synth.prompt.includes('« SASU ECRAN »') && synth.prompt.includes('[700/1/2026 - ALPHA] PV/D1_audition.txt'))
-const { readProduction } = await import(`${REPO}/scripts/attache/productions.mjs`)
-const prod = readProduction(keys, NUM_A, it.prodId)
-attendu('livrable rangé au dossier : synthèse + pièces retenues + couverture', prod?.type === 'livrable' && prod.contenu.includes('## Ce que les pièces établissent') && prod.contenu.includes('PIÈCES RETENUES (3)') && prod.contenu.includes('rappel estimé 100 %'), String(prod?.contenu || '').slice(0, 200))
-const { readFeed } = await import(`${REPO}/scripts/attache/journal.mjs`)
-const carte = readFeed(10).map((l) => { try { return decryptJson(keyGlobal, { iv: l.iv, ct: l.ct }) } catch { return null } }).find((c) => c?.type === 'livrable')
-attendu('carte « livrable » au fil, reliée à la production', carte && carte.prodId === it.prodId && carte.numero === NUM_A)
 const detail = I.detailInterrogation(keys, unDossier.id, { limite: 2 })
-attendu('interrogation_lire : synthèse, pièces paginées (les mieux notées d\'abord), avancement complet', detail.synthese && detail.piecesRetenues.length === 2 && detail.offsetSuivant === 2 && detail.avancement.lues === 3 && detail.avancement.restantes === 0, JSON.stringify(detail.avancement))
+attendu('interrogation_lire : synthèse, pièces paginées (les mieux notées d\'abord), avancement complet', detail.synthese?.includes('## Ce que les pièces établissent') && detail.piecesRetenues.length === 2 && detail.offsetSuivant === 2 && detail.avancement.lues === 3 && detail.avancement.restantes === 0, JSON.stringify(detail.avancement))
 attendu('plus rien à faire (l\'arrêtée ne tourne pas)', await I.interrogationsStep(keys) === null)
 attendu('modèles standard : Haiku pour les verdicts, Sonnet pour la synthèse (alias)', runs.filter((x) => x.json).every((x) => x.model === 'haiku') && runs.find((x) => !x.json).model === 'sonnet', JSON.stringify([...new Set(runs.map((x) => x.model))]))
 
