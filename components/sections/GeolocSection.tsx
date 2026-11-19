@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Enquete, GeolocData, DateManagerData, ProlongationHistoryEntry } from '@/types/interfaces';
 import ProgressBar from '../ProgressBar';
+import { CollapsibleDescription } from '../ui/CollapsibleDescription';
 import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp, Ban, Bell, BellOff } from 'lucide-react';
 import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
@@ -375,7 +376,7 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
                   )}
                 </div>
                 {geoloc.description && (
-                  <p className="text-sm text-gray-600 mt-1">{geoloc.description}</p>
+                  <CollapsibleDescription text={geoloc.description} className="text-gray-600" />
                 )}
               </div>
               <div className="flex gap-2">
@@ -566,7 +567,7 @@ export const GeolocSection = React.memo(({ enquete, onUpdate, isEditing }: Geolo
                     <div>
                       <span className="font-medium text-gray-600">{geoloc.objet}</span>
                       {geoloc.description && (
-                        <p className="text-sm text-gray-500 mt-1">{geoloc.description}</p>
+                        <CollapsibleDescription text={geoloc.description} className="text-gray-500" />
                       )}
                     </div>
                     <div className="flex gap-2">

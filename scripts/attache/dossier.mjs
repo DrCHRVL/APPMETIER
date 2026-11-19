@@ -1039,24 +1039,38 @@ async function mutate(keys, numero, fn) {
 }
 
 /** Enregistre un nouvel acte. kind : ecoute | geolocalisation | autre. */
-export async function enregistrerActe(keys, { numero, kind, dateDebut, duree, dureeUnit, cible, objet, type, description, statut }) {
+export async function enregistrerActe(keys, { numero, kind, dateDebut, duree, dureeUnit, cible, objet, type, description, statut, datePose }) {
   return mutate(keys, numero, (e) => {
     const id = Date.now()
     const unit = dureeUnit === 'mois' ? 'mois' : 'jours'
     const debut = dateDebut || new Date().toISOString().slice(0, 10)
-    let dateFin = ''
-    const d = Number(duree)
-    if (Number.isFinite(d) && d > 0 && debut) {
-      const end = new Date(debut + 'T00:00:00')
+    const finDepuis = (depart) => {
+      const d = Number(duree)
+      if (!Number.isFinite(d) || d <= 0 || !depart) return ''
+      const end = new Date(depart + 'T00:00:00')
       if (unit === 'mois') end.setMonth(end.getMonth() + d)
       else end.setDate(end.getDate() + d)
-      dateFin = end.toISOString().slice(0, 10)
+      return end.toISOString().slice(0, 10)
     }
+    let dateFin = finDepuis(debut)
     const base = {
       id, dateDebut: statut === 'autorisation_pending' ? '' : debut, dateFin,
       duree: String(duree ?? ''), dureeUnit: unit,
       statut: statut || 'en_cours',
       ...(statut === 'autorisation_pending' ? { autorisationRequestedAt: new Date().toISOString() } : {}),
+    }
+    // Écoute / géolocalisation autorisée : « en cours » seulement à la POSE
+    // (comme dans l'app). Sans date de pose → « pose en attente », date de
+    // fin calculée à la pose ; avec date de pose → en cours, fin depuis la pose.
+    if ((kind === 'ecoute' || kind === 'geolocalisation') && base.statut === 'en_cours') {
+      const pose = /^\d{4}-\d{2}-\d{2}$/.test(String(datePose || '')) ? String(datePose) : ''
+      if (pose) {
+        dateFin = finDepuis(pose)
+        Object.assign(base, { datePose: pose, dateFin })
+      } else {
+        dateFin = ''
+        Object.assign(base, { statut: 'pose_pending', dateFin })
+      }
     }
     if (kind === 'ecoute') {
       e.ecoutes = e.ecoutes || []
@@ -1093,7 +1107,7 @@ export async function enregistrerActe(keys, { numero, kind, dateDebut, duree, du
       }
       e.actes.push({ ...base, type: String(type || 'Acte'), description: String(description || '') })
     }
-    return { id, dateFin }
+    return { id, dateFin, statut: base.statut }
   })
 }
 

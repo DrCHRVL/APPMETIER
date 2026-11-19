@@ -373,12 +373,13 @@ const TOOLS = [
   },
   {
     name: 'enregistrer_acte',
-    description: 'Enregistre un nouvel acte au dossier (écriture réversible et versionnée). kind: ecoute | geolocalisation | autre. statut: en_cours | autorisation_pending (demande JLD en attente). duree + dureeUnit (jours|mois) calculent la date de fin.',
+    description: 'Enregistre un nouvel acte au dossier (écriture réversible et versionnée). kind: ecoute | geolocalisation | autre. statut: en_cours | autorisation_pending (demande JLD en attente). Écoute / géolocalisation autorisée : « en cours » seulement si datePose est connue (date de fin calculée depuis la pose) ; sinon elle naît « pose en attente » et la date de fin sera calculée à la pose (modifier_acte operation:pose). duree + dureeUnit (jours|mois) calculent la date de fin.',
     inputSchema: {
       type: 'object',
       properties: {
         numero: { type: 'string' }, kind: { type: 'string', enum: ['ecoute', 'geolocalisation', 'autre'] },
         dateDebut: { type: 'string', description: 'AAAA-MM-JJ (défaut : aujourd\'hui)' },
+        datePose: { type: 'string', description: 'AAAA-MM-JJ — date de pose effective (écoute/géolocalisation) ; à omettre si la pose n\'a pas eu lieu ou n\'est pas connue' },
         duree: { type: 'number' }, dureeUnit: { type: 'string', enum: ['jours', 'mois'] },
         cible: { type: 'string', description: 'Ligne/personne visée (écoute)' },
         objet: { type: 'string', description: 'Objet suivi (géolocalisation)' },
@@ -1371,6 +1372,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
       properties: {
         numero: { type: 'string' }, kind: { type: 'string', enum: ['ecoute', 'geolocalisation', 'autre'] },
         dateDebut: { type: 'string' }, duree: { type: 'number' }, dureeUnit: { type: 'string', enum: ['jours', 'mois'] },
+        datePose: { type: 'string', description: 'AAAA-MM-JJ — date de pose effective, seulement si elle est connue' },
         cible: { type: 'string' }, objet: { type: 'string' },
         type: { type: 'string', description: 'Catégorie de l\'AUTRE acte — mêmes CLÉS qu\'enregistrer_acte (art76, imsi_donnees, imsi_interceptions, captation_images_public, captation_images_prive, sonorisation_prive, drone_public, drone_prive, captation_donnees_informatiques, activation_fixe, activation_mobile, infiltration) pour pré-remplir la fiche légale ; libellé libre seulement si aucune catégorie ne convient.' },
         description: { type: 'string' },

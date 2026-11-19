@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Enquete, EcouteData, GeolocData, DateManagerData, ProlongationHistoryEntry } from '@/types/interfaces';
 import ProgressBar from '../ProgressBar';
+import { CollapsibleDescription } from '../ui/CollapsibleDescription';
 import { Edit, X, Clock, Hourglass, ArrowDown, Plus, FileText, ChevronDown, ChevronUp, Copy, Ban, Bell, BellOff } from 'lucide-react';
 import { ProlongationModal } from '../modals/ProlongationModal';
 import { PoseActeModal } from '../modals/PoseActeModal';
@@ -437,7 +438,7 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
                   )}
                 </div>
                 {ecoute.description && (
-                  <p className="text-sm text-gray-600 mt-1">{ecoute.description}</p>
+                  <CollapsibleDescription text={ecoute.description} className="text-gray-600" />
                 )}
               </div>
               <div className="flex gap-2">
@@ -646,7 +647,7 @@ export const EcouteSection = React.memo(({ enquete, onUpdate, isEditing }: Ecout
                       <span className="font-medium text-gray-600">{ecoute.numero}</span>
                       {ecoute.cible && <span className="text-sm text-gray-500 ml-2">({ecoute.cible})</span>}
                       {ecoute.description && (
-                        <p className="text-sm text-gray-500 mt-1">{ecoute.description}</p>
+                        <CollapsibleDescription text={ecoute.description} className="text-gray-500" />
                       )}
                     </div>
                     <div className="flex gap-2">
