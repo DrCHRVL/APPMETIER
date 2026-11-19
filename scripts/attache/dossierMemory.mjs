@@ -1,11 +1,10 @@
 /**
  * SIRAL — Attaché de justice · mémoire légère PAR DOSSIER.
  *
- * Un petit markdown (plafonné) qui retient l'essentiel des échanges du chat
- * flottant sur un dossier : ce que le magistrat a dit, décidé ou découvert.
- * Volontairement COURT — l'agent le relit au début de chaque conversation
- * (peu de tokens) et y ajoute une ligne télégraphique quand un échange
- * apporte du neuf. Chiffré (clé globale), versionné, par dossier.
+ * Un petit markdown (plafonné) qui retient l'essentiel de ce que le magistrat
+ * a dit, décidé ou découvert sur un dossier — tenu depuis Claude web par le
+ * connecteur (memoire_dossier_lire / memoire_dossier_noter). Volontairement
+ * COURT. Chiffré (clé globale), versionné, par dossier.
  */
 import { attacheDir, ensureDir, atomicWrite, readJson, docServerKey, withFileLock } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
@@ -14,7 +13,7 @@ import { numeroCanonique } from './dossier.mjs'
 const MAX_CHARS = 4000 // plafond dur : au-delà, on élague les plus anciennes lignes
 
 // Numéro CANONISÉ : la mémoire notée sous « 85103/843/2026 » doit être relue
-// par le chat ouvert sur « 85103/843/2026 - GRIVESNES 2 » (même dossier).
+// sous « 85103/843/2026 - GRIVESNES 2 » (même dossier).
 function memPath(keys, numero) {
   return attacheDir('dossier-memoire', docServerKey(numeroCanonique(keys, numero)) + '.json')
 }
@@ -44,11 +43,6 @@ async function write(keys, numero, content) {
     }
     atomicWrite(p, JSON.stringify(encryptJson(keys.global, { content: content.slice(0, MAX_CHARS) }, { savedAt: new Date().toISOString() })))
   })
-}
-
-export async function setDossierMemory(keys, numero, content) {
-  await write(keys, numero, String(content || ''))
-  return { ok: true }
 }
 
 /**

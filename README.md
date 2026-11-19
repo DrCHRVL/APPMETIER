@@ -42,15 +42,15 @@ Voir **[docs/RECOUPEMENTS.md](docs/RECOUPEMENTS.md)**.
 
 ### Attaché de justice (IA) — optionnel
 
-Assistant intégré, réservé à l'administrateur (invisible des autres
-utilisateurs, un seul TJ/contentieux). Un **attaché analyste** : il
-actualise les dossiers (description, mis en cause, NATINF, échéancier, CR),
-lit et recoupe les pièces, améliore la donnée (registre, cartographie,
-recoupements), traite la boîte mail dédiée et remet des analyses — écritures
-réversibles et journalisées, mémoire corrigeable avec apprentissage
-progressif. Il ne rédige pas les actes : la rédaction se fait dans Claude
-web, par le connecteur (ci-dessous), avec les trames, skills et base de
-connaissances tenus dans SIRAL. Propulsé par Claude Code via l'abonnement
+Service de fond, réservé à l'administrateur (invisible des autres
+utilisateurs, un seul TJ). Un **attaché analyste**, sans interface de
+conversation : il actualise les dossiers (CR au versement d'une pièce,
+description, mis en cause, NATINF), tient le registre des pièces, les
+recoupements et les rapports de dossier, enrichit la cartographie, et dépose
+des propositions ✓/✗ — écritures réversibles et journalisées, apprentissage
+progressif. Il ne rédige pas les actes : rédaction et interrogation se font
+dans Claude web, par le connecteur (ci-dessous), avec les trames, skills et
+base de connaissances tenus dans SIRAL. Propulsé par Claude Code via l'abonnement
 Claude (pas d'API).
 Voir **[docs/ATTACHE.md](docs/ATTACHE.md)**.
 
@@ -58,10 +58,10 @@ Voir **[docs/ATTACHE.md](docs/ATTACHE.md)**.
 
 Piloter SIRAL **depuis claude.ai** (connecteur MCP personnalisé) : Claude
 web obtient les outils de l'attaché — lecture des dossiers et des pièces,
-**fichier global** d'un dossier (toutes ses pièces en un seul texte),
+`dossier_global` (toutes les pièces d'un dossier en un seul texte),
 trames, skills et base de connaissances du magistrat, statistiques,
 écritures réversibles et auditées — et **c'est là que les actes se
-rédigent**, puis se rangent dans SIRAL. OAuth réservé à l'administrateur
+rédigent et que SIRAL s'interroge** ; l'acte reste dans la conversation. OAuth réservé à l'administrateur
 (session administrateur + consentement), désactivé par défaut, révocable en un
 clic.
 Voir **[docs/CONNECTEUR-CLAUDE-WEB.md](docs/CONNECTEUR-CLAUDE-WEB.md)**.

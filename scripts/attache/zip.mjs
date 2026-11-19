@@ -1,8 +1,7 @@
 /**
  * SIRAL — archive ZIP à entrées STOCKÉES (sans compression), en pur Node.
  *
- * Source unique partagée par le constructeur de `.skill` (scripts/build-skill.mjs)
- * et le « dossier de rédaction » du service attaché (redaction.mjs). Lisible
+ * Source unique partagée par le constructeur de `.skill` (scripts/build-skill.mjs). Lisible
  * par tout outil zip standard et par l'import de skills de SIRAL.
  */
 

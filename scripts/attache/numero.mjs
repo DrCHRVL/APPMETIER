@@ -10,7 +10,7 @@
  * lire_dossier répondait « introuvable ».
  *
  * Ici : la règle de rapprochement UNIQUE du service, partagée par
- * dossier.mjs (findEnquete) et productions.mjs (répertoires variants).
+ * dossier.mjs (findEnquete).
  * Miroir web : utils/numeroDossier.ts — garder les deux alignés.
  */
 

@@ -30,7 +30,6 @@ import { texteDocumentIntegral } from './dossier.mjs'
 import { allInstructionDossiers } from './instru.mjs'
 import { buildCorpus, docTextKey, enqueteKey, instructionKey } from '../../lib/recoupements/corpusCore.mjs'
 import { detecterPiecesMalClassees } from './classement.mjs'
-import { publishFeed } from './journal.mjs'
 import { LIBELLE_KIND, LIBELLE_ORIGINE, detecterRecoupements } from '../../lib/recoupements/moteurCore.mjs'
 
 /** Coffre de sortie — clé globale, lisible de tous les utilisateurs. */
@@ -188,28 +187,8 @@ export async function passeRecoupements(keys, { progression = () => {}, extracti
 
   const savedAt = resultat.calculeAt
   const envelope = encryptJson(keys.global, resultat, { savedAt, savedBy: author(keys) })
-  const avant = dernieresSuspectes(keys)
   await writeVault(attacheTj(), COFFRE, envelope, author(keys))
-  // Une pièce nouvellement soupçonnée : le magistrat le sait au fil.
-  const nouvelles = piecesSuspectes.filter((x) => !avant.has(`${x.dossier}|${x.piece}`))
-  if (nouvelles.length) {
-    await publishFeed(keys, {
-      type: 'note',
-      titre: `${nouvelles.length} pièce(s) peut-être mal classée(s)`,
-      resume: nouvelles.slice(0, 10).map((x) => `${x.piece} — versée dans ${x.dossier}, semble appartenir à ${x.dossierProbable} (${x.certitude})`).join('\n')
-        + (nouvelles.length > 10 ? `\n… et ${nouvelles.length - 10} autre(s) — vue d'ensemble des recoupements.` : ''),
-    }).catch(() => {})
-  }
   return resultat
-}
-
-/** Pièces soupçonnées au passage précédent (`dossier|piece`), pour ne signaler que le neuf. */
-function dernieresSuspectes(keys) {
-  const envelope = readVault(attacheTj(), COFFRE)
-  if (!envelope) return new Set()
-  try {
-    return new Set((decryptJson(keys.global, envelope).piecesSuspectes || []).map((x) => `${x.dossier}|${x.piece}`))
-  } catch { return new Set() }
 }
 
 /**

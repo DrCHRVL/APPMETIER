@@ -8,7 +8,7 @@
  * DELETE : retrait réversible (?id=…, version archivée avant suppression).
  * POST : déclenche l'analyse IA des entrées téléversées (description +
  *        classement via kb_decrire) — relayée au service attaché, exécutée en
- *        arrière-plan, résultat dans le fil « pendant votre absence ».
+ *        arrière-plan ; les descriptions apparaissent dans la liste.
  * Le service attaché lit les mêmes fichiers : l'entrée vaut dès le run suivant.
  */
 import { handle, jsonResponse } from '@/lib/server/auth'

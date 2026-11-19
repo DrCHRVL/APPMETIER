@@ -1,8 +1,8 @@
 /**
  * Interrupteur « fonctionnalités IA » du tribunal ACTIF — administrateur seul.
  *
- * Coché, tout ce qui relève de l'attaché disparaît de l'application (menu,
- * page, raccourci, actes rédigés, chat de dossier, boutons attaché de la
+ * Coché, tout ce qui relève de l'attaché disparaît de l'application (boutons
+ * d'actualisation, bandeau et propositions des fiches, boutons attaché de la
  * cartographie) ; seul l'onglet « Attaché IA » des paramètres demeure, sans
  * quoi l'interrupteur ne pourrait plus être rouvert.
  *

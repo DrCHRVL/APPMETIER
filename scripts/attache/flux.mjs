@@ -39,7 +39,7 @@ import { rafraichirFichierGlobal } from './global.mjs'
 import { ingestPass, readIngestState } from './ingest.mjs'
 import { analyseDocuments } from './analyse.mjs'
 import { addProposition, listPropositions } from './propositions.mjs'
-import { audit, publishFeed } from './journal.mjs'
+import { audit } from './journal.mjs'
 import { runAgent, agentConfig } from './agent.mjs'
 import { economicalModel } from './subagents.mjs'
 import { prompt as promptConsigne } from './consignes.mjs'
@@ -409,19 +409,13 @@ async function analyserActes(keys, e, docKey, rels) {
   }
   const incoherences = Array.isArray(out.incoherences) ? out.incoherences : []
   const chaineLegale = Array.isArray(out.chaineLegale) ? out.chaineLegale : []
-  if (incoherences.length || chaineLegale.length) {
-    const lignes = [
-      ...incoherences.map((i) => `• ${i.severite === 'error' ? '⚠' : '–'} ${i.type} — ${i.fileName} : ${i.detail}`),
-      ...chaineLegale.map((c) => `• ${c.severite === 'error' ? '⚠' : '–'} chaîne légale (${c.acteType} n°${c.acteIndex}) : ${c.documentManquant} manquant parmi les pièces versées`),
-    ]
-    await publishFeed(keys, {
-      type: 'alerte',
-      titre: `Pièces versées — contrôles de cohérence (${e.numero})`,
-      resume: lignes.slice(0, 12).join('\n'),
-      numero: e.numero,
-    })
-  }
-  return { docs: docs.length, proposes, ignores, prolongations, incoherences, chaineLegale, crSuggere: out.crSuggere || null }
+  // Contrôles de cohérence des pièces versées : affichés dans le bandeau du
+  // dossier (FluxBandeau) jusqu'au passage suivant.
+  const alertes = [
+    ...incoherences.map((i) => `${i.severite === 'error' ? '⚠' : '–'} ${i.type} — ${i.fileName} : ${i.detail}`),
+    ...chaineLegale.map((c) => `${c.severite === 'error' ? '⚠' : '–'} chaîne légale (${c.acteType} n°${c.acteIndex}) : ${c.documentManquant} manquant parmi les pièces versées`),
+  ].slice(0, 12)
+  return { docs: docs.length, proposes, ignores, prolongations, incoherences, chaineLegale, alertes, crSuggere: out.crSuggere || null }
 }
 
 function promptFlux(keys, e, { fiches, crs, actes, candidats, actesAnalyse }) {
@@ -568,7 +562,6 @@ export async function traiterDossier(keys, numero, { onHold = async () => false 
       if (reg.pieces[rel]) reg.pieces[rel].flux = { le: new Date().toISOString(), massif: true }
     }
     writeRegistre(keys, docKey, reg)
-    await publishFeed(keys, { type: 'note', titre: `Versement massif — ${num}`, resume: message, numero: num })
     await audit(keys, 'flux_massif', { numero: num, pieces: nouvelles })
     return fin({ massif: true, enAttente: 0, pieces: nouvelles, message })
   }
@@ -584,6 +577,7 @@ export async function traiterDossier(keys, numero, { onHold = async () => false 
   let actesAnalyse = { docs: 0, proposes: 0, ignores: 0, prolongations: [], incoherences: [], chaineLegale: [], crSuggere: null }
   try { actesAnalyse = await analyserActes(keys, e, docKey, pretes) } catch (err) { actesAnalyse.erreur = String(err?.message || err) }
   bilan.actesProposes = actesAnalyse.proposes
+  if (actesAnalyse.alertes?.length) bilan.alertes = actesAnalyse.alertes
 
   // 5. Le run : fiches jointes, candidats pré-calculés.
   const fiches = pretes.map((rel) => {

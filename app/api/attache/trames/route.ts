@@ -8,7 +8,7 @@
  * DELETE : retrait réversible (?id=…).
  * POST : déclenche l'analyse IA des trames téléversées (classement +
  *        propositions d'amélioration) — relayée au service attaché, exécutée
- *        en arrière-plan, résultat dans le fil « pendant votre absence ».
+ *        en arrière-plan ; les descriptions apparaissent dans la liste.
  */
 import { handle, jsonResponse } from '@/lib/server/auth'
 import { requireAttacheAdmin, attacheFetch, listCollectionEnvelopes, writeCollectionEnvelope, deleteCollectionEnvelope, AttacheEnvelope } from '@/lib/server/attache'

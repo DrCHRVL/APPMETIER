@@ -47,8 +47,7 @@ générales — jamais l'anecdote)
 
 ## Livraison
 Un acte rédigé se livre dans la conversation (texte complet prêt à signer, ou
-Word sur demande) — jamais rangé dans SIRAL, aucun acte à y valider. SIRAL ne
-reçoit que les synthèses et analyses (remettre_livrable).
+Word sur demande) — jamais rangé dans SIRAL, aucun acte à y valider.
 `
 
 export function readInstructionsProjet(keys) {

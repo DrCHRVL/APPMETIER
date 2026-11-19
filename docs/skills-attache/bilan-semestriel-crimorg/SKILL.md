@@ -153,16 +153,11 @@ Règles d'écriture :
   se réservent aux encadrés et aux tableaux de chiffres ;
 - chiffres exacts, conversions parlantes (mois → années ; cumuls) ;
   évolutions en valeur ET en pourcentage quand les deux éclairent ;
-- insérer chaque graphique par un MARQUEUR seul sur sa ligne, à l'endroit
-  exact où il illustre le propos :
-  `[GRAPHIQUE : nom_du_graphique | du=AAAA-MM-JJ | au=AAAA-MM-JJ]`
-  (mêmes noms que `stats_graphique` ; TOUJOURS préciser la période pour figer
-  le document). Aux exports PDF, Word et PowerPoint, SIRAL remplace
-  automatiquement chaque marqueur par l'image — celle regardée à l'étape 2,
-  mêmes couleurs. Pour un chiffre ventilé par l'analyse elle-même (décompte
-  hors catalogue), utiliser le marqueur libre
-  `[DIAGRAMME : colonnes | titre=… | Étiquette: valeur ; …]`. Le texte
-  doit néanmoins décrire la dynamique : le document reste lisible sans les
+- placer chaque graphique à l'endroit exact où il illustre le propos —
+  l'image rendue par `stats_graphique` (mêmes noms, période TOUJOURS
+  précisée pour figer le document), mêmes couleurs que la page
+  Statistiques ; dans un fichier Word, l'insérer comme image. Le texte doit
+  néanmoins décrire la dynamique : le document reste lisible sans les
   images ;
 - aucune mention de l'assistant (règle de dissimulation absolue).
 
@@ -187,18 +182,13 @@ Relire intégralement en vérifiant, ligne à ligne :
 
 ## Étape 7 — Remise
 
-- `remettre_livrable` avec le sujet
-  « Bilan d'activité — criminalité organisée — [période] », sans `numero`
-  (sauf consigne contraire). Le magistrat le retrouve dans le fil « pendant
-  votre absence » et dans « Actes rédigés — hors dossier », le retouche,
-  l'exporte en PDF/Word et le valide.
+- Livrer le bilan **dans la conversation** (ou en fichier Word si le
+  magistrat le demande), titré « Bilan d'activité — criminalité organisée —
+  [période] ». Rien n'est rangé dans SIRAL.
 - Récapituler en réponse : la période, les totaux clés, les graphiques
-  insérés (leurs marqueurs seront remplacés par les images à l'export
-  PDF/Word), les affaires retenues en encadré, et ce qui manquerait
+  insérés, les affaires retenues en encadré, et ce qui manquerait
   (données incomplètes signalées à l'étape 1).
 - Proposer les déclinaisons utiles sans les imposer : version courte (une
   page) pour diffusion large, article pour la dépêche du parquet, et
-  **version diaporama** — une seconde production `type: "presentation"`
-  (syntaxe : `#` page de garde, `##` une diapositive par section du bilan,
-  puces courtes, mêmes marqueurs de graphiques) que le magistrat exporte
-  d'un clic en PowerPoint pour la présenter en réunion.
+  **version diaporama** (une diapositive par section du bilan, puces
+  courtes, mêmes graphiques) pour la présenter en réunion.

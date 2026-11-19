@@ -20,8 +20,7 @@
  *
  * Tout reste sous le contrôle du magistrat : les signaux sont chiffrés
  * (clé globale), la mémoire consolidée demeure lisible, corrigeable et
- * effaçable depuis le panneau, et chaque consolidation laisse une carte
- * « Apprentissage » dans le fil « pendant votre absence ».
+ * effaçable, et chaque consolidation est journalisée (audit).
  */
 import { appendEncryptedLine, readEncryptedLines, readState } from './store.mjs'
 import { encryptJson, decryptJson } from './crypto.mjs'
@@ -41,33 +40,6 @@ export const SIGNAL_TYPES = [
   'garde_qualite',            // une porte de qualité a rejeté une production (inachevé, squelettique…)
   'correction_conversation',  // le magistrat a repris l'attaché en chat (repérage heuristique)
 ]
-
-/**
- * Un message du magistrat ressemble-t-il à une CORRECTION de l'attaché ?
- * Repérage heuristique, volontairement ÉTROIT (mieux vaut manquer une
- * correction — la consolidation a d'autres signaux — que polluer le journal
- * de faux positifs qui coûteraient des relectures de conversations).
- * Aucun appel au modèle : appelé à chaque sauvegarde de conversation.
- */
-const CORRECTION_RE = [
-  /^non\b/i,                                        // « Non, ce n'est pas… »
-  /\brefais(?:-le|-la|-les)?\b/i,
-  /\brecommence\b/i,
-  /\bpas comme ça\b/i,
-  /\bce n'est pas ce que je\b/i,
-  /\bje t'(?:ai|avais) (?:déjà )?(?:dit|demandé|expliqué)\b/i,
-  /\bje te l'(?:ai|avais) déjà (?:dit|demandé)\b/i,
-  /\btu n'as pas (?:suivi|respecté|appliqué|repris|lu)\b/i,
-  /\btu (?:as|avais) oublié\b/i,
-  /\bencore (?:une fois|cette erreur)\b/i,
-  /^corrige\b/i,
-]
-
-export function detecterCorrection(message) {
-  const m = String(message || '').trim()
-  if (!m || m.length > 4000) return false // un long collage n'est pas une reprise
-  return CORRECTION_RE.some((re) => re.test(m))
-}
 
 // Cadence et seuils de consolidation — ajustables sans toucher au code.
 const bounded = (v, min, max, dflt) => {
@@ -277,20 +249,12 @@ export function consolidationPrompt({ budget, trigger }) {
     'Elle doit rester un document DISTILLÉ — des règles qui changent tes réponses — jamais un journal.',
     '',
     'MÉTHODE, dans cet ordre :',
-    '1. apprentissage_bilan — les signaux depuis la dernière consolidation : corrections du magistrat',
-    '   (propositions refusées ✗, actes retouchés après ta rédaction, actes corrigés à la main, actes REFUSÉS',
-    '   avec motif), validations ✓, leçons notées — et ta PROGRESSION mesurée (taux d\'acceptation, retouches,',
-    '   actes refusés, portes de qualité, 30 j vs',
-    '   30 j précédents) : si un indicateur RÉGRESSE, cherche la cause dans les signaux et traite-la en priorité.',
-    '   Pour un signal acte_edite_main (le magistrat a corrigé un acte À LA MAIN), appelle production_diff avec',
-    '   son numero, son id et le versionAt porté par le signal : tu vois EXACTEMENT ce qu\'il a retiré (−) et',
-    '   ajouté (+) à ton jet — la matière la plus directe qui soit. Distingue la correction de FOND (motivation',
-    '   à étoffer, visa manquant, structure, formule attendue, qualification) de la simple coquille : ne mémorise',
-    '   que ce qui changera tes PROCHAINS actes. Pour un signal correction_conversation, LIS la conversation citée',
-    '   (conversation_lire, id dans source) : la reprise du magistrat y est en clair — matière tout aussi précieuse.',
-    '   Pour un signal acte_refuse (le magistrat a REFUSÉ un acte), le motif du refus est en clair dans le detail :',
-    '   c\'est le rejet le plus net qui soit — comprends la cause et distille-la en règle pour ne pas la reproduire.',
-    '   Si un autre signal manque de contexte, tu PEUX consulter le dossier cité — mais reste bref.',
+    '1. apprentissage_bilan — les signaux depuis la dernière consolidation : propositions refusées ✗ (avec',
+    '   leur motif) et validées ✓, leçons notées (memoire_noter — y compris depuis Claude web, quand le magistrat',
+    '   y reprend une rédaction) — et ta PROGRESSION mesurée (taux d\'acceptation, 30 j vs 30 j précédents) : si',
+    '   un indicateur RÉGRESSE, cherche la cause dans les signaux et traite-la en priorité. Les signaux plus',
+    '   anciens (actes corrigés ou refusés, corrections en conversation) gardent leur detail en clair : exploite-le.',
+    '   Si un signal manque de contexte, tu PEUX consulter le dossier cité — mais reste bref.',
     '2. RELIS ta mémoire actuelle (en fin de ton prompt système) et DISTILLE l\'ensemble mémoire + signaux :',
     '   - transforme les épisodes en RÈGLES GÉNÉRALES actionnables (ex. trois propositions de CR refusées sur des',
     '     pièces déjà exploitées → « Ne proposer un CR que s\'il apporte des éléments nouveaux non déjà consignés ») ;',
@@ -306,34 +270,30 @@ export function consolidationPrompt({ budget, trigger }) {
     '   imposée aussi dans le code : les skills « auto-* » et les trames « modele-* » sont les TIENNES — tu les',
     '   écris directement (versionnées) ; TOUTE méthode du magistrat s\'améliore par PROPOSITION ✓/✗, jamais',
     '   d\'office. Concrètement :',
-    '   - CIBLE d\'abord ce qui corrèle avec les corrections : les signaux d\'actes retouchés portent la trame',
-    '     suivie (champ source « trame … ») — une trame/skill dont l\'usage produit des retouches répétées est',
-    '     TA priorité. Si c\'est une modele-*/auto-* → corrige-la directement (trame_enregistrer /',
+    '   - CIBLE d\'abord ce qui corrèle avec les corrections : une trame/skill visée par des leçons ou des refus',
+    '     répétés est TA priorité. Si c\'est une modele-*/auto-* → corrige-la directement (trame_enregistrer /',
     '     skill_enregistrer, même nom). Si c\'est une méthode du magistrat → proposer_trame / proposer_skill',
     '     (texte INTÉGRAL révisé + résumé d\'une phrase + motif citant les signaux) — il applique d\'un ✓.',
     '   - processus multi-étapes RÉCURRENT qu\'aucune skill ne couvre → rédige la skill « auto-<nom> »',
     '     (description soignée : c\'est elle qui la déclenchera) avec skill_enregistrer ;',
-    '   - INSTRUCTIONS DU PROJET CLAUDE WEB — là où la rédaction se fait : les actes de « Actes rédigés » sont',
-    '     rédigés par Claude web dans le projet du magistrat. Dès qu\'un signal acte_edite_main (production_diff :',
-    '     ce qu\'il a retiré/ajouté) ou acte_refuse (motif en clair) révèle une RÈGLE DE RÉDACTION générale —',
-    '     registre, plan, visa attendu, motivation à étoffer, formule consacrée, piège récurrent —, lis',
-    '     instructions_projet_lire puis dépose proposer_instructions_projet : le texte COMPLET révisé (insère la',
-    '     règle dans la bonne section, conserve le reste), un résumé d\'une phrase, le motif citant les actes.',
+    '   - INSTRUCTIONS DU PROJET CLAUDE WEB — là où la rédaction se fait. Dès qu\'une leçon notée révèle une',
+    '     RÈGLE DE RÉDACTION générale — registre, plan, visa attendu, motivation à étoffer, formule consacrée,',
+    '     piège récurrent —, lis instructions_projet_lire puis dépose proposer_instructions_projet : le texte',
+    '     COMPLET révisé (insère la règle dans la bonne section, conserve le reste), un résumé d\'une phrase, le',
+    '     motif citant les leçons.',
     '     C\'est la leçon qui change ses PROCHAINS actes ; une trame ne suffit pas si le défaut est de méthode.',
     '     Jamais l\'anecdote d\'un dossier, jamais un nom ; une seule proposition en attente à la fois.',
     '   - HYGIÈNE DU CATALOGUE : la liste des skills se paie dans CHAQUE prompt (plafond de skills auto-*',
     '     imposé). Si deux auto-* se recouvrent, FUSIONNE-les (skill_enregistrer l\'une enrichie,',
     '     skill_supprimer l\'autre) ; supprime une auto-* devenue inutile.',
-    '5. Termine par signaler (type note, titre « Apprentissage — consolidation ») : en 2-5 phrases, ce que tu',
-    '   as retenu de NEUF, ce que tu feras différemment, et CHAQUE évolution de méthode — écrite (auto-*/modele-*)',
-    '   ou proposée (proposer_trame / proposer_skill / proposer_instructions_projet en attente de ✓) : le magistrat doit pouvoir',
-    '   vérifier — et annuler — chacune.',
+    '5. Toute évolution de méthode est versionnée (auto-*/modele-*) ou soumise au ✓ du magistrat',
+    '   (proposer_trame / proposer_skill / proposer_instructions_projet) : il peut vérifier — et annuler — chacune.',
     '',
     'CAS PARTICULIERS : si les signaux n\'apportent RIEN de neuf et que la mémoire est déjà sous le budget et',
-    'bien structurée, ne réécris rien — signale simplement (même titre) qu\'il n\'y avait rien à retenir.',
+    'bien structurée, ne réécris rien.',
     'Si la mémoire dépasse le budget, la réécriture distillée est OBLIGATOIRE. Outils d\'écriture AUTORISÉS dans',
     'ce run : memoire_reecrire, skill_enregistrer (auto-*), skill_supprimer (auto-*), trame_enregistrer',
-    '(modele-*), proposer_trame, proposer_skill, proposer_instructions_projet, signaler — rien d\'autre : ce run',
+    '(modele-*), proposer_trame, proposer_skill, proposer_instructions_projet — rien d\'autre : ce run',
     'consolide les méthodes, il ne traite pas les dossiers.',
   ].join('\n')
 }
