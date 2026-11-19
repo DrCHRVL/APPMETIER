@@ -13,6 +13,7 @@ import {
   AlertTriangle, CheckCircle2, ShieldCheck, Loader2, Layers, Files, ScanLine,
 } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
+import { useConvertisseurStore } from '@/stores/useConvertisseurStore';
 import { copyPlainToClipboard } from '@/utils/richTextExport';
 import {
   collecterPdfs, convertirPdf, construireGlobal, grouper, lireDataTransfer, niveauAuto, niveauMax, nomGlobal,
@@ -41,8 +42,10 @@ const duree = (s: number) => (s < 60 ? 'moins d’une minute'
 
 interface EtatOcr { total: number; faites: number; debut: number; fichier: string }
 
-export const ConvertisseurPage: React.FC = () => {
+/** `visible` : faux quand la page reste montée, cachée, le temps d'un OCR (voir useConvertisseurStore). */
+export const ConvertisseurPage: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   const { showToast } = useToast();
+  const setRetenu = useConvertisseurStore(s => s.setRetenu);
   const [etape, setEtape] = useState<Etape>('vide');
   const [survol, setSurvol] = useState(false);
   const [depots, setDepots] = useState<Depot[]>([]);
@@ -59,6 +62,15 @@ export const ConvertisseurPage: React.FC = () => {
   const [ocr, setOcr] = useState<EtatOcr | null>(null);
   const annuleOcr = useRef(false);
   // sondé à l'ouverture et à chaque fin de conversion (le service a pu démarrer entre-temps)
+  // Page gardée montée tant que l'OCR tourne, puis jusqu'au retour du magistrat.
+  useEffect(() => { if (visible && !ocr) setRetenu(false); }, [visible, ocr, setRetenu]);
+  // Fermer ou recharger l'onglet, lui, perdrait l'OCR : on prévient.
+  useEffect(() => {
+    if (!ocr) return;
+    const prevenir = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', prevenir);
+    return () => window.removeEventListener('beforeunload', prevenir);
+  }, [ocr]);
   const finie = etape === 'termine';
   useEffect(() => { etatOcr().then(setServiceOcr); }, [finie]);
   const inputFichiers = useRef<HTMLInputElement>(null);
@@ -140,6 +152,7 @@ export const ConvertisseurPage: React.FC = () => {
 
   async function lancerOcr() {
     annuleOcr.current = false;
+    setRetenu(true);
     const sourceDe = new Map(sources.map(s => [s.chemin, s]));
     const etat: EtatOcr = { total: pagesAOcriser, faites: 0, debut: Date.now(), fichier: '' };
     setOcr({ ...etat });
@@ -159,7 +172,7 @@ export const ConvertisseurPage: React.FC = () => {
       }
     }
     setOcr(null);
-    if (!annuleOcr.current) showToast(echecs ? `OCR terminé · ${pluriel(echecs, 'PDF')} en échec` : 'OCR terminé', echecs ? 'error' : 'success');
+    if (!annuleOcr.current) showToast(`OCR terminé${echecs ? ` · ${pluriel(echecs, 'PDF')} en échec` : ''} — résultats dans « PDF → texte »`, echecs ? 'error' : 'success');
   }
 
   const alertes = resultats.filter(r => r.erreur || r.avertissement).sort((a, b) => Number(!!b.erreur) - Number(!!a.erreur));
