@@ -648,7 +648,11 @@ export class DataSyncManager {
   private extractDateFromServerBackupFilename(filename: string): Date | null {
     const match = filename.match(/(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})/);
     if (!match) return null;
-    const date = new Date(`${match[1]}T${match[2]}:${match[3]}:${match[4]}`);
+    // Le nom de fichier est horodaté en UTC (toISOString → suffixe « Z »). On
+    // conserve le « Z » pour reconstruire l'instant exact : sans lui, la chaîne
+    // serait interprétée en heure locale et décalerait le jour calendaire près
+    // de minuit (la rotation protègerait/supprimerait alors le mauvais backup).
+    const date = new Date(`${match[1]}T${match[2]}:${match[3]}:${match[4]}Z`);
     return isNaN(date.getTime()) ? null : date;
   }
 
