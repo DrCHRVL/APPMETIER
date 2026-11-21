@@ -36,6 +36,12 @@ export function b64urlToBytes(s: string): Uint8Array {
 }
 
 export async function deriveKey(passphrase: string, saltB64url: string, iterations: number): Promise<CryptoKey> {
+  // WebCrypto n'est exposé qu'en contexte sécurisé (HTTPS/localhost). En accès
+  // HTTP simple (LAN/IP), `crypto.subtle` est absent : on le signale clairement
+  // plutôt que de laisser remonter un « Cannot read properties of undefined ».
+  if (!globalThis.crypto?.subtle) {
+    throw new Error('Chiffrement indisponible : contexte non sécurisé (HTTPS requis).')
+  }
   const enc = new TextEncoder()
   const material = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey'])
   return crypto.subtle.deriveKey(

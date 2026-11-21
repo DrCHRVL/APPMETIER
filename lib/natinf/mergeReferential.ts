@@ -83,9 +83,16 @@ function parseDelimited(text: string, delimiter: string): string[][] {
 
 function readCsv(text: string): string[][] {
   text = text.replace(/^﻿/, '');
-  const nl = text.indexOf('\n');
-  const firstLine = nl < 0 ? text : text.slice(0, nl);
-  const delimiter = firstLine.split(';').length > firstLine.split(',').length ? ';' : ',';
+  // Détection du séparateur sur un échantillon de lignes plutôt que sur la
+  // seule première : un libellé d'en-tête contenant le mauvais séparateur (une
+  // virgule dans un intitulé, p. ex.) suffirait sinon à décaler tout le parse.
+  const sample = text.split('\n', 20);
+  let semi = 0, comma = 0;
+  for (const line of sample) {
+    semi += line.split(';').length - 1;
+    comma += line.split(',').length - 1;
+  }
+  const delimiter = semi > comma ? ';' : ',';
   return parseDelimited(text, delimiter);
 }
 
