@@ -4,20 +4,22 @@
 // ZIP (même imbriqués), SIRAL rend un .txt par PDF et des fichiers globaux
 // (un seul, ou un par dossier au niveau choisi). Tout est traité dans le
 // navigateur : aucun fichier ne quitte le poste — sauf, à la demande,
-// l'OCR des pages images (« Océriser »), fait sur le serveur.
+// l'OCR des pages images (« Océriser »), fait sur le serveur. L'OCR devient une
+// tâche du gestionnaire (useOcrJobsStore), suivie dans la colonne de gauche :
+// la page se libère aussitôt pour un nouveau dépôt.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import PizZip from 'pizzip';
 import {
   FileText, FolderOpen, UploadCloud, Download, Copy, RotateCcw, X, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle2, ShieldCheck, Loader2, Layers, Files, ScanLine,
 } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
-import { useConvertisseurStore } from '@/stores/useConvertisseurStore';
+import { useOcrJobsStore } from '@/stores/useOcrJobsStore';
+import { ColonneOcr, duree } from '@/components/convertisseur/ColonneOcr';
 import { copyPlainToClipboard } from '@/utils/richTextExport';
 import {
-  collecterPdfs, convertirPdf, construireGlobal, grouper, lireDataTransfer, niveauAuto, niveauMax, nomGlobal,
-  etatOcr, ocriser, pagesImages, SECONDES_PAR_PAGE, type EtatServiceOcr,
+  collecterPdfs, convertirPdf, construireLivrables, grouper, lireDataTransfer, niveauAuto, niveauMax, paquetLivrables,
+  pagesImages,
   type Depot, type ModeGlobal, type ResultatPdf, type SourcePdf,
 } from '@/lib/web/convertisseurPdf';
 
@@ -36,16 +38,9 @@ function telecharger(blob: Blob, nom: string) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 const blobTexte = (t: string) => new Blob([t], { type: 'text/plain;charset=utf-8' });
-const duree = (s: number) => (s < 60 ? 'moins d’une minute'
-  : s < 3600 ? `environ ${Math.ceil(s / 60)} min`
-  : `environ ${Math.floor(s / 3600)} h ${String(Math.round((s % 3600) / 60)).padStart(2, '0')}`);
 
-interface EtatOcr { total: number; faites: number; debut: number; fichier: string }
-
-/** `visible` : faux quand la page reste montée, cachée, le temps d'un OCR (voir useConvertisseurStore). */
-export const ConvertisseurPage: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
+export const ConvertisseurPage: React.FC = () => {
   const { showToast } = useToast();
-  const setRetenu = useConvertisseurStore(s => s.setRetenu);
   const [etape, setEtape] = useState<Etape>('vide');
   const [survol, setSurvol] = useState(false);
   const [depots, setDepots] = useState<Depot[]>([]);
@@ -57,22 +52,14 @@ export const ConvertisseurPage: React.FC<{ visible?: boolean }> = ({ visible = t
   const [decalage, setDecalage] = useState(0);
   const [individuels, setIndividuels] = useState(true);
   const annule = useRef(false);
-  const [serviceOcr, setServiceOcr] = useState<EtatServiceOcr | null>(null);
+  const taches = useOcrJobsStore(s => s.taches);
+  const service = useOcrJobsStore(s => s.service);
+  const sParPage = useOcrJobsStore(s => s.secondesParPage);
+  const serviceOcr = service?.etat ?? null;
   const ocrDispo = serviceOcr === 'pret';
-  const [ocr, setOcr] = useState<EtatOcr | null>(null);
-  const annuleOcr = useRef(false);
   // sondé à l'ouverture et à chaque fin de conversion (le service a pu démarrer entre-temps)
-  // Page gardée montée tant que l'OCR tourne, puis jusqu'au retour du magistrat.
-  useEffect(() => { if (visible && !ocr) setRetenu(false); }, [visible, ocr, setRetenu]);
-  // Fermer ou recharger l'onglet, lui, perdrait l'OCR : on prévient.
-  useEffect(() => {
-    if (!ocr) return;
-    const prevenir = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
-    window.addEventListener('beforeunload', prevenir);
-    return () => window.removeEventListener('beforeunload', prevenir);
-  }, [ocr]);
   const finie = etape === 'termine';
-  useEffect(() => { etatOcr().then(setServiceOcr); }, [finie]);
+  useEffect(() => { useOcrJobsStore.getState().sonder(); }, [finie]);
   const inputFichiers = useRef<HTMLInputElement>(null);
   const inputDossier = useRef<HTMLInputElement>(null);
 
@@ -101,7 +88,7 @@ export const ConvertisseurPage: React.FC<{ visible?: boolean }> = ({ visible = t
     ajouter(Array.from(liste || []).map(file => ({ chemin: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name, file })));
 
   function vider() {
-    annule.current = true; annuleOcr.current = true; setOcr(null);
+    annule.current = true;
     setDepots([]); setSources([]); setIgnores([]); setResultats([]); setEnCours([]); setEtape('vide');
   }
 
@@ -127,21 +114,10 @@ export const ConvertisseurPage: React.FC<{ visible?: boolean }> = ({ visible = t
   }
 
   // ── Livrables (recalculés si l'on change d'option après coup, sans reconvertir) ──
-  const livrables = useMemo(() => {
-    if (etape !== 'termine') return null;
-    const parChemin = new Map(resultats.map(r => [r.chemin, r]));
-    const noms = new Map<string, number>();
-    const globaux = Array.from(groupes.entries()).map(([cle, liste]) => {
-      let nom = nomGlobal(cle);
-      const n = (noms.get(nom) || 0) + 1; noms.set(nom, n);
-      if (n > 1) nom = nom.replace(/\.txt$/, ` (${n}).txt`);
-      return { cle, nom, contenu: construireGlobal(cle, liste.map(c => parChemin.get(c)!).filter(Boolean)), nb: liste.length };
-    });
-    const fichiers = individuels
-      ? resultats.filter(r => !r.erreur).map(r => ({ nom: r.chemin.replace(/\.pdf$/i, '.txt'), contenu: r.texte }))
-      : [];
-    return { globaux, fichiers, total: globaux.length + fichiers.length };
-  }, [etape, resultats, groupes, individuels]);
+  const livrables = useMemo(
+    () => (etape === 'termine' ? construireLivrables(resultats, mode, niveau, individuels) : null),
+    [etape, resultats, mode, niveau, individuels],
+  );
 
   // ── OCR des pages images (serveur), à la demande ──
   const aOcriser = useMemo(() => resultats
@@ -150,46 +126,21 @@ export const ConvertisseurPage: React.FC<{ visible?: boolean }> = ({ visible = t
     .filter(x => x.pages > 0), [resultats]);
   const pagesAOcriser = aOcriser.reduce((n, x) => n + x.pages, 0);
 
-  async function lancerOcr() {
-    annuleOcr.current = false;
-    setRetenu(true);
-    const sourceDe = new Map(sources.map(s => [s.chemin, s]));
-    const etat: EtatOcr = { total: pagesAOcriser, faites: 0, debut: Date.now(), fichier: '' };
-    setOcr({ ...etat });
-    let echecs = 0;
-    for (const { r } of aOcriser) {
-      if (annuleOcr.current) break;
-      const src = sourceDe.get(r.chemin);
-      if (!src) continue;
-      etat.fichier = r.chemin; setOcr({ ...etat });
-      try {
-        const lu = await ocriser(src, r, n => { etat.faites += n; setOcr({ ...etat }); }, () => annuleOcr.current);
-        if (annuleOcr.current) break;
-        setResultats(rs => rs.map(x => (x.chemin === r.chemin ? lu : x)));
-      } catch (e) {
-        echecs++;
-        if (echecs === 1) showToast(`OCR : ${e instanceof Error ? e.message : e}`, 'error');
-      }
-    }
-    setOcr(null);
-    if (!annuleOcr.current) showToast(`OCR terminé${echecs ? ` · ${pluriel(echecs, 'PDF')} en échec` : ''} — résultats dans « PDF → texte »`, echecs ? 'error' : 'success');
+  function lancerOcr() {
+    const racines = Array.from(new Set(chemins.map(c => c.split('/')[0])));
+    const nom = racines.length === 1 && chemins[0]?.includes('/') ? racines[0] : `${pluriel(sources.length, 'PDF')} · ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+    useOcrJobsStore.getState().lancer({ nom, resultats, sources, config: { mode, niveau, individuels } });
+    vider();
+    showToast('OCR lancé : suivi et téléchargement dans la colonne « Tâches OCR »', 'success');
   }
 
   const alertes = resultats.filter(r => r.erreur || r.avertissement).sort((a, b) => Number(!!b.erreur) - Number(!!a.erreur));
   const reussis = resultats.filter(r => !r.erreur).length;
 
-  function toutTelecharger() {
+  async function toutTelecharger() {
     if (!livrables) return;
-    const seul = [...livrables.globaux.map(g => ({ nom: g.nom, contenu: g.contenu })), ...livrables.fichiers];
-    if (seul.length === 1) { telecharger(blobTexte(seul[0].contenu), seul[0].nom.split('/').pop()!); return; }
-    const zip = new PizZip();
-    livrables.globaux.forEach(g => zip.file(g.nom, g.contenu));
-    livrables.fichiers.forEach(f => zip.file(f.nom, f.contenu));
-    const racines = Array.from(new Set(chemins.map(c => c.split('/')[0])));
-    const nom = racines.length === 1 && chemins[0].includes('/')
-      ? `${racines[0]} - texte.zip`
-      : `Conversion texte ${new Date().toLocaleDateString('fr-FR').replace(/\//g, '-')}.zip`;
-    telecharger(zip.generate({ type: 'blob', compression: 'DEFLATE' }) as Blob, nom);
+    const { blob, nom } = await paquetLivrables(livrables, chemins);
+    telecharger(blob, nom);
   }
 
   const occupe = etape === 'lecture' || etape === 'conversion';
@@ -197,7 +148,9 @@ export const ConvertisseurPage: React.FC<{ visible?: boolean }> = ({ visible = t
 
   // ── Rendu ──
   return (
-    <div className="max-w-4xl mx-auto space-y-5 pb-10">
+    <div className={`mx-auto pb-10 ${taches.length ? 'max-w-6xl flex flex-col lg:flex-row gap-6 items-start' : 'max-w-4xl'}`}>
+    {taches.length > 0 && <ColonneOcr />}
+    <div className="flex-1 min-w-0 w-full space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Convertisseur PDF → texte</h1>
@@ -208,7 +161,7 @@ export const ConvertisseurPage: React.FC<{ visible?: boolean }> = ({ visible = t
               : 'Traitement sur ce poste : aucun fichier n’est envoyé au serveur.'}
           </p>
         </div>
-        {etape !== 'vide' && !occupe && !ocr && (
+        {etape !== 'vide' && !occupe && (
           <button onClick={vider} className="text-xs text-gray-500 hover:text-gray-900 inline-flex items-center gap-1">
             <RotateCcw className="h-3.5 w-3.5" />Tout recommencer
           </button>
@@ -376,7 +329,7 @@ export const ConvertisseurPage: React.FC<{ visible?: boolean }> = ({ visible = t
                 {' · '}{taille(livrables.globaux.reduce((n, g) => n + g.contenu.length, 0) + livrables.fichiers.reduce((n, f) => n + f.contenu.length, 0))}
               </p>
             </div>
-            <button onClick={toutTelecharger} disabled={!livrables.total || !!ocr}
+            <button onClick={toutTelecharger} disabled={!livrables.total}
               className="inline-flex items-center gap-2 rounded-xl px-5 py-3 text-white font-semibold shadow-sm hover:shadow-md active:scale-[0.99] transition-all disabled:opacity-40"
               style={{ background: VERT }}>
               <Download className="h-4 w-4" />
@@ -384,7 +337,7 @@ export const ConvertisseurPage: React.FC<{ visible?: boolean }> = ({ visible = t
             </button>
           </div>
 
-          {!ocr && serviceOcr && serviceOcr !== 'pret' && aOcriser.length > 0 && (
+          {serviceOcr && serviceOcr !== 'pret' && aOcriser.length > 0 && (
             <div className="border-t px-6 py-3 flex flex-wrap items-center gap-3 text-xs text-gray-500">
               <ScanLine className="h-4 w-4 text-gray-400 shrink-0" />
               <span className="flex-1 min-w-[12rem]">
@@ -393,46 +346,24 @@ export const ConvertisseurPage: React.FC<{ visible?: boolean }> = ({ visible = t
                   ? 'service OCR non configuré sur ce serveur (SIRAL_OCR_URL).'
                   : 'le service OCR ne répond pas (arrêté, en construction ou en panne).'}
               </span>
-              <button onClick={() => etatOcr().then(setServiceOcr)} className="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900 underline">
+              <button onClick={() => useOcrJobsStore.getState().sonder()} className="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900 underline">
                 <RotateCcw className="h-3 w-3" />Réessayer
               </button>
             </div>
           )}
 
-          {ocrDispo && (ocr || aOcriser.length > 0) && (
-            <div className="border-t px-6 py-4 bg-[#2B5746]/[0.03]">
-              {ocr ? (() => {
-                const ecoule = (Date.now() - ocr.debut) / 1000;
-                const reste = ocr.faites ? (ecoule / ocr.faites) * (ocr.total - ocr.faites) : ocr.total * SECONDES_PAR_PAGE;
-                return (
-                  <div className="space-y-2">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5"><Loader2 className="h-4 w-4 animate-spin" style={{ color: VERT }} />Océrisation en cours…</p>
-                      <p className="text-xs tabular-nums text-gray-500">{ocr.faites} / {pluriel(ocr.total, 'page')} · reste {duree(reste)}</p>
-                    </div>
-                    <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-                      <div className="h-full rounded-full transition-all duration-300" style={{ width: `${Math.round((ocr.faites / Math.max(1, ocr.total)) * 100)}%`, background: VERT }} />
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-[11px] text-gray-500 truncate" title={ocr.fichier}>{ocr.fichier}</p>
-                      <button onClick={() => { annuleOcr.current = true; }} className="text-xs text-gray-500 hover:text-red-600 inline-flex items-center gap-1 shrink-0"><X className="h-3.5 w-3.5" />Arrêter</button>
-                    </div>
-                  </div>
-                );
-              })() : (
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="rounded-lg p-2 bg-[#2B5746]/10 shrink-0" style={{ color: VERT }}><ScanLine className="h-5 w-5" /></div>
-                  <div className="flex-1 min-w-[12rem]">
-                    <p className="text-sm font-semibold text-gray-900">{pluriel(pagesAOcriser, 'page')} en image à océriser</p>
-                    <p className="text-xs text-gray-500">dans {pluriel(aOcriser.length, 'PDF')} · {duree(pagesAOcriser * SECONDES_PAR_PAGE)}</p>
-                  </div>
-                  <button onClick={lancerOcr}
-                    className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold border-2 hover:bg-white transition-all"
-                    style={{ borderColor: VERT, color: VERT }}>
-                    <ScanLine className="h-4 w-4" />Océriser
-                  </button>
-                </div>
-              )}
+          {ocrDispo && aOcriser.length > 0 && (
+            <div className="border-t px-6 py-4 bg-[#2B5746]/[0.03] flex flex-wrap items-center gap-3">
+              <div className="rounded-lg p-2 bg-[#2B5746]/10 shrink-0" style={{ color: VERT }}><ScanLine className="h-5 w-5" /></div>
+              <div className="flex-1 min-w-[12rem]">
+                <p className="text-sm font-semibold text-gray-900">{pluriel(pagesAOcriser, 'page')} en image à océriser</p>
+                <p className="text-xs text-gray-500">dans {pluriel(aOcriser.length, 'PDF')} · {duree(pagesAOcriser * sParPage)} · suivi dans la colonne « Tâches OCR »</p>
+              </div>
+              <button onClick={lancerOcr}
+                className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold border-2 hover:bg-white transition-all"
+                style={{ borderColor: VERT, color: VERT }}>
+                <ScanLine className="h-4 w-4" />Océriser
+              </button>
             </div>
           )}
 
@@ -455,6 +386,7 @@ export const ConvertisseurPage: React.FC<{ visible?: boolean }> = ({ visible = t
           )}
         </div>
       )}
+    </div>
     </div>
   );
 };

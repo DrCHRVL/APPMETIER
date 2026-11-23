@@ -33,7 +33,9 @@ Choix mesuré (taux d'erreur caractères, CPU 4 cœurs, sans carte graphique) :
 | Page à 90° / 180° | échec sans prétraitement | 0 % (orientation détectée) |
 
 Chaîne : rastérisation 300 dpi (pdfium) → orientation 0/90/180/270
-(PP-LCNet) → détection des lignes → reconnaissance → **ordre de lecture**
+(PP-LCNet) → détection des lignes (sur une image réduite à 2000 px de côté :
+3,8 s → 1,3 s par page sur 2 cœurs, CER 0 → 0,15 % sur un PV propre ; réglable
+par `SIRAL_OCR_DETECTION_PX`) → reconnaissance en pleine résolution → **ordre de lecture**
 reconstitué dans le repère redressé (une page scannée de travers ne mélange
 pas ses lignes ; un grand blanc horizontal devient une tabulation).
 
@@ -63,7 +65,19 @@ Réponse :
 Les boîtes sont en pixels de la page rastérisée **après** redressement
 d'orientation (`largeur` × `hauteur`) : de quoi produire plus tard un PDF
 cherchable ou surligner un passage dans une pièce. `GET /api/ocr` : 200 si le
-service répond, 404 s'il n'est pas configuré (`SIRAL_OCR_URL` vide).
+service répond, avec sa charge (`occupe`, `en_attente`) ; 404 s'il n'est pas
+configuré (`SIRAL_OCR_URL` vide) ; 503 s'il ne répond pas.
+
+## Convertisseur : tâches OCR
+
+« Océriser » crée une **tâche** dans le gestionnaire `stores/useOcrJobsStore.ts`,
+qui vit pour toute la session SIRAL (changer de module ne l'interrompt pas) ;
+la page se libère aussitôt pour un nouveau dépôt. Colonne « Tâches OCR » :
+avancement, temps restant (file comprise, d'après la vitesse mesurée), détail
+PDF par PDF, ZIP de ce qui est déjà lu, arrêt (les pages lues sont gardées) puis
+retrait. Les tâches passent une à une ; dans une tâche, deux PDF avancent de
+front pour que le service n'attende jamais un envoi. Fermer ou recharger
+l'onglet perdrait les tâches : le navigateur demande confirmation.
 
 ## Déploiement
 
