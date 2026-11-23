@@ -1391,7 +1391,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'proposer_cr',
-    description: 'Propose un compte-rendu rédigé comme le magistrat le noterait lui-même, en PRISE DE NOTES RAPIDE (nouveaux éléments : véhicule, adresse, ligne, demande d\'actes…) — quelques lignes, langage simple et humain, l\'essentiel seulement. PAS de sections à titres (« APPORTS », « ACTES RÉDIGÉS », « À FAIRE »…), PAS de références d\'articles ni de régimes juridiques, PAS de détail technique des actes rédigés (une mention suffit : « requête sono + autorisation géoloc faites »). Texte brut : pas de markdown hormis **gras** très ponctuel et des tirets « - » en début de ligne. Créé au dossier seulement au ✓ de l\'administrateur, SIGNÉ DE SON NOM (jamais de trace de l\'assistant).',
+    description: 'Propose un compte-rendu rédigé comme le magistrat le noterait lui-même, en PRISE DE NOTES RAPIDE (nouveaux éléments : véhicule, adresse, ligne, demande d\'actes…) — quelques lignes, langage simple et humain, l\'essentiel seulement. PAS de sections à titres (« APPORTS », « ACTES RÉDIGÉS », « À FAIRE »…), PAS de références d\'articles ni de régimes juridiques, PAS de détail technique des actes rédigés (une mention suffit : « requête sono + autorisation géoloc faites »). Mise en forme possible, avec parcimonie : **gras** (noms, point clé), ==surligné== (ce qui presse), __souligné__, tirets « - » en début de ligne ; rien d\'autre (pas de #). Créé au dossier seulement au ✓ de l\'administrateur, SIGNÉ DE SON NOM (jamais de trace de l\'assistant).',
     inputSchema: {
       type: 'object',
       properties: {

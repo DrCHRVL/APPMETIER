@@ -1169,10 +1169,13 @@ export async function classerNote(keys, { numero, titre, contenu, date, enqueteu
     e.comptesRendus = e.comptesRendus || []
     const id = Date.now()
     // Le CR est stocké en HTML : le rendu markdown léger de l'app (formatCR)
-    // ne s'applique plus, on convertit donc ici **gras** et les puces « - ».
+    // ne s'applique plus, on convertit donc ici **gras**, ==surligné==,
+    // __souligné__ et les puces « - » (mêmes marques que formatCR).
     const html = (titre ? `<b>${escapeHtml(titre)}</b><br>` : '') +
       escapeHtml(String(contenu || ''))
         .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+        .replace(/==(.+?)==/g, '<mark style="background:#fef08a;padding:1px 2px">$1</mark>')
+        .replace(/__(.+?)__/g, '<u>$1</u>')
         .replace(/^- /gm, '• ')
         .replace(/\n/g, '<br>')
     e.comptesRendus.push({

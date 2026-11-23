@@ -32,7 +32,7 @@ export const STYLE_DESCRIPTION = [
   '- MIS EN CAUSE : une ligne vide entre chaque personne. « NOM Prénom (alias) — rôle », puis 1 à 3 lignes sur ce qui est retenu contre elle.',
   '- Phrases simples et naturelles, pas de suites de mots collés par des « ; », des « → » ou des parenthèses en cascade.',
   '- PAS de n° de PV ou de procédure, VIN, IMEI, références de pièces, articles de loi, ni détail des requêtes et ordonnances. Une plaque ou une ligne seulement si elle est centrale.',
-  '- Pas de markdown.',
+  '- Mise en forme (seules marques comprises par la fiche) : titres « **SYNTHÈSE** » et « **MIS EN CAUSE** » en gras, chaque « **NOM Prénom** » en gras, ==surligné== pour UN OU DEUX points qui pressent (échéance, risque), __souligné__ rarement. Rien d\'autre (pas de #, pas de listes numérotées).',
   '- L\'essentiel seulement : si l\'existant est trop long ou trop chargé, le RÉDUIRE. Le détail reste dans les CR et les pièces.',
 ].join('\n')
 
