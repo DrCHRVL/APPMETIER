@@ -28,6 +28,7 @@ import {
   ajouterNatinfs, creerDossier, ajouterMec, modifierMec, modifierActe, modifierDossier, archiverDossier,
 } from './attache/dossier.mjs'
 import { chercherDansPieces } from './attache/recherche.mjs'
+import { STYLE_DESCRIPTION } from './attache/consignes.mjs'
 import { creerInterrogation, arreterInterrogation, sommaireInterrogations, detailInterrogation } from './attache/interrogation.mjs'
 import { detailRapport } from './attache/rapport.mjs'
 import { detecterPiecesMalClassees } from './attache/classement.mjs'
@@ -807,7 +808,8 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
     description: 'Réécrit la description (« l\'objet ») du dossier, tenue à jour au fil des CR et des actes/documents téléversés. FORMAT IMPOSÉ, en TEXTE BRUT (jamais d\'HTML ni de <br>), en DEUX PARTIES, chacune introduite par son titre en MAJUSCULES sur sa propre ligne :\n'
       + 'SYNTHÈSE — vision GLOBALE des faits à l\'instant T, qui S\'ENRICHIT et se REFORMULE à chaque actualisation (on repart de l\'existant, on ne le jette pas) : qualification, mode opératoire, LIEUX et PÉRIODE, état des mesures en cours et échéances qui pressent.\n'
       + 'MIS EN CAUSE — un par un, les mis en cause ENREGISTRÉS du dossier (ceux saisis à la main, section « Mis en cause » de lire_dossier — n\'en invente aucun), chacun suivi des ÉLÉMENTS À CHARGE relevés contre lui (ce que les CR, actes et pièces établissent : rôle, faits, liens, saisies).\n'
-      + 'STYLE « PRISE DE NOTES » : rédigé à ~80 %, mots inutiles et verbes de liaison retirés, phrases nominales courtes — mais compréhensible d\'un collègue qui découvre le dossier. Pas d\'autres rubriques que ces deux parties, pas de jargon obscur. L\'ancienne description est ARCHIVÉE (jamais perdue).',
+      + STYLE_DESCRIPTION + '\n'
+      + 'Pas d\'autres rubriques que ces deux parties. L\'ancienne description est ARCHIVÉE (jamais perdue).',
     inputSchema: { type: 'object', properties: { numero: { type: 'string' }, description: { type: 'string' } }, required: ['numero', 'description'] },
     handler: async (a) => actualiserDescription(keys, a),
     write: true,
@@ -1389,13 +1391,13 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'proposer_cr',
-    description: 'Propose un compte-rendu rédigé en PRISE DE NOTES (nouveaux éléments : véhicule, adresse, ligne, demande d\'actes…) — court, télégraphique, efficace. Créé au dossier seulement au ✓ de l\'administrateur, SIGNÉ DE SON NOM (jamais de trace de l\'assistant).',
+    description: 'Propose un compte-rendu rédigé comme le magistrat le noterait lui-même, en PRISE DE NOTES RAPIDE (nouveaux éléments : véhicule, adresse, ligne, demande d\'actes…) — quelques lignes, langage simple et humain, l\'essentiel seulement. PAS de sections à titres (« APPORTS », « ACTES RÉDIGÉS », « À FAIRE »…), PAS de références d\'articles ni de régimes juridiques, PAS de détail technique des actes rédigés (une mention suffit : « requête sono + autorisation géoloc faites »). Mise en forme possible, avec parcimonie : **gras** (noms, point clé), ==surligné== (ce qui presse), __souligné__, tirets « - » en début de ligne ; rien d\'autre (pas de #). Créé au dossier seulement au ✓ de l\'administrateur, SIGNÉ DE SON NOM (jamais de trace de l\'assistant).',
     inputSchema: {
       type: 'object',
       properties: {
         numero: { type: 'string' },
         titre: { type: 'string' },
-        contenu: { type: 'string', description: 'Prise de notes : « Nouveau VL : Clio GC-560-NP (MELLAH). Demande géoloc formulée par GIR. À suivre : retour opérateur. »' },
+        contenu: { type: 'string', description: 'Prise de notes rapide, ex. : « PV reçu du BC Zimbourg : Golf GX-335-NN identifiée (louée par OMARI Chaima, conducteur inconnu), vue avec la Clio des tirs. En fourrière au garage DUMEIGE depuis le 20/11 (refus d\'obtempérer). Demande sono + géoloc → actes faits, à signer et passer au JLD vite (risque de restitution). »' },
         date: { type: 'string', description: 'AAAA-MM-JJ (défaut : aujourd\'hui)' },
         source: { type: 'string' },
       },

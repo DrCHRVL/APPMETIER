@@ -24,6 +24,18 @@ import { decryptJson } from './crypto.mjs'
 
 const FILE = 'consignes.json'
 
+// Style de la description (« l'objet ») d'un dossier — commun au connecteur,
+// à l'attaché et à l'actualisation : une fiche lisible, pas un pavé télégraphique.
+export const STYLE_DESCRIPTION = [
+  'STYLE — une fiche qu\'un magistrat lit en 30 secondes, écrite comme il la tiendrait lui-même :',
+  '- SYNTHÈSE : 5 à 10 lignes au total, en 2 ou 3 paragraphes courts séparés par une ligne vide (les faits et l\'organisation ; où en est l\'enquête et ce qui presse).',
+  '- MIS EN CAUSE : une ligne vide entre chaque personne. « NOM Prénom (alias) — rôle », puis 1 à 3 lignes sur ce qui est retenu contre elle.',
+  '- Phrases simples et naturelles, pas de suites de mots collés par des « ; », des « → » ou des parenthèses en cascade.',
+  '- PAS de n° de PV ou de procédure, VIN, IMEI, références de pièces, articles de loi, ni détail des requêtes et ordonnances. Une plaque ou une ligne seulement si elle est centrale.',
+  '- Mise en forme (seules marques comprises par la fiche) : titres « **SYNTHÈSE** » et « **MIS EN CAUSE** » en gras, chaque « **NOM Prénom** » en gras, ==surligné== pour UN OU DEUX points qui pressent (échéance, risque), __souligné__ rarement. Rien d\'autre (pas de #, pas de listes numérotées).',
+  '- L\'essentiel seulement : si l\'existant est trop long ou trop chargé, le RÉDUIRE. Le détail reste dans les CR et les pièces.',
+].join('\n')
+
 // ── Les socles : le texte d'instruction de chaque tâche ──────────────────
 // Variables admises : {{dossier}}, {{pochette}}, {{lot}} — substituées au
 // moment du run (elles restent valables dans un texte de remplacement).
@@ -45,10 +57,9 @@ export const SOCLES = {
     '   et on le fait PROGRESSER (s\'il est vide, on rédige tout). FORMAT IMPOSÉ, texte brut, DEUX PARTIES titrées EN MAJUSCULES :',
     '     SYNTHÈSE — vision globale des faits : qualification, mode opératoire, LIEUX, période, organisation apparente,',
     '       mesures et actes en cours, échéances. Chaque fait important daté ; rien d\'inventé.',
-    '     MIS EN CAUSE — un par un les mis en cause ENREGISTRÉS, chacun suivi des ÉLÉMENTS À CHARGE relevés (avec la pièce ou',
-    '       le CR qui les fonde, en bref). C\'est ICI que se dit le détail sur chaque personne.',
-    '   STYLE PRISE DE NOTES : rédigé à ~80 %, phrases nominales courtes, mots inutiles et verbes de liaison retirés, mais clair',
-    '   pour un collègue qui découvre le dossier. Dense, factuel, sans remplissage.',
+    '     MIS EN CAUSE — un par un les mis en cause ENREGISTRÉS, chacun suivi des ÉLÉMENTS À CHARGE relevés.',
+    '       C\'est ICI que se dit ce qui compte sur chaque personne.',
+    ...STYLE_DESCRIPTION.split('\n').map((l) => '   ' + l),
     '2. RÔLES DES MIS EN CAUSE ENREGISTRÉS — si le rôle d\'un mis en cause est vide, faux ou dépassé au vu du dossier :',
     '   modifier_mec (numero, nom, role). Rôle COURT : 2 à 6 mots (« gérant du point de deal », « fournisseur résine »,',
     '   « guetteur », « tête de réseau »). Jamais de phrase longue : le détail va dans la description. Ne touche pas un rôle juste.',
@@ -82,10 +93,10 @@ export const SOCLES = {
     '   la pièce. Une chronologie, une synthèse ou un rapport qui identifie, précise ou ajoute des faits est du NEUF.',
     '   Dans le doute, rédige le CR. Si RIEN de tout cela : pas de CR, passe au 2. Sinon : classer_note UN compte',
     '   rendu COMPLET, daté du jour, titre',
-    '   « Réception de pièces — <objet en cinq mots> », en prose dense de magistrat (phrases complètes, pas de',
-    '   télégraphique), structuré en cinq rubriques : PIÈCES REÇUES (chemins) · FAITS NOUVEAUX (chaque fait coté par',
-    '   sa pièce) · PERSONNES (rôle de chacune) · QUALIFICATIONS (infractions nouvelles ou confirmées, NATINF) ·',
-    '   SUITES UTILES (actes à envisager, échéances). Un seul CR par passage, jamais un redit de ce que le dossier sait déjà.',
+    '   « Réception de pièces — <objet en cinq mots> », en PRISE DE NOTES RAPIDE, comme le magistrat la noterait :',
+    '   quelques lignes simples, sans rubriques à titres ni markdown — ce qui est arrivé (pièce en bref), ce que ça',
+    '   apprend (faits, personnes et leur rôle), ce qu\'il faut faire et quand. Pas de n° de PV, VIN, articles de loi ni',
+    '   détail technique des actes. Un seul CR par passage, jamais un redit de ce que le dossier sait déjà.',
     '2. QUALIFICATIONS — une infraction nouvelle caractérisée par les pièces et absente des NATINF enregistrés :',
     '   natinf_chercher puis ajouter_natinfs (source = la pièce).',
     '3. MIS EN CAUSE — pour chaque CANDIDAT joint (et toute autre personne MISE EN CAUSE que tu relèves dans le neuf)',
@@ -95,8 +106,10 @@ export const SOCLES = {
     '   magistrats, avocats, et les simples alias d\'un mis en cause déjà enregistré. Un candidat signalé « nom voisin »',
     '   se propose quand même : le magistrat tranche.',
     '4. DESCRIPTION — si le neuf change la vision globale ou apporte des éléments à charge sur un mis en cause enregistré :',
-    '   actualiser_description, au FORMAT IMPOSÉ (SYNTHÈSE / MIS EN CAUSE, prise de notes, on repart de l\'existant et on',
-    '   le fait progresser). Sinon ne la touche pas.',
+    '   actualiser_description, au FORMAT IMPOSÉ (SYNTHÈSE / MIS EN CAUSE, on repart de l\'existant et on le fait progresser',
+    '   sans l\'allonger inutilement), avec ce style :',
+    ...STYLE_DESCRIPTION.split('\n').map((l) => '   ' + l),
+    '   Sinon ne la touche pas.',
     '5. PROLONGATIONS d\'actes détectées par l\'analyse (jointes) : acter_prolongation sur l\'acte correspondant SEULEMENT',
     '   si la cible est sans ambiguïté (même ligne, même objet) ; sinon laisse l\'échéancier tel quel et dis-le dans le CR.',
     'Les actes NOUVEAUX détectés dans les pièces ont déjà été PROPOSÉS par le moteur d\'analyse : ne les repropose pas.',
