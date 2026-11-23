@@ -1389,13 +1389,13 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'proposer_cr',
-    description: 'Propose un compte-rendu rédigé en PRISE DE NOTES (nouveaux éléments : véhicule, adresse, ligne, demande d\'actes…) — court, télégraphique, efficace. Créé au dossier seulement au ✓ de l\'administrateur, SIGNÉ DE SON NOM (jamais de trace de l\'assistant).',
+    description: 'Propose un compte-rendu rédigé comme le magistrat le noterait lui-même, en PRISE DE NOTES RAPIDE (nouveaux éléments : véhicule, adresse, ligne, demande d\'actes…) — quelques lignes, langage simple et humain, l\'essentiel seulement. PAS de sections à titres (« APPORTS », « ACTES RÉDIGÉS », « À FAIRE »…), PAS de références d\'articles ni de régimes juridiques, PAS de détail technique des actes rédigés (une mention suffit : « requête sono + autorisation géoloc faites »). Texte brut : pas de markdown hormis **gras** très ponctuel et des tirets « - » en début de ligne. Créé au dossier seulement au ✓ de l\'administrateur, SIGNÉ DE SON NOM (jamais de trace de l\'assistant).',
     inputSchema: {
       type: 'object',
       properties: {
         numero: { type: 'string' },
         titre: { type: 'string' },
-        contenu: { type: 'string', description: 'Prise de notes : « Nouveau VL : Clio GC-560-NP (MELLAH). Demande géoloc formulée par GIR. À suivre : retour opérateur. »' },
+        contenu: { type: 'string', description: 'Prise de notes rapide, ex. : « PV reçu du BC Zimbourg : Golf GX-335-NN identifiée (louée par OMARI Chaima, conducteur inconnu), vue avec la Clio des tirs. En fourrière au garage DUMEIGE depuis le 20/11 (refus d\'obtempérer). Demande sono + géoloc → actes faits, à signer et passer au JLD vite (risque de restitution). »' },
         date: { type: 'string', description: 'AAAA-MM-JJ (défaut : aujourd\'hui)' },
         source: { type: 'string' },
       },

@@ -1168,14 +1168,21 @@ export async function classerNote(keys, { numero, titre, contenu, date, enqueteu
   return mutate(keys, numero, (e) => {
     e.comptesRendus = e.comptesRendus || []
     const id = Date.now()
+    // Le CR est stocké en HTML : le rendu markdown léger de l'app (formatCR)
+    // ne s'applique plus, on convertit donc ici **gras** et les puces « - ».
     const html = (titre ? `<b>${escapeHtml(titre)}</b><br>` : '') +
-      escapeHtml(String(contenu || '')).replace(/\n/g, '<br>')
+      escapeHtml(String(contenu || ''))
+        .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+        .replace(/^- /gm, '• ')
+        .replace(/\n/g, '<br>')
     e.comptesRendus.push({
       id,
       date: (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) ? date : new Date().toISOString().slice(0, 10),
       enqueteur: author,
       description: html,
-      createdBy: author,
+      // createdBy = identifiant de l'administrateur (comme un CR saisi par lui
+      // dans l'app), pas la signature : sinon l'app le croit d'un collègue (bleu).
+      createdBy: authorOf(keys),
       // Même attribution qu'un CR saisi dans l'app (useEnquetesStore.ajoutCR) :
       // en co-saisine, le contentieux d'origine du CR reste identifiable.
       contentieuxSource: attacheContentieux(),
