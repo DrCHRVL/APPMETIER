@@ -69,7 +69,7 @@ export async function saveKbEntry(keys, { titre, categorie, chemin, description,
     categorie: normalize(categorie).replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'autre',
     chemin: cleanChemin(chemin),
     description: String(description || '').slice(0, 300),
-    contenu: String(contenu).slice(0, 400_000),
+    contenu: String(contenu),
     source: source ? String(source).slice(0, 200) : undefined,
     updatedAt: new Date().toISOString(),
     ...(existing?.reflexe ? { reflexe: true } : {}),
@@ -165,6 +165,33 @@ export function readKbEntry(keys, id) {
   try { return decryptJson(keys.global, env) } catch { return null }
 }
 
+// Page de lecture d'une entrée : sous le plafond de sortie du CLI (220 000)
+// et du connecteur (400 000). Les indications de suite viennent AVANT le
+// contenu : une réponse coupée en route les porte quand même.
+export const KB_PAGE_MAX = 150_000
+
+/** Lecture paginée d'une entrée (kb_lire) — rien n'est tronqué en silence. */
+export function readKbEntryPage(keys, id, { offset, limite } = {}) {
+  const e = readKbEntry(keys, id)
+  if (!e) return null
+  const { contenu, ...meta } = e
+  const s = String(contenu || '')
+  const start = Math.min(Math.max(0, Number(offset) || 0), s.length)
+  const lim = Math.max(1_000, Math.min(KB_PAGE_MAX, Number(limite) || KB_PAGE_MAX))
+  const page = s.slice(start, start + lim)
+  const reste = s.length - start - page.length
+  return {
+    ...meta,
+    longueurTotale: s.length,
+    ...(start ? { offset: start } : {}),
+    ...(reste > 0 ? {
+      offsetSuivant: start + page.length,
+      note: `Entrée longue : ${reste} caractère(s) restants — relis avec offset:${start + page.length} pour la suite`,
+    } : {}),
+    contenu: page,
+  }
+}
+
 /**
  * Recherche plein-texte (insensible à la casse et aux accents) : chaque mot
  * de la requête est cherché dans titre, description et contenu. Retourne les
@@ -203,7 +230,7 @@ export function searchKb(keys, { requete, categorie, limite = 8 }) {
     const extrait = firstIdx >= 0
       ? String(e.contenu).slice(Math.max(0, firstIdx - 120), firstIdx + 240).replace(/\s+/g, ' ').trim()
       : String(e.contenu).slice(0, 200).replace(/\s+/g, ' ').trim()
-    scored.push({ id: e.id, titre: e.titre, categorie: e.categorie, description: e.description, score, extrait: '…' + extrait + '…' })
+    scored.push({ id: e.id, titre: e.titre, categorie: e.categorie, description: e.description, score, extrait: '…' + extrait + '…', ...(firstIdx >= 0 ? { offset: Math.max(0, firstIdx - 2_000) } : {}) })
   }
   return scored.sort((a, b) => b.score - a.score).slice(0, Math.min(20, limite))
 }

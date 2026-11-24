@@ -135,7 +135,7 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
       };
       try {
         if (SKIP_RE.test(file.name)) throw new Error('pas de texte à extraire (image/média/archive)');
-        const { markdown, avertissement } = await fileToMarkdown(file);
+        const { markdown, avertissement } = await fileToMarkdown(file, { maxChars: Infinity });
         if (!markdown.trim()) rows.push({ ...base, erreur: avertissement || 'aucun texte extractible' });
         else rows.push({ ...base, contenu: markdown, avertissement });
       } catch (e) {
@@ -211,7 +211,7 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
         categorie: slug(s.categorie).slice(0, 40) || 'autre',
         chemin: cheminMd || undefined,
         description: '',
-        contenu: s.contenu.slice(0, 400_000),
+        contenu: s.contenu,
         source: s.fichier,
         updatedAt: new Date().toISOString(),
       };
@@ -260,7 +260,7 @@ export function AttacheKbSection({ granted, onNotice }: { granted: boolean; onNo
         categorie: slug(form.categorie).slice(0, 40) || 'autre',
         chemin: chemin || undefined,
         description: form.description.trim().slice(0, 300),
-        contenu: form.contenu.slice(0, 400_000),
+        contenu: form.contenu,
         updatedAt: new Date().toISOString(),
         ...(form.reflexe ? { reflexe: true } : {}),
       };

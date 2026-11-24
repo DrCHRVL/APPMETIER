@@ -37,7 +37,7 @@ import { searchNatinf } from './attache/natinf.mjs'
 import { saveArchitecture, loadArchitecture, buildChronologie } from './attache/cotes.mjs'
 import { saveTrame, listTrames, readTrame, setTrameDescription, safeTrameName, MODELE_PREFIX } from './attache/trames.mjs'
 import { saveSkill, listSkills, readSkill, deleteSkill, safeSkillName, AUTO_SKILL_PREFIX, AUTO_SKILLS_MAX, countAutoSkills } from './attache/skills.mjs'
-import { saveKbEntry, setKbMeta, setKbReflexe, listKb, readKbEntry, searchKb, KB_CATEGORIES, MAX_REFLEXE } from './attache/kb.mjs'
+import { saveKbEntry, setKbMeta, setKbReflexe, listKb, readKbEntryPage, searchKb, KB_CATEGORIES, MAX_REFLEXE } from './attache/kb.mjs'
 import { runSubagents } from './attache/subagents.mjs'
 import { listInstructionDossiers, instructionDossierMarkdown } from './attache/instru.mjs'
 import { modifierDossierInstruction, elementInstruction, misEnExamenInstruction, COLLECTIONS_INSTRUCTION } from './attache/instruEcriture.mjs'
@@ -1233,7 +1233,7 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'kb_chercher',
-    description: 'Recherche plein-texte dans la base de connaissances (insensible casse/accents) : retourne les meilleures entrées avec un extrait autour de la première occurrence. Réflexe AVANT toute analyse juridique ou rédaction : chercher ici, puis kb_lire les entrées pertinentes.',
+    description: 'Recherche plein-texte dans la base de connaissances (insensible casse/accents) : retourne les meilleures entrées avec un extrait autour de la première occurrence et son `offset` — à passer à kb_lire pour lire directement ce passage d\'une entrée longue. Réflexe AVANT toute analyse juridique ou rédaction : chercher ici, puis kb_lire les entrées pertinentes.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1247,9 +1247,17 @@ operation "modifier"/"supprimer" : \`id\` = id de l'élément (visible dans lire
   },
   {
     name: 'kb_lire',
-    description: 'Charge le contenu complet d\'une entrée de la base de connaissances par son id. Cite l\'entrée (id) quand tu t\'appuies dessus.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
-    handler: async (a) => readKbEntry(keys, a.id) ?? { erreur: 'Entrée inconnue — voir kb_lister / kb_chercher' },
+    description: 'Charge le contenu d\'une entrée de la base de connaissances par son id. Cite l\'entrée (id) quand tu t\'appuies dessus. PAGINÉ : servi par pages de 150 000 caractères max — si `offsetSuivant` figure dans la réponse (en tête, avant le contenu), l\'entrée continue : rappelle avec offset pour lire la suite, jusqu\'à ce qu\'il n\'y en ait plus.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        offset: { type: 'number', description: 'Caractère de départ (défaut 0). Utiliser offsetSuivant de la page précédente.' },
+        limite: { type: 'number', description: 'Caractères par page (défaut et max 150 000).' },
+      },
+      required: ['id'],
+    },
+    handler: async (a) => readKbEntryPage(keys, a.id, { offset: a.offset, limite: a.limite }) ?? { erreur: 'Entrée inconnue — voir kb_lister / kb_chercher' },
   },
   {
     name: 'kb_enregistrer',

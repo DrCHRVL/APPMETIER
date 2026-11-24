@@ -32,7 +32,7 @@ export async function PUT(req: Request) {
     if (!env || env.encrypted !== true || typeof env.iv !== 'string' || typeof env.ct !== 'string') {
       return jsonResponse({ error: 'Enveloppe chiffrée requise' }, { status: 400 })
     }
-    if (env.ct.length > 2 * 1024 * 1024) return jsonResponse({ error: 'Entrée trop volumineuse (2 Mo max une fois convertie)' }, { status: 413 })
+    if (env.ct.length > 30 * 1024 * 1024) return jsonResponse({ error: 'Entrée trop volumineuse (30 Mo max une fois convertie)' }, { status: 413 })
     try {
       await writeCollectionEnvelope('kb', body.id, { v: 1, encrypted: true, iv: env.iv, ct: env.ct, savedAt: new Date().toISOString(), savedBy: session.u })
     } catch (e) {
