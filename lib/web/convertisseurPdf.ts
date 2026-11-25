@@ -192,11 +192,50 @@ export async function lireDataTransfer(dt: DataTransfer): Promise<Depot[]> {
   return out
 }
 
+// ── Livrables : fichiers globaux + un .txt par PDF, en ZIP (ou .txt seul) ──
+
+export interface Livrables {
+  globaux: { cle: string, nom: string, contenu: string, nb: number }[]
+  fichiers: { nom: string, contenu: string }[]
+  total: number
+}
+
+export function construireLivrables(resultats: ResultatPdf[], mode: ModeGlobal, niveau: number, individuels: boolean): Livrables {
+  const parChemin = new Map(resultats.map(r => [r.chemin, r]))
+  const groupes = grouper(resultats.map(r => r.chemin).sort(comparerChemins), mode, niveau)
+  const noms = new Map<string, number>()
+  const globaux = Array.from(groupes.entries()).map(([cle, liste]) => {
+    let nom = nomGlobal(cle)
+    const n = (noms.get(nom) || 0) + 1; noms.set(nom, n)
+    if (n > 1) nom = nom.replace(/\.txt$/, ` (${n}).txt`)
+    return { cle, nom, contenu: construireGlobal(cle, liste.map(c => parChemin.get(c)!).filter(Boolean)), nb: liste.length }
+  })
+  const fichiers = individuels
+    ? resultats.filter(r => !r.erreur).map(r => ({ nom: r.chemin.replace(/\.pdf$/i, '.txt'), contenu: r.texte }))
+    : []
+  return { globaux, fichiers, total: globaux.length + fichiers.length }
+}
+
+/** Le fichier à télécharger : le .txt seul s'il n'y en a qu'un, sinon un ZIP nommé d'après la pochette. */
+export async function paquetLivrables(l: Livrables, chemins: string[]): Promise<{ blob: Blob, nom: string }> {
+  const seul = [...l.globaux.map(g => ({ nom: g.nom, contenu: g.contenu })), ...l.fichiers]
+  if (seul.length === 1) return { blob: new Blob([seul[0].contenu], { type: 'text/plain;charset=utf-8' }), nom: seul[0].nom.split('/').pop()! }
+  const PizZip = (await import('pizzip')).default
+  const zip = new PizZip()
+  l.globaux.forEach(g => zip.file(g.nom, g.contenu))
+  l.fichiers.forEach(f => zip.file(f.nom, f.contenu))
+  const racines = Array.from(new Set(chemins.map(c => c.split('/')[0])))
+  const nom = racines.length === 1 && chemins[0]?.includes('/')
+    ? `${racines[0]} - texte.zip`
+    : `Conversion texte ${new Date().toLocaleDateString('fr-FR').replace(/\//g, '-')}.zip`
+  return { blob: zip.generate({ type: 'blob', compression: 'DEFLATE' }) as Blob, nom }
+}
+
 // ── OCR des pages images (serveur SIRAL, à la demande) ──
 
 const ROUTE_OCR = '/api/ocr'
-/** Secondes par page (mesuré : 1,5 à 3 s sur 4 cœurs), avant toute mesure réelle. */
-export const SECONDES_PAR_PAGE = 3
+/** Secondes par page avant toute mesure réelle (mesuré : ~1,3 s sur 2 cœurs, réseau en sus). */
+export const SECONDES_PAR_PAGE = 2
 /** En dessous, la page lue est signalée « à vérifier » dans le texte. */
 const CONFIANCE_MIN = 0.85
 
@@ -215,11 +254,19 @@ export function pagesImages(texte: string): number[] {
  */
 export type EtatServiceOcr = 'pret' | 'absent' | 'injoignable'
 export async function etatOcr(): Promise<EtatServiceOcr> {
+  return (await chargeOcr()).etat
+}
+
+/** État + charge du service : requête en cours de calcul, requêtes en file (tous postes confondus). */
+export interface ChargeOcr { etat: EtatServiceOcr, occupe: boolean, enAttente: number }
+export async function chargeOcr(): Promise<ChargeOcr> {
   try {
     const r = await fetch(ROUTE_OCR, { credentials: 'same-origin', cache: 'no-store' })
-    return r.ok ? 'pret' : r.status === 404 ? 'absent' : 'injoignable'
+    const d = await r.json().catch(() => ({})) as { occupe?: boolean, en_attente?: number }
+    const etat: EtatServiceOcr = r.ok ? 'pret' : r.status === 404 ? 'absent' : 'injoignable'
+    return { etat, occupe: Boolean(d.occupe), enAttente: Number(d.en_attente) || 0 }
   } catch {
-    return 'injoignable'
+    return { etat: 'injoignable', occupe: false, enAttente: 0 }
   }
 }
 
@@ -246,6 +293,7 @@ export async function ocriser(src: SourcePdf, r: ResultatPdf, progression?: (n: 
   const original = await PDFDocument.load(await src.lire(), { ignoreEncryption: true })
   const pages = pagesImages(r.texte)
   const lues = new Map<number, PageOcr>()
+  const tentees = new Set<number>()
   for (let i = 0; i < pages.length && !annule?.(); i += LOT_OCR) {
     const lot = pages.slice(i, i + LOT_OCR)
     const extrait = await PDFDocument.create()
@@ -259,10 +307,13 @@ export async function ocriser(src: SourcePdf, r: ResultatPdf, progression?: (n: 
     const data = await res.json().catch(() => ({})) as { ok?: boolean, error?: string, pages?: PageOcr[] }
     if (!res.ok || !data.ok) throw new Error(data.error || `OCR impossible (${res.status})`)
     for (const p of data.pages || []) if (!p.erreur) lues.set(lot[p.page - 1], p)
+    lot.forEach(p => tentees.add(p))
     progression?.(lot.length)
   }
   let illisibles = 0
+  let nonTentees = 0
   const texte = r.texte.replace(MARQUE, (marque, p) => {
+    if (!tentees.has(Number(p))) { nonTentees++; return marque }
     const lu = lues.get(Number(p))
     const t = (lu?.texte || '').trim()
     if (t.replace(/\s/g, '').length < 25) { illisibles++; return marque }
@@ -271,10 +322,14 @@ export async function ocriser(src: SourcePdf, r: ResultatPdf, progression?: (n: 
       ? `[page ${p} — texte restitué par OCR, confiance ${Math.round(conf * 100)} % : à vérifier sur l'original]\n${t}`
       : `[page ${p} — texte restitué par OCR]\n${t}`
   })
+  const avertissements = [
+    nonTentees ? `${nonTentees} page(s) image non océrisée(s) (OCR arrêté)` : '',
+    illisibles ? `${illisibles} page(s) image restée(s) illisible(s) après OCR (photos, manuscrit…)` : '',
+  ].filter(Boolean)
   return {
     ...r,
     texte,
-    ocr: illisibles ? 'partiel' : 'complet',
-    avertissement: illisibles ? `${illisibles} page(s) image restée(s) illisible(s) après OCR (photos, manuscrit…)` : undefined,
+    ocr: avertissements.length ? 'partiel' : 'complet',
+    avertissement: avertissements.join(' · ') || undefined,
   }
 }

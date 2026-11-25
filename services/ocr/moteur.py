@@ -29,6 +29,11 @@ DOSSIER_MODELES = os.environ.get('SIRAL_OCR_MODELES', '')
 DPI = 300
 # Garde-fou mémoire : au-delà, la page est rastérisée moins finement.
 COTE_MAX_PX = 4200
+# La DÉTECTION des lignes travaille sur une image réduite à ce côté maximal ; la
+# RECONNAISSANCE relit chaque ligne en pleine résolution. Mesuré (2 cœurs) :
+# 3,8 s → 1,3 s par page, CER 0 → 0,15 % sur un PV propre. Sans plafond, la
+# détection sur une page A4 à 300 dpi prenait 75 % du temps.
+DETECTION_COTE_MAX = int(os.environ.get('SIRAL_OCR_DETECTION_PX') or 2000)
 
 
 @dataclass
@@ -70,6 +75,8 @@ def charger():
             use_doc_orientation_classify=True,
             use_doc_unwarping=False,
             use_textline_orientation=False,
+            text_det_limit_side_len=DETECTION_COTE_MAX,
+            text_det_limit_type='max',
             cpu_threads=int(os.environ.get('SIRAL_OCR_THREADS') or os.cpu_count() or 4),
         )
     return _ocr

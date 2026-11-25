@@ -46,8 +46,11 @@ export async function GET(req: Request) {
   return handle(async () => {
     garde(req)
     const res = await relais('/status', { method: 'GET' }, 5_000)
-    const data = await res.json().catch(() => ({})) as { ok?: boolean }
-    return res.ok && data.ok ? jsonResponse({ available: true }) : jsonResponse({ available: false }, { status: 503 })
+    const data = await res.json().catch(() => ({})) as { ok?: boolean, occupe?: boolean, en_attente?: number }
+    // charge du service (tous postes confondus) : affichée dans la colonne des tâches OCR
+    return res.ok && data.ok
+      ? jsonResponse({ available: true, occupe: Boolean(data.occupe), en_attente: Number(data.en_attente) || 0 })
+      : jsonResponse({ available: false }, { status: 503 })
   })
 }
 
