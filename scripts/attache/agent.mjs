@@ -476,7 +476,11 @@ export async function runAgent({ keys, prompt, convId, title, runLabel = 'autre'
           // Bilan de jetons du run (consommés que le run réussisse ou non).
           const usage = extractUsage(ev)
           if (usage) { recordUsage({ run: runLabel, model: useModel, usage }); runUsage = usage }
-          if (ev.subtype === 'success') {
+          // Erreur d'API (forfait épuisé, prompt trop long, surcharge…) : le CLI
+          // rend subtype « success » AVEC is_error — ce n'est pas une réussite.
+          if (ev.is_error) {
+            finish(false, String(ev.result || ev.subtype || 'échec du run').slice(0, 300))
+          } else if (ev.subtype === 'success') {
             if (!assistantText && typeof ev.result === 'string') {
               assistantText = ev.result
               onEvent({ type: 'delta', text: ev.result })
