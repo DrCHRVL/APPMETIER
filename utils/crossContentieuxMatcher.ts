@@ -103,15 +103,26 @@ function similarity(a: string, b: string): number {
   return 1 - dist / maxLen;
 }
 
-/** Vérifie si l'un contient l'autre (pour les noms partiels: "DUPONT" dans "DUPONT Jean") */
+/**
+ * Correspondance partielle « nom seul vs nom + prénom » : vraie lorsque la
+ * chaîne la plus courte est un TOKEN entier (délimité par un espace) de la plus
+ * longue — p. ex. « dupont » dans « dupont jean ». On exige au moins
+ * 4 caractères pour écarter le bruit (initiales, « ali », « le »…). On renvoie
+ * un score élevé mais < 1 pour distinguer une correspondance partielle d'une
+ * égalité stricte.
+ *
+ * NB : l'ancienne version testait une sous-chaîne puis renvoyait le ratio de
+ * longueurs. Or, pour une sous-chaîne, ce ratio vaut toujours exactement la
+ * similarité de Levenshtein déjà calculée par l'appelant (distance = longueur
+ * longue − longueur courte). Gaté derrière le même seuil MIN_SIMILARITY, il
+ * n'ajoutait donc jamais la correspondance nom seul vs nom + prénom qu'il était
+ * censé détecter (« dupont » vs « dupont jean » → 6/11 ≈ 0,55 < 0,70).
+ */
 function containsMatch(a: string, b: string): number {
-  if (a.length < 3 || b.length < 3) return 0;
-  if (a.includes(b) || b.includes(a)) {
-    const shorter = Math.min(a.length, b.length);
-    const longer = Math.max(a.length, b.length);
-    return shorter / longer; // Plus la proportion est grande, meilleur le score
-  }
-  return 0;
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  if (shorter.length < 4) return 0;
+  if (shorter === longer) return 1;
+  return longer.split(/\s+/).includes(shorter) ? 0.9 : 0;
 }
 
 // ──────────────────────────────────────────────
